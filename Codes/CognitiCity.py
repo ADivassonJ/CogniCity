@@ -1,5 +1,3 @@
-#   V1.0.0  ->  Se toma la version V31 y se busca dividir todo el codigo en sub-funciones.
-
 import os
 from pathlib import Path
 from Subcodes.initialization import initialization
