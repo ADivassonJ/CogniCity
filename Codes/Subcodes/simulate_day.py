@@ -47,12 +47,7 @@ def process_agents(df_actions, df_citizens, df_buildings, moving_agents, time, d
             new_data_agent = data_gather(df_actions, agent)
             decision, intention = behaviour_module(time, day, new_data_agent, df_citizens, steps_captured, main_path)
             
-            if decision == 'move':
-                # Actualizar los campos 'day', 'time' y 'action' directamente
-                new_data_agent['day'] = day
-                new_data_agent['time'] = time
-                new_data_agent['action'] = 'out'
-                
+            if
                 # Asegúrate de que new_data_agent sea un DataFrame antes de concatenar
                 if isinstance(new_data_agent, pd.Series):
                     new_data_agent = new_data_agent.to_frame().T
