@@ -14,8 +14,16 @@ def load_filter_sort_reset(filepath):
         print(f"{filepath.name} not found or error loading:", e)
         return None  # Retorna None si hay un error
 
+def random_arch(archetype_to_analyze):
+    if archetype_to_analyze is not None and not archetype_to_analyze.empty:
+        # Normalizar la columna 'presence' para que sea una distribución de probabilidades
+        presence_probabilities = archetype_to_analyze['presence'] / archetype_to_analyze['presence'].sum()
+        # Seleccionar un 'name' aleatorio según las probabilidades de 'presence'
+        random_name = np.random.choice(archetype_to_analyze['name'], p=presence_probabilities)
+
 ############ Basic data ############
 population = 100
+priority_homes = False
 ####################################
 
 study_area = 'Kanaleneiland'
@@ -29,17 +37,29 @@ a_archetypes = load_filter_sort_reset(archetypes_path / 'a_archetypes.xlsx')
 h_archetypes = load_filter_sort_reset(archetypes_path / 'h_archetypes.xlsx')
 s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
 
-if a_archetypes is not None:
+if priority_homes:
+    archetype_to_analyze = h_archetypes
+    archetype_to_fill = a_archetypes
+else: 
+    archetype_to_analyze = a_archetypes
+    archetype_to_fill = h_archetypes
+
+if archetype_to_analyze is not None:
     # Calcular el porcentaje de 'presence'
-    total_presence = a_archetypes['presence'].sum()  # Sumar toda la columna 'presence'
+    total_presence = archetype_to_analyze['presence'].sum()  # Sumar toda la columna 'presence'
     if total_presence > 0:  # Evitar división por cero
-        a_archetypes['presence_percentage'] = a_archetypes['presence'] / total_presence
+        archetype_to_analyze['presence_percentage'] = archetype_to_analyze['presence'] / total_presence
     else:
-        a_archetypes['presence_percentage'] = 0  # Si la suma es 0, asignar 0%
+        archetype_to_analyze['presence_percentage'] = 0  # Si la suma es 0, asignar 0%
 
     # Multiplicar 'presence_percentage' por population, redondear y convertir a entero
-    a_archetypes['population'] = (a_archetypes['presence_percentage'] * population).round().astype(int)
-
+    archetype_to_analyze['population'] = (archetype_to_analyze['presence_percentage'] * population).round().astype(int)
+    
+    df_distribution = archetype_to_analyze[['name', 'population']].copy()
+    
     # Mostrar las primeras filas para verificar
-    print(a_archetypes.head())
+    print(df_distribution)
+    
+    while not df_distribution.empty:
+        random_arch(archetype_to_fill)
 
