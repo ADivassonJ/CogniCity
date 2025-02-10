@@ -1,6 +1,7 @@
 import os
-from pathlib import Path
+import numpy as np
 import pandas as pd
+from pathlib import Path
 
 # Función para cargar, filtrar, ordenar y reiniciar índices
 def load_filter_sort_reset(filepath):
@@ -20,6 +21,10 @@ def random_arch(archetype_to_analyze):
         presence_probabilities = archetype_to_analyze['presence'] / archetype_to_analyze['presence'].sum()
         # Seleccionar un 'name' aleatorio según las probabilidades de 'presence'
         random_name = np.random.choice(archetype_to_analyze['name'], p=presence_probabilities)
+        return random_name
+    else:
+        print(f'Some error ocurred when reading a df in function random_arch.')
+        return
 
 ############ Basic data ############
 population = 100
@@ -61,5 +66,17 @@ if archetype_to_analyze is not None:
     print(df_distribution)
     
     while not df_distribution.empty:
-        random_arch(archetype_to_fill)
+        arch_to_fill = random_arch(archetype_to_fill)
+        # Filtrar la fila
+        row = archetype_to_fill[archetype_to_fill['name'] == arch_to_fill]
+        columns_to_keep = [col for col in row.columns if 'archetype' in col.lower()]
+        row_filtered = row[columns_to_keep]
+        # Tansponer la fila (convertir las columnas en filas y viceversa)
+        transposed_row = row_filtered.T  # .T transponde el DataFrame
+        transposed_row = transposed_row.reset_index()  # Reiniciar el índice para que sea una columna
+        transposed_row.columns = ['name', 'participants']
+        
+        print(arch_to_fill)    
+        print(transposed_row)
+        input()
 
