@@ -8,8 +8,6 @@ def load_filter_sort_reset(filepath):
     try:
         df = pd.read_excel(filepath)
         df = df[df['state'] != 'inactive']  # Filtrar filas donde 'state' no sea 'inactive'
-        df = df.sort_values(by='presence', ascending=False)  # Ordenar por 'presence' de mayor a menor
-        df = df.reset_index(drop=True)  # Reiniciar índices y eliminar la columna original de índices
         return df
     except Exception as e:
         print(f"{filepath.name} not found or error loading:", e)
@@ -27,7 +25,7 @@ def random_arch(archetype_to_analyze):
         return
 
 ############ Basic data ############
-population = 100
+population = 45000
 priority_homes = False
 ####################################
 
@@ -65,7 +63,9 @@ if archetype_to_analyze is not None:
     # Mostrar las primeras filas para verificar
     print(df_distribution)
     
-    while not df_distribution.empty:
+    counter = 0
+    
+    while total_presence > counter:
         arch_to_fill = random_arch(archetype_to_fill)
         # Filtrar la fila
         row = archetype_to_fill[archetype_to_fill['name'] == arch_to_fill]
@@ -75,8 +75,23 @@ if archetype_to_analyze is not None:
         transposed_row = row_filtered.T  # .T transponde el DataFrame
         transposed_row = transposed_row.reset_index()  # Reiniciar el índice para que sea una columna
         transposed_row.columns = ['name', 'participants']
+        # Unimos los dataframes por la columna 'name' para compararlos
+        merged_df = pd.merge(df_distribution, transposed_row, on='name', how='left')
+        # Recorrer todas las filas del dataframe combinado
+        for index, row in merged_df.iterrows():
+            # Verificamos si la columna 'participants' no es NaN
+            if pd.notna(row['participants']):
+                # Si el valor en 'participants' es menor o igual al valor en 'population', lo restamos
+                if row['participants'] <= row['population']:
+                    df_distribution.loc[df_distribution['name'] == row['name'], 'population'] -= row['participants']
+                    counter = 0
+                else:
+                    counter += 1
+                    print(f'{total_presence} > {counter}')
+            # Si la columna 'population' está vacía, la dejamos como NaN
+            if pd.isna(row['population']):
+                df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
         
-        print(arch_to_fill)    
-        print(transposed_row)
-        input()
+    print(df_distribution) 
+    input()    
 
