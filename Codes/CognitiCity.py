@@ -79,7 +79,9 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
     """
     counter = 0
     dot_count = 1  # Número inicial de puntos
-
+    df_homes = pd.DataFrame(columns=['name', 'archetype', 'description', 'members'])
+    df_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
+    
     while counter < total_presence:
         # Construir y mostrar el mensaje con la cantidad de puntos correspondiente.
         message = f"\rDistributing the population{'.' * dot_count}   "
@@ -96,8 +98,6 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
         # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
 
-        print(merged_df)
-
         for idx, row in merged_df.iterrows():
             if pd.notna(row['participants']):
                 valor = row['participants']
@@ -112,18 +112,22 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
                     except ValueError:
                         pass  # Si no se puede convertir, deja el valor tal como está
                 
-                if isinstance(valor, str):
-                    merged_df.at[idx, 'participants'] = float(merged_df.at[idx, 'participants'])
-                
                 if merged_df.at[idx, 'participants'] <= row['population']:
                     # Actualiza la población restante para ese archetype
                     df_distribution.loc[df_distribution['name'] == row['name'], 'population'] -= merged_df.at[idx, 'participants']
+                    for _ in range(int(merged_df.at[idx, 'participants'])):
+                        #Datos de la nueva fila
+                        new_row = {'name': f'citizen_{len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
+                        df_citizens.loc[len(df_citizens)] = new_row 
                     counter = 0  # Reiniciamos el contador al aplicar una actualización
                 else:
                     counter += 1
             # Si la columna 'population' es NaN se deja sin cambios
             if pd.isna(row['population']):
                 df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
+
+        new_row_2 = {'name': f'home_{len(df_homes)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': 'yes'}
+        df_homes.loc[len(df_homes)] = new_row_2
         
         # Salir si se excede el número de intentos
         if counter >= total_presence:
@@ -132,7 +136,7 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
 
     # Limpiar la línea del mensaje al finalizar.
     sys.stdout.write("\r" + " " * 50 + "\r")
-    return df_distribution
+    return df_distribution, df_citizens, df_homes
 
 
 # Función para detectar '*' y agregar las filas correspondientes
@@ -201,10 +205,10 @@ def main():
         df_distribution, total_presence = compute_presence_distribution(archetype_to_analyze, population)
         
         # Actualizar la distribución según los participantes de los archetypes
-        df_distribution = update_distribution(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
+        df_distribution, df_citizens, df_homes = update_distribution(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
         
         print("Distribución final:")
-        print(df_distribution)
+        print(df_homes)
 #        input("Presione Enter para finalizar...")
     else:
         print("Error: No se pudo cargar el DataFrame para analizar.")
