@@ -62,12 +62,12 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     row_filtered = row[columns_to_keep]
     # Transponer y reformatear el DataFrame
     transposed = row_filtered.T.reset_index()
-    transposed.columns = ['name', 'participants']
+    transposed.columns = ['name', 'participants']  
     # Unir con df_distribution para comparar los valores
     merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
     return merged_df
 
-def update_distribution(archetype_to_fill, df_distribution, total_presence):
+def update_distribution(archetype_to_fill, df_distribution, total_presence, cond_archetypes):
     """
     Actualiza el DataFrame de distribución ('df_distribution') usando los datos
     del DataFrame 'archetype_to_fill'. Se itera mientras que la cantidad de intentos 
@@ -92,11 +92,28 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence):
         if arch_to_fill is None:
             print("\nNo se pudo seleccionar un archetype para rellenar.")
             break
-
+        
+        # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
+
+        print(merged_df)
+        input()
 
         for idx, row in merged_df.iterrows():
             if pd.notna(row['participants']):
+                valor = row['participants']
+                if isinstance(valor, str) and valor.strip().lower() == 'nan':  # Caso 'NaN'
+                    merged_df.at[idx, 'participants'] = 0
+                elif isinstance(valor, str) and valor.strip() == '*':  # Caso '*'
+                    row_2 = cond_archetypes[(cond_archetypes['item_1'] == arch_to_fill) & (cond_archetypes['item_2'] == row['name'])]
+                    merged_df.at[idx, 'participants'] = np.random.normal(row_2['mu'], row_2['sigma'])
+                else:
+                    try:
+                        merged_df.at[idx, 'participants'] = int(valor)  # Convertir a int si es posible
+                    except ValueError:
+                        pass  # Si no se puede convertir, deja el valor tal como está
+                
+                
                 if row['participants'] <= row['population']:
                     # Actualiza la población restante para ese archetype
                     df_distribution.loc[df_distribution['name'] == row['name'], 'population'] -= row['participants']
@@ -116,6 +133,26 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence):
     sys.stdout.write("\r" + " " * 50 + "\r")
     return df_distribution
 
+
+# Función para detectar '*' y agregar las filas correspondientes
+def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
+    for col in df.columns:
+        # Saltar la columna 'name' ya que no es relevante para la búsqueda del '*'
+        if col == name_column:
+            continue
+        
+        # Iterar por cada celda de la columna
+        for index, value in df[col].items():
+            # Convertir el valor a string
+            value_str = str(value)
+            # Verificar si la celda contiene un '*'
+            if '*' in value_str:
+                # Obtener el valor de 'name' y la columna actual, manejando posibles valores NaN
+                name_value = df.loc[index, name_column] if pd.notna(df.loc[index, name_column]) else "Unknown"
+                # Añadir al DataFrame cond_archetypes
+                cond_archetypes.loc[len(cond_archetypes)] = [name_value, col, None, None]
+    return cond_archetypes
+
 def main():
     # Configuración básica
     population = 45000
@@ -133,6 +170,23 @@ def main():
     h_archetypes = load_filter_sort_reset(archetypes_path / 'h_archetypes.xlsx')
     s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
     
+    try:
+        cond_archetypes = pd.read_excel(archetypes_path / 'cond_archetypes.xlsx')
+        if cond_archetypes.isnull().sum().sum() != 0:
+            input(f'{archetypes_path}/cond_archetypes has one or more values empty, please include all μ and σ for each detected scenario')
+            sys.exit()
+    except Exception:
+        # Crear un DataFrame vacío para almacenar los resultados
+        cond_archetypes = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma'])
+        
+        # Llamar a la función para ambos DataFrames
+        cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, a_archetypes)
+        cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, h_archetypes)
+        cond_archetypes.to_excel(archetypes_path/'cond_archetypes.xlsx', index=False)
+        
+        input(f'{archetypes_path}/cond_archetypes has no information, please include all μ and σ for each detected scenario')
+        sys.exit()
+    
     # Seleccionar los DataFrames según la prioridad definida
     if priority_homes:
         archetype_to_analyze = h_archetypes
@@ -146,7 +200,7 @@ def main():
         df_distribution, total_presence = compute_presence_distribution(archetype_to_analyze, population)
         
         # Actualizar la distribución según los participantes de los archetypes
-        df_distribution = update_distribution(archetype_to_fill, df_distribution, total_presence)
+        df_distribution = update_distribution(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
         
         print("Distribución final:")
         print(df_distribution)
