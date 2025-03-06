@@ -80,7 +80,8 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
     counter = 0
     dot_count = 1  # Número inicial de puntos
     df_homes = pd.DataFrame(columns=['name', 'archetype', 'description', 'members'])
-    df_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
+    df_part_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
+    df_citizens = pd.DataFrame(columns=df_part_citizens.columns)
     
     while counter < total_presence:
         # Construir y mostrar el mensaje con la cantidad de puntos correspondiente.
@@ -117,17 +118,20 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
                     df_distribution.loc[df_distribution['name'] == row['name'], 'population'] -= merged_df.at[idx, 'participants']
                     for _ in range(int(merged_df.at[idx, 'participants'])):
                         #Datos de la nueva fila
-                        new_row = {'name': f'citizen_{len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
-                        df_citizens.loc[len(df_citizens)] = new_row 
+                        new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
+                        df_part_citizens.loc[len(df_part_citizens)] = new_row 
                     counter = 0  # Reiniciamos el contador al aplicar una actualización
                 else:
                     counter += 1
             # Si la columna 'population' es NaN se deja sin cambios
             if pd.isna(row['population']):
                 df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
-
-        new_row_2 = {'name': f'home_{len(df_homes)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': 'yes'}
-        df_homes.loc[len(df_homes)] = new_row_2
+                
+        df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)
+        new_row_2 = {'name': f'home_{len(df_homes)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': df_part_citizens['name'].tolist()}
+        if not len(df_part_citizens['name'].tolist()) == 0:
+            df_homes.loc[len(df_homes)] = new_row_2
+        df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
         
         # Salir si se excede el número de intentos
         if counter >= total_presence:
