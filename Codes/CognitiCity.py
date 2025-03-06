@@ -97,7 +97,6 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
 
         print(merged_df)
-        input()
 
         for idx, row in merged_df.iterrows():
             if pd.notna(row['participants']):
@@ -106,17 +105,19 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
                     merged_df.at[idx, 'participants'] = 0
                 elif isinstance(valor, str) and valor.strip() == '*':  # Caso '*'
                     row_2 = cond_archetypes[(cond_archetypes['item_1'] == arch_to_fill) & (cond_archetypes['item_2'] == row['name'])]
-                    merged_df.at[idx, 'participants'] = np.random.normal(row_2['mu'], row_2['sigma'])
+                    merged_df.at[idx, 'participants'] = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
                 else:
                     try:
                         merged_df.at[idx, 'participants'] = int(valor)  # Convertir a int si es posible
                     except ValueError:
                         pass  # Si no se puede convertir, deja el valor tal como está
                 
+                if isinstance(valor, str):
+                    merged_df.at[idx, 'participants'] = float(merged_df.at[idx, 'participants'])
                 
-                if row['participants'] <= row['population']:
+                if merged_df.at[idx, 'participants'] <= row['population']:
                     # Actualiza la población restante para ese archetype
-                    df_distribution.loc[df_distribution['name'] == row['name'], 'population'] -= row['participants']
+                    df_distribution.loc[df_distribution['name'] == row['name'], 'population'] -= merged_df.at[idx, 'participants']
                     counter = 0  # Reiniciamos el contador al aplicar una actualización
                 else:
                     counter += 1
@@ -155,7 +156,7 @@ def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
 
 def main():
     # Configuración básica
-    population = 45000
+    population = 45
     priority_homes = False
     study_area = 'Kanaleneiland'
     
