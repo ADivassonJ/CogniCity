@@ -99,7 +99,8 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
         # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
 
-        for idx, row in merged_df.iterrows():
+        for idx in merged_df.index:
+            row = merged_df.loc[idx]
             if pd.notna(row['participants']):
                 valor = row['participants']
                 if isinstance(valor, str) and valor.strip().lower() == 'nan':  # Caso 'NaN'
@@ -112,21 +113,29 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
                         merged_df.at[idx, 'participants'] = int(valor)  # Convertir a int si es posible
                     except ValueError:
                         pass  # Si no se puede convertir, deja el valor tal como está
-                
+
                 if merged_df.at[idx, 'participants'] <= row['population']:
-                    # Actualiza la población restante para ese archetype
-                    df_distribution.loc[df_distribution['name'] == row['name'], 'population'] -= merged_df.at[idx, 'participants']
                     for _ in range(int(merged_df.at[idx, 'participants'])):
-                        #Datos de la nueva fila
                         new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
-                        df_part_citizens.loc[len(df_part_citizens)] = new_row 
-                    counter = 0  # Reiniciamos el contador al aplicar una actualización
+                        df_part_citizens.loc[len(df_part_citizens)] = new_row
+                    flag = False
                 else:
+                    df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
                     counter += 1
-            # Si la columna 'population' es NaN se deja sin cambios
+                    flag = True
+                    break
             if pd.isna(row['population']):
                 df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
-                
+        if flag:
+            continue
+        print(f' ')
+        print(merged_df)
+        counter = 0  # Reiniciamos el contador al aplicar una actualización
+        # Actualiza la población restante para ese archetype
+        mask = df_distribution['population'].notna() & merged_df['participants'].notna()
+        df_distribution.loc[mask, 'population'] = df_distribution.loc[mask, 'population'] - merged_df.loc[mask, 'participants']
+        print(df_distribution)
+        input()        
         df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)
         new_row_2 = {'name': f'home_{len(df_homes)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': df_part_citizens['name'].tolist()}
         if not len(df_part_citizens['name'].tolist()) == 0:
