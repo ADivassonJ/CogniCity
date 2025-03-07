@@ -102,10 +102,11 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
     df_homes = pd.DataFrame(columns=['name', 'archetype', 'description', 'members'])
     df_part_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
     df_citizens = pd.DataFrame(columns=df_part_citizens.columns)
+    over_stat = 0
+    
+    print('Distributing the population... (it might take a while)')
     
     while 1==1:
-        print('Distributing the population... (it might take a while)')
-        
         archetype_to_fill = is_it_any_archetype(archetype_to_fill, df_distribution)
         if archetype_to_fill.empty:
             break
@@ -146,34 +147,32 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
                     for _ in range(int(merged_df.at[idx, 'participants'])):
                         new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
                         df_part_citizens.loc[len(df_part_citizens)] = new_row
+                    over_stat = 0
                     flag = False
                 else:
-                    df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
-                    print('no se puede meter esta familia')
-                    print(arch_to_fill)
-                    print(archetype_to_fill)
-                    
+                    df_part_citizens = df_part_citizens.drop(df_part_citizens.index)                
                     # Obtener la fila donde es igual al valor dado
                     fila = archetype_to_fill.loc[archetype_to_fill["name"] == arch_to_fill]
 
                     # Verificar si en esa fila hay algún '*'
                     if not (fila.isin(['*']).any().any()):  
                         archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
-                        print('se borro, lel')
-                    
-                    input()
                     flag = True
+                    over_stat += 1
                     break
             if pd.isna(row['population']):
                 df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
+        # 4 por poner algo, si hay 4 fallos deribado de selecciones estadisticas deja de intentearlo (es decir
+        # ha intentado crear familias y no ha podido porque los valores de las curvas normales no le han dado
+        # los que podia, y esto ha pasado 5 veces, por eso sale).
+        if over_stat > 4:
+            break
         if flag:
             continue
-        print(f' ')
-        print(merged_df)
         # Actualiza la población restante para ese archetype
         mask = df_distribution['population'].notna() & merged_df['participants'].notna()
         df_distribution.loc[mask, 'population'] = df_distribution.loc[mask, 'population'] - merged_df.loc[mask, 'participants']
-        print(df_distribution)   
+   
         df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)
         new_row_2 = {'name': f'home_{len(df_homes)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': df_part_citizens['name'].tolist()}
         if not len(df_part_citizens['name'].tolist()) == 0:
@@ -256,6 +255,7 @@ def main():
         df_distribution, df_citizens, df_homes = update_distribution(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
         
         print("Distribución final:")
+        print(df_distribution)
         print(df_homes)
 #        input("Presione Enter para finalizar...")
     else:
