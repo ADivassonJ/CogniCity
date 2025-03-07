@@ -107,7 +107,19 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
                     merged_df.at[idx, 'participants'] = 0
                 elif isinstance(valor, str) and valor.strip() == '*':  # Caso '*'
                     row_2 = cond_archetypes[(cond_archetypes['item_1'] == arch_to_fill) & (cond_archetypes['item_2'] == row['name'])]
-                    merged_df.at[idx, 'participants'] = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
+                    counter = 0
+                    while counter < 5:
+                        stat_value = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
+                        if stat_value < int(row_2['min']) or stat_value > int(row_2['max']):
+                            counter =+ 1
+                        else:
+                            break
+                    if counter == 5:
+                        print('A problem with statistical values has been detected:')
+                        print(row_2)
+                        print('Please, solve the issue and run the code again.')
+                        sys.exit()
+                    merged_df.at[idx, 'participants'] = stat_value
                 else:
                     try:
                         merged_df.at[idx, 'participants'] = int(valor)  # Convertir a int si es posible
@@ -168,7 +180,7 @@ def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
                 # Obtener el valor de 'name' y la columna actual, manejando posibles valores NaN
                 name_value = df.loc[index, name_column] if pd.notna(df.loc[index, name_column]) else "Unknown"
                 # Añadir al DataFrame cond_archetypes
-                cond_archetypes.loc[len(cond_archetypes)] = [name_value, col, None, None]
+                cond_archetypes.loc[len(cond_archetypes)] = [name_value, col, None, None, None, None]
     return cond_archetypes
 
 def main():
@@ -191,18 +203,20 @@ def main():
     try:
         cond_archetypes = pd.read_excel(archetypes_path / 'cond_archetypes.xlsx')
         if cond_archetypes.isnull().sum().sum() != 0:
-            input(f'{archetypes_path}/cond_archetypes has one or more values empty, please include all μ and σ for each detected scenario')
+            print(f'{archetypes_path}/cond_archetypes has one or more values empty,')
+            print('please include all μ, σ, max and min for each detected scenario and run the code again.')
             sys.exit()
     except Exception:
         # Crear un DataFrame vacío para almacenar los resultados
-        cond_archetypes = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma'])
+        cond_archetypes = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma', 'min', 'max'])
         
         # Llamar a la función para ambos DataFrames
         cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, a_archetypes)
         cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, h_archetypes)
         cond_archetypes.to_excel(archetypes_path/'cond_archetypes.xlsx', index=False)
         
-        input(f'{archetypes_path}/cond_archetypes has no information, please include all μ and σ for each detected scenario')
+        print(f'{archetypes_path}/cond_archetypes has no information,')
+        print('please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
     
     # Seleccionar los DataFrames según la prioridad definida
