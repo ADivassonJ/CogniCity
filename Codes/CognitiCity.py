@@ -67,34 +67,50 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
     return merged_df
 
-def update_distribution(archetype_to_fill, df_distribution, total_presence, cond_archetypes):
-    """
-    Actualiza el DataFrame de distribución ('df_distribution') usando los datos
-    del DataFrame 'archetype_to_fill'. Se itera mientras que la cantidad de intentos 
-    (counter) sea menor que 'total_presence', reiniciando el contador cuando se logra
-    descontar participantes.
+def is_it_any_archetype(archetype_to_fill, df_distribution): 
+    # Lista donde se almacenarán los valores de 'name' si se detecta un 0 o NaN
+    names_with_zero_or_nan = []
 
-    Durante la ejecución se muestra un mensaje dinámico que indica
-    "Distributing the population" con puntos que van de 1 a 3.
-    """
-    counter = 0
-    dot_count = 1  # Número inicial de puntos
+    # Iterar sobre las filas del DataFrame
+    for index, row in df_distribution.iterrows():
+        # Si hay algún 0 o NaN en las columnas numéricas, guarda el valor de 'name'
+        if (row[1:] == 0).any() or row[1:].isna().any():
+            names_with_zero_or_nan.append(row['name'])
+
+    if names_with_zero_or_nan == []:
+        return archetype_to_fill
+    # Filtrar nombres de columnas donde los valores sean distintos de NaN o 0
+    df_simplificado = archetype_to_fill[['name']].copy()
+    df_simplificado['archetypes'] = archetype_to_fill.iloc[:, 4:].apply(
+        lambda row: [col for col, val in zip(archetype_to_fill.columns[4:], row) if pd.notna(val) and val != 0],
+        axis=1)
+    # Lista donde almacenar los valores de 'name' de df_simplificado si existen en names_with_zero_or_nan
+    result_names = []
+
+    # Iterar sobre las filas de df_simplificado
+    for index, row in df_simplificado.iterrows():
+        # Verificar si alguno de los valores de 'archetypes' está en names_with_zero_or_nan
+        if any(name in row['archetypes'] for name in names_with_zero_or_nan):
+            result_names.append(row['name'])
+    # Eliminar filas en archetype_to_fill donde el valor en la columna "name" está en result_names
+    archetype_to_fill = archetype_to_fill[~archetype_to_fill['name'].isin(result_names)]
+    archetype_to_fill = archetype_to_fill.reset_index(drop=True)
+    # Ver el DataFrame resultante
+    return archetype_to_fill
+
+def update_distribution(archetype_to_fill, df_distribution, total_presence, cond_archetypes):
     df_homes = pd.DataFrame(columns=['name', 'archetype', 'description', 'members'])
     df_part_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
     df_citizens = pd.DataFrame(columns=df_part_citizens.columns)
     
-    while counter < total_presence:
-        # Construir y mostrar el mensaje con la cantidad de puntos correspondiente.
-        message = f"\rDistributing the population{'.' * dot_count}   "
-        sys.stdout.write(message)
-        sys.stdout.flush()
-        dot_count = dot_count % 3 + 1  # Ciclo de 1 a 3 puntos
-        time.sleep(0.3)  # Ajusta el retardo según lo que prefieras
-
-        arch_to_fill = random_arch(archetype_to_fill)
-        if arch_to_fill is None:
-            print("\nNo se pudo seleccionar un archetype para rellenar.")
+    while 1==1:
+        print('Distributing the population... (it might take a while)')
+        
+        archetype_to_fill = is_it_any_archetype(archetype_to_fill, df_distribution)
+        if archetype_to_fill.empty:
             break
+        
+        arch_to_fill = random_arch(archetype_to_fill)
         
         # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
@@ -133,7 +149,19 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
                     flag = False
                 else:
                     df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
-                    counter += 1
+                    print('no se puede meter esta familia')
+                    print(arch_to_fill)
+                    print(archetype_to_fill)
+                    
+                    # Obtener la fila donde es igual al valor dado
+                    fila = archetype_to_fill.loc[archetype_to_fill["name"] == arch_to_fill]
+
+                    # Verificar si en esa fila hay algún '*'
+                    if not (fila.isin(['*']).any().any()):  
+                        archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
+                        print('se borro, lel')
+                    
+                    input()
                     flag = True
                     break
             if pd.isna(row['population']):
@@ -142,25 +170,18 @@ def update_distribution(archetype_to_fill, df_distribution, total_presence, cond
             continue
         print(f' ')
         print(merged_df)
-        counter = 0  # Reiniciamos el contador al aplicar una actualización
         # Actualiza la población restante para ese archetype
         mask = df_distribution['population'].notna() & merged_df['participants'].notna()
         df_distribution.loc[mask, 'population'] = df_distribution.loc[mask, 'population'] - merged_df.loc[mask, 'participants']
-        print(df_distribution)
-        input()        
+        print(df_distribution)   
         df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)
         new_row_2 = {'name': f'home_{len(df_homes)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': df_part_citizens['name'].tolist()}
         if not len(df_part_citizens['name'].tolist()) == 0:
             df_homes.loc[len(df_homes)] = new_row_2
         df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
         
-        # Salir si se excede el número de intentos
-        if counter >= total_presence:
-            print("\n    [DONE]")
-            break
+    print("\n    [DONE]")
 
-    # Limpiar la línea del mensaje al finalizar.
-    sys.stdout.write("\r" + " " * 50 + "\r")
     return df_distribution, df_citizens, df_homes
 
 
