@@ -183,7 +183,6 @@ def homes_creation(archetype_to_fill, df_distribution, total_presence, cond_arch
 
     return df_distribution, df_citizens, df_homes
 
-
 # Función para detectar '*' y agregar las filas correspondientes
 def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
     for col in df.columns:
@@ -232,7 +231,7 @@ def load_archetype_data(main_path, archetypes_path):
 
 def main():
     # Configuración básica
-    population = 45
+    population = 45000
     study_area = 'Kanaleneiland'
     priority_homes = False
     
@@ -241,6 +240,8 @@ def main():
     subcodes_path = main_path / 'Subcodes'
     archetypes_path = main_path / 'Archetypes'
     data_path = main_path / 'Data'
+    results_path = main_path / 'Results'
+    os.makedirs(results_path, exist_ok=True)
     
     a_archetypes, h_archetypes, s_archetypes, cond_archetypes = load_archetype_data(main_path, archetypes_path)
     
@@ -258,10 +259,10 @@ def main():
     # Actualizar la distribución según los participantes de los archetypes
     df_distribution, df_citizens, df_homes = homes_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
         
-    print("Distribución final:")
-    print(df_distribution)
-    print(df_homes)
-    print(df_citizens)
+    print(f"Distribución final guradada en {results_path}")
+    df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
+    df_homes.to_excel(f'{results_path}/df_homes.xlsx', index=False)
+    df_citizens.to_excel(f'{results_path}/df_citizens.xlsx', index=False)
 #        input("Presione Enter para finalizar...")
 
 if __name__ == '__main__':
