@@ -67,7 +67,7 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
     return merged_df
 
-def is_it_any_archetype(archetype_to_fill, df_distribution): 
+def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch): 
     # Lista donde se almacenarán los valores de 'name' si se detecta un 0 o NaN
     names_with_zero_or_nan = []
 
@@ -92,6 +92,8 @@ def is_it_any_archetype(archetype_to_fill, df_distribution):
         # Verificar si alguno de los valores de 'archetypes' está en names_with_zero_or_nan
         if any(name in row['archetypes'] for name in names_with_zero_or_nan):
             result_names.append(row['name'])
+    if ind_arch in result_names:
+        result_names.remove(ind_arch)
     # Eliminar filas en archetype_to_fill donde el valor en la columna "name" está en result_names
     archetype_to_fill = archetype_to_fill[~archetype_to_fill['name'].isin(result_names)]
     archetype_to_fill = archetype_to_fill.reset_index(drop=True)
@@ -111,7 +113,7 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
     print('Distributing the population... (it might take a while)')
     
     while 1==1:
-        archetype_to_fill = is_it_any_archetype(archetype_to_fill, df_distribution)
+        archetype_to_fill = is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch)
         if archetype_to_fill.empty:
             break
         
@@ -120,17 +122,18 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
         if arch_to_fill == ind_arch:
-            # Filtrar, unir y limpiar en un solo flujo
             merged_result = (
-                merged_df[merged_df['participants'].str.contains(r'\*', na=False)].merge(
+                merged_df[merged_df['participants'].str.contains(r'\*', na=False)]
+                .merge(
                     cond_archetypes[cond_archetypes['item_1'] == ind_arch],
                     left_on='name',
                     right_on='item_2',
                     how='inner'
-                ).dropna(subset=['population']))
+                ).dropna(subset=['population'])  # Elimina NaN
+                .query("population != 0")  # Elimina ceros
+            )
 
             if merged_result.empty:
-                print('eme')
                 archetype_to_fill = archetype_to_fill[archetype_to_fill['name'] != arch_to_fill].reset_index(drop=True)
                 continue
             
@@ -142,9 +145,7 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             
             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': 'Cool guy'}
             df_part_citizens.loc[len(df_part_citizens)] = new_row
-        
             flag = False
-            print(merged_df)
         else:
             for idx in merged_df.index:
                 row = merged_df.loc[idx]
@@ -208,6 +209,8 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         if not len(df_part_citizens['name'].tolist()) == 0:
             df_homes.loc[len(df_homes)] = new_row_2
         df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
+        
+        print(df_distribution)
         
     print("    [DONE]")
 
