@@ -55,10 +55,10 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     transpone el resultado y lo une con 'df_distribution' para poder compararlo.
     
     Retorna el DataFrame mergeado.
-    """
+    """    
     row = archetype_df[archetype_df['name'] == arch_name]
-    # Seleccionar columnas que contengan "archetype" (sin importar mayúsculas/minúsculas)
-    columns_to_keep = [col for col in row.columns if 'archetype' in col.lower()]
+    # Seleccionar columnas que contengan "arch" (sin importar mayúsculas/minúsculas)
+    columns_to_keep = [col for col in row.columns if 'arch' in col.lower()] ########################## CUIDADO CON ESTO ASIER DEL FUTURO
     row_filtered = row[columns_to_keep]
     # Transponer y reformatear el DataFrame
     transposed = row_filtered.T.reset_index()
@@ -98,7 +98,7 @@ def is_it_any_archetype(archetype_to_fill, df_distribution):
     # Ver el DataFrame resultante
     return archetype_to_fill
 
-def homes_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes):
+def families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes):
     df_homes = pd.DataFrame(columns=['name', 'archetype', 'description', 'members'])
     df_part_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
     df_citizens = pd.DataFrame(columns=df_part_citizens.columns)
@@ -115,7 +115,6 @@ def homes_creation(archetype_to_fill, df_distribution, total_presence, cond_arch
         
         # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
-
         for idx in merged_df.index:
             row = merged_df.loc[idx]
             if pd.notna(row['participants']):
@@ -174,7 +173,7 @@ def homes_creation(archetype_to_fill, df_distribution, total_presence, cond_arch
         df_distribution.loc[mask, 'population'] = df_distribution.loc[mask, 'population'] - merged_df.loc[mask, 'participants']
    
         df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)
-        new_row_2 = {'name': f'home_{len(df_homes)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': df_part_citizens['name'].tolist()}
+        new_row_2 = {'name': f'family_{len(df_homes)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': df_part_citizens['name'].tolist()}
         if not len(df_part_citizens['name'].tolist()) == 0:
             df_homes.loc[len(df_homes)] = new_row_2
         df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
@@ -204,8 +203,8 @@ def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
 
 def load_archetype_data(main_path, archetypes_path):
     # Cargar los DataFrames de los archetypes
-    a_archetypes = load_filter_sort_reset(archetypes_path / 'a_archetypes.xlsx')
-    h_archetypes = load_filter_sort_reset(archetypes_path / 'h_archetypes.xlsx')
+    citizen_archetypes = load_filter_sort_reset(archetypes_path / 'citizen_archetypes.xlsx')
+    family_archetypes = load_filter_sort_reset(archetypes_path / 'family_archetypes.xlsx')
     s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
     
     try:
@@ -214,26 +213,25 @@ def load_archetype_data(main_path, archetypes_path):
             print(f'{archetypes_path}/cond_archetypes has one or more values empty,')
             print('please include all μ, σ, max and min for each detected scenario and run the code again.')
             sys.exit()
-        return a_archetypes, h_archetypes, s_archetypes, cond_archetypes
+        return citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes
     except Exception:
         # Crear un DataFrame vacío para almacenar los resultados
         cond_archetypes = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma', 'min', 'max'])
         
         # Llamar a la función para ambos DataFrames
-        cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, a_archetypes)
-        cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, h_archetypes)
+        cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, citizen_archetypes)
+        cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, family_archetypes)
         cond_archetypes.to_excel(archetypes_path/'cond_archetypes.xlsx', index=False)
         
         print(f'{archetypes_path}/cond_archetypes has no information,')
         print('please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
     
-
 def main():
     # Configuración básica
-    population = 45000
+    population = 450
     study_area = 'Kanaleneiland'
-    priority_homes = False
+    priority_families = False
     
     # Definir rutas relativas a partir de __file__
     main_path = Path(__file__).resolve().parent.parent
@@ -243,25 +241,25 @@ def main():
     results_path = main_path / 'Results'
     os.makedirs(results_path, exist_ok=True)
     
-    a_archetypes, h_archetypes, s_archetypes, cond_archetypes = load_archetype_data(main_path, archetypes_path)
+    citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes = load_archetype_data(main_path, archetypes_path)
     
     # Seleccionar los DataFrames según la prioridad definida
-    if priority_homes:
-        archetype_to_analyze = h_archetypes
-        archetype_to_fill = a_archetypes
+    if priority_families:
+        archetype_to_analyze = family_archetypes
+        archetype_to_fill = citizen_archetypes
     else:
-        archetype_to_analyze = a_archetypes
-        archetype_to_fill = h_archetypes
+        archetype_to_analyze = citizen_archetypes
+        archetype_to_fill = family_archetypes
     
     # Populations characterization
     df_distribution, total_presence = citizen_archetypes_distribution(archetype_to_analyze, population)
         
     # Actualizar la distribución según los participantes de los archetypes
-    df_distribution, df_citizens, df_homes = homes_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
+    df_distribution, df_citizens, df_families = families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
         
     print(f"Distribución final guradada en {results_path}")
     df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
-    df_homes.to_excel(f'{results_path}/df_homes.xlsx', index=False)
+    df_families.to_excel(f'{results_path}/df_families.xlsx', index=False)
     df_citizens.to_excel(f'{results_path}/df_citizens.xlsx', index=False)
 #        input("Presione Enter para finalizar...")
 
