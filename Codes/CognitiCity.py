@@ -98,7 +98,11 @@ def is_it_any_archetype(archetype_to_fill, df_distribution):
     # Ver el DataFrame resultante
     return archetype_to_fill
 
-def families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes):
+def families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes, ind_arch = 'f_arch_0'):
+    '''
+    If individial homes are an archetype different from 'f_arch_0', especify here under variable 'ind_arch'
+    '''
+    
     df_homes = pd.DataFrame(columns=['name', 'archetype', 'description', 'members'])
     df_part_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
     df_citizens = pd.DataFrame(columns=df_part_citizens.columns)
@@ -111,56 +115,83 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         if archetype_to_fill.empty:
             break
         
-        arch_to_fill = random_arch(archetype_to_fill)
+        arch_to_fill = random_arch(archetype_to_fill)            
         
         # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
-        for idx in merged_df.index:
-            row = merged_df.loc[idx]
-            if pd.notna(row['participants']):
-                valor = row['participants']
-                if isinstance(valor, str) and valor.strip().lower() == 'nan':  # Caso 'NaN'
-                    merged_df.at[idx, 'participants'] = 0
-                elif isinstance(valor, str) and valor.strip() == '*':  # Caso '*'
-                    row_2 = cond_archetypes[(cond_archetypes['item_1'] == arch_to_fill) & (cond_archetypes['item_2'] == row['name'])]
-                    counter = 0
-                    while counter < 5:
-                        stat_value = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
-                        if stat_value < int(row_2['min']) or stat_value > int(row_2['max']):
-                            counter =+ 1
-                        else:
-                            break
-                    if counter == 5:
-                        print('A problem with statistical values has been detected:')
-                        print(row_2)
-                        print('Please, solve the issue and run the code again.')
-                        sys.exit()
-                    merged_df.at[idx, 'participants'] = stat_value
-                else:
-                    try:
-                        merged_df.at[idx, 'participants'] = int(valor)  # Convertir a int si es posible
-                    except ValueError:
-                        pass  # Si no se puede convertir, deja el valor tal como está
+        if arch_to_fill == ind_arch:
+            # Filtrar, unir y limpiar en un solo flujo
+            merged_result = (
+                merged_df[merged_df['participants'].str.contains(r'\*', na=False)].merge(
+                    cond_archetypes[cond_archetypes['item_1'] == ind_arch],
+                    left_on='name',
+                    right_on='item_2',
+                    how='inner'
+                ).dropna(subset=['population']))
 
-                if merged_df.at[idx, 'participants'] <= row['population']:
-                    for _ in range(int(merged_df.at[idx, 'participants'])):
-                        new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
-                        df_part_citizens.loc[len(df_part_citizens)] = new_row
-                    over_stat = 0
-                    flag = False
-                else:
-                    df_part_citizens = df_part_citizens.drop(df_part_citizens.index)                
-                    # Obtener la fila donde es igual al valor dado
-                    fila = archetype_to_fill.loc[archetype_to_fill["name"] == arch_to_fill]
+            if merged_result.empty:
+                print('eme')
+                archetype_to_fill = archetype_to_fill[archetype_to_fill['name'] != arch_to_fill].reset_index(drop=True)
+                continue
+            
+            # Calcular la probabilidad a partir de 'mu' y seleccionar un valor aleatorio de 'name'
+            merged_result['probability'] = merged_result['mu'] / merged_result['mu'].sum()
+            random_choice = np.random.choice(merged_result['name'], p=merged_result['probability'])
+            
+            merged_df['participants'] = np.where(merged_df['name'] == random_choice, 1, 0)
+            
+            new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': 'Cool guy'}
+            df_part_citizens.loc[len(df_part_citizens)] = new_row
+        
+            flag = False
+            print(merged_df)
+        else:
+            for idx in merged_df.index:
+                row = merged_df.loc[idx]
+                if pd.notna(row['participants']):
+                    valor = row['participants']
+                    if isinstance(valor, str) and valor.strip().lower() == 'nan':  # Caso 'NaN'
+                        merged_df.at[idx, 'participants'] = 0
+                    elif isinstance(valor, str) and valor.strip() == '*':  # Caso '*'
+                        row_2 = cond_archetypes[(cond_archetypes['item_1'] == arch_to_fill) & (cond_archetypes['item_2'] == row['name'])]
+                        counter = 0
+                        while counter < 5:
+                            stat_value = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
+                            if stat_value < int(row_2['min']) or stat_value > int(row_2['max']):
+                                counter =+ 1
+                            else:
+                                break
+                        if counter == 5:
+                            print('A problem with statistical values has been detected:')
+                            print(row_2)
+                            print('Please, solve the issue and run the code again.')
+                            sys.exit()
+                        merged_df.at[idx, 'participants'] = stat_value
+                    else:
+                        try:
+                            merged_df.at[idx, 'participants'] = int(valor)  # Convertir a int si es posible
+                        except ValueError:
+                            pass  # Si no se puede convertir, deja el valor tal como está
 
-                    # Verificar si en esa fila hay algún '*'
-                    if not (fila.isin(['*']).any().any()):  
-                        archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
-                    flag = True
-                    over_stat += 1
-                    break
-            if pd.isna(row['population']):
-                df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
+                    if merged_df.at[idx, 'participants'] <= row['population']:
+                        for _ in range(int(merged_df.at[idx, 'participants'])):
+                            new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
+                            df_part_citizens.loc[len(df_part_citizens)] = new_row
+                        over_stat = 0
+                        flag = False
+                    else:
+                        df_part_citizens = df_part_citizens.drop(df_part_citizens.index)                
+                        # Obtener la fila donde es igual al valor dado
+                        fila = archetype_to_fill.loc[archetype_to_fill["name"] == arch_to_fill]
+
+                        # Verificar si en esa fila hay algún '*'
+                        if not (fila.isin(['*']).any().any()):  
+                            archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
+                        flag = True
+                        over_stat += 1
+                        break
+                if pd.isna(row['population']):
+                    df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
         # 4 por poner algo, si hay 4 fallos deribado de selecciones estadisticas deja de intentearlo (es decir
         # ha intentado crear familias y no ha podido porque los valores de las curvas normales no le han dado
         # los que podia, y esto ha pasado 5 veces, por eso sale).
@@ -178,7 +209,7 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             df_homes.loc[len(df_homes)] = new_row_2
         df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
         
-    print("\n    [DONE]")
+    print("    [DONE]")
 
     return df_distribution, df_citizens, df_homes
 
