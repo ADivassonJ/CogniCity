@@ -31,7 +31,7 @@ def random_arch(df):
         print("Error en random_arch: DataFrame vacío o None.")
         return None
 
-def compute_presence_distribution(df, population):
+def citizen_archetypes_distribution(df, population):
     """
     Calcula el porcentaje de 'presence' y asigna a cada fila la población 
     (redondeada) proporcional a ese porcentaje.
@@ -98,7 +98,7 @@ def is_it_any_archetype(archetype_to_fill, df_distribution):
     # Ver el DataFrame resultante
     return archetype_to_fill
 
-def update_distribution(archetype_to_fill, df_distribution, total_presence, cond_archetypes):
+def homes_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes):
     df_homes = pd.DataFrame(columns=['name', 'archetype', 'description', 'members'])
     df_part_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
     df_citizens = pd.DataFrame(columns=df_part_citizens.columns)
@@ -203,18 +203,7 @@ def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
                 cond_archetypes.loc[len(cond_archetypes)] = [name_value, col, None, None, None, None]
     return cond_archetypes
 
-def main():
-    # Configuración básica
-    population = 45
-    priority_homes = False
-    study_area = 'Kanaleneiland'
-    
-    # Definir rutas relativas a partir de __file__
-    main_path = Path(__file__).resolve().parent.parent
-    subcodes_path = main_path / 'Subcodes'
-    archetypes_path = main_path / 'Archetypes'
-    data_path = main_path / 'Data'
-    
+def load_archetype_data(main_path, archetypes_path):
     # Cargar los DataFrames de los archetypes
     a_archetypes = load_filter_sort_reset(archetypes_path / 'a_archetypes.xlsx')
     h_archetypes = load_filter_sort_reset(archetypes_path / 'h_archetypes.xlsx')
@@ -226,6 +215,7 @@ def main():
             print(f'{archetypes_path}/cond_archetypes has one or more values empty,')
             print('please include all μ, σ, max and min for each detected scenario and run the code again.')
             sys.exit()
+        return a_archetypes, h_archetypes, s_archetypes, cond_archetypes
     except Exception:
         # Crear un DataFrame vacío para almacenar los resultados
         cond_archetypes = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma', 'min', 'max'])
@@ -239,6 +229,21 @@ def main():
         print('please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
     
+
+def main():
+    # Configuración básica
+    population = 45
+    study_area = 'Kanaleneiland'
+    priority_homes = False
+    
+    # Definir rutas relativas a partir de __file__
+    main_path = Path(__file__).resolve().parent.parent
+    subcodes_path = main_path / 'Subcodes'
+    archetypes_path = main_path / 'Archetypes'
+    data_path = main_path / 'Data'
+    
+    a_archetypes, h_archetypes, s_archetypes, cond_archetypes = load_archetype_data(main_path, archetypes_path)
+    
     # Seleccionar los DataFrames según la prioridad definida
     if priority_homes:
         archetype_to_analyze = h_archetypes
@@ -247,19 +252,17 @@ def main():
         archetype_to_analyze = a_archetypes
         archetype_to_fill = h_archetypes
     
-    if archetype_to_analyze is not None:
-        # Calcular la distribución inicial de población
-        df_distribution, total_presence = compute_presence_distribution(archetype_to_analyze, population)
+    # Populations characterization
+    df_distribution, total_presence = citizen_archetypes_distribution(archetype_to_analyze, population)
         
-        # Actualizar la distribución según los participantes de los archetypes
-        df_distribution, df_citizens, df_homes = update_distribution(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
+    # Actualizar la distribución según los participantes de los archetypes
+    df_distribution, df_citizens, df_homes = homes_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
         
-        print("Distribución final:")
-        print(df_distribution)
-        print(df_homes)
+    print("Distribución final:")
+    print(df_distribution)
+    print(df_homes)
+    print(df_citizens)
 #        input("Presione Enter para finalizar...")
-    else:
-        print("Error: No se pudo cargar el DataFrame para analizar.")
 
 if __name__ == '__main__':
     main()
