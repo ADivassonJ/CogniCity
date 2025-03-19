@@ -144,9 +144,6 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             arch_to_fill = df_stats_families.loc[df_stats_families['presence'].idxmax(), 'archetype']
         else:
             arch_to_fill = df_stats_families.loc[df_stats_families['error'].idxmin(), 'archetype']
-            print(arch_to_fill)
-            print(df_stats_families)
-            input()
               
         # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
