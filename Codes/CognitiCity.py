@@ -123,6 +123,7 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
     print('Distributing the population... (it might take a while)')
     
     while 1==1:
+        flag = False
         archetype_to_fill = is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch)
         
         if archetype_to_fill.empty:
@@ -131,29 +132,22 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         df_stats_families = df_stats_families[df_stats_families['archetype'].isin(archetype_to_fill['name'])]
         
         archetype_counts = df_homes['archetype'].value_counts()
-        df_stats_families['stat_presence'] = df_stats_families['archetype'].map(archetype_counts).fillna(0).astype(int)
-        df_stats_families['stat_percentage'] = (df_stats_families['stat_presence'] / df_stats_families['stat_presence'].sum()) * 100
-        df_stats_families['error'] = df_stats_families.apply(
+
+        df_stats_families.loc[:, 'stat_presence'] = df_stats_families['archetype'].map(archetype_counts).fillna(0).astype(int)
+        df_stats_families.loc[:, 'stat_percentage'] = (df_stats_families['stat_presence'] / df_stats_families['stat_presence'].sum()) * 100
+        df_stats_families.loc[:, 'error'] = df_stats_families.apply(
             lambda row: (row['stat_percentage'] - row['percentage']) / row['percentage'] if row['percentage'] != 0 else 0,
             axis=1
         )
         
         if df_stats_families['stat_presence'].sum() == 0:
             arch_to_fill = df_stats_families.loc[df_stats_families['presence'].idxmax(), 'archetype']
-            
-            
-            print(arch_to_fill)
-            print(df_stats_families)
-            input()
         else:
             arch_to_fill = df_stats_families.loc[df_stats_families['error'].idxmin(), 'archetype']
-            
-            
             print(arch_to_fill)
             print(df_stats_families)
             input()
-            
-        
+              
         # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
         if arch_to_fill == ind_arch:
@@ -170,6 +164,7 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
 
             if merged_result.empty:
                 archetype_to_fill = archetype_to_fill[archetype_to_fill['name'] != arch_to_fill].reset_index(drop=True)
+                print('dod 163')
                 continue
             
             # Calcular la probabilidad a partir de 'mu' y seleccionar un valor aleatorio de 'name'
@@ -180,7 +175,6 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             
             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': 'Cool guy'}
             df_part_citizens.loc[len(df_part_citizens)] = new_row
-            flag = False
         else:
             for idx in merged_df.index:
                 row = merged_df.loc[idx]
@@ -208,13 +202,14 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
                             merged_df.at[idx, 'participants'] = int(valor)  # Convertir a int si es posible
                         except ValueError:
                             pass  # Si no se puede convertir, deja el valor tal como está
-
+                    
+                    print(f"{merged_df.at[idx, 'participants']} <= {row['population']}")
+                                        
                     if merged_df.at[idx, 'participants'] <= row['population']:
                         for _ in range(int(merged_df.at[idx, 'participants'])):
                             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
                             df_part_citizens.loc[len(df_part_citizens)] = new_row
                         over_stat = 0
-                        flag = False
                     else:
                         df_part_citizens = df_part_citizens.drop(df_part_citizens.index)                
                         # Obtener la fila donde es igual al valor dado
@@ -225,16 +220,22 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
                             archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
                         flag = True
                         over_stat += 1
+                        
+                        print(arch_to_fill)
+                        print(archetype_to_fill)
+                        input()
                         break
                 if pd.isna(row['population']):
                     df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
         # 4 por poner algo, si hay 4 fallos deribado de selecciones estadisticas deja de intentearlo (es decir
         # ha intentado crear familias y no ha podido porque los valores de las curvas normales no le han dado
         # los que podia, y esto ha pasado 5 veces, por eso sale).
-        if over_stat > 4:
+        if over_stat > 10:
             break
         if flag:
+            flag = False
             continue
+        
         # Actualiza la población restante para ese archetype
         mask = df_distribution['population'].notna() & merged_df['participants'].notna()
         df_distribution.loc[mask, 'population'] = df_distribution.loc[mask, 'population'] - merged_df.loc[mask, 'participants']
@@ -245,7 +246,11 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             df_homes.loc[len(df_homes)] = new_row_2
         df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
         
+        print(archetype_to_fill)
         print(df_distribution)
+        
+        if df_distribution['population'].sum() == 0:
+            break
         
     print("    [DONE]")
 
