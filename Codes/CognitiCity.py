@@ -4,6 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from pathlib import Path
+pd.set_option('mode.chained_assignment', 'raise')  # Convierte el warning en error
 
 def load_filter_sort_reset(filepath):
     """
@@ -117,8 +118,6 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         'stat_percentage': 0,
         'error': 0
     })
-
-    over_stat = 0
     
     print('Distributing the population... (it might take a while)')
     
@@ -133,6 +132,7 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         
         archetype_counts = df_homes['archetype'].value_counts()
 
+        df_stats_families = df_stats_families.copy()
         df_stats_families.loc[:, 'stat_presence'] = df_stats_families['archetype'].map(archetype_counts).fillna(0).astype(int)
         df_stats_families.loc[:, 'stat_percentage'] = (df_stats_families['stat_presence'] / df_stats_families['stat_presence'].sum()) * 100
         df_stats_families.loc[:, 'error'] = df_stats_families.apply(
@@ -161,14 +161,14 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
 
             if merged_result.empty:
                 archetype_to_fill = archetype_to_fill[archetype_to_fill['name'] != arch_to_fill].reset_index(drop=True)
-                print('dod 163')
                 continue
             
             # Calcular la probabilidad a partir de 'mu' y seleccionar un valor aleatorio de 'name'
-            merged_result['probability'] = merged_result['mu'] / merged_result['mu'].sum()
+            merged_result.loc[:, 'probability'] = merged_result['mu'] / merged_result['mu'].sum()
             random_choice = np.random.choice(merged_result['name'], p=merged_result['probability'])
             
-            merged_df['participants'] = np.where(merged_df['name'] == random_choice, 1, 0)
+            
+            merged_df.loc[:, 'participants'] = np.where(merged_df['name'] == random_choice, 1, 0)
             
             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': 'Cool guy'}
             df_part_citizens.loc[len(df_part_citizens)] = new_row
@@ -199,22 +199,21 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
                             merged_df.at[idx, 'participants'] = int(valor)  # Convertir a int si es posible
                         except ValueError:
                             pass  # Si no se puede convertir, deja el valor tal como está
-                    
-                    print(f"{merged_df.at[idx, 'participants']} <= {row['population']}")
                                         
                     if merged_df.at[idx, 'participants'] <= row['population']:
                         for _ in range(int(merged_df.at[idx, 'participants'])):
                             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
                             df_part_citizens.loc[len(df_part_citizens)] = new_row
-                        over_stat = 0
-                    else:
-                        df_part_citizens = df_part_citizens.drop(df_part_citizens.index)                
+                    else:                                      
                         # Obtener la fila donde es igual al valor dado
                         fila = archetype_to_fill.loc[archetype_to_fill["name"] == arch_to_fill]
 
                         # Verificar si en esa fila hay algún '*'
-                        if not (fila.isin(['*']).any().any()):  
+                        if not (fila.isin(['*']).any().any()):
+                            df_part_citizens = df_part_citizens.drop(df_part_citizens.index)  
                             archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
+                            flag = True
+                            break
                         else:
                             # Paso 1: Identificar columnas con "*"
                             cols_with_star = [col for col in fila.columns if fila.iloc[0][col] == '*']
@@ -227,31 +226,17 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
 
                             for idy in filtered_df.index:
                                 if filtered_df.at[idy, 'min'] <= row['population']:
-                                    print('Se puede')
-                                    print(merged_df)
-                                    input()
-                                    for _ in range(int(merged_df.at[idy, 'participants'])):
+                                    merged_df.loc[merged_df['name'] == filtered_df.at[idy, 'item_2'], 'participants'] = filtered_df.at[idy, 'min']
+                                    for _ in range(int(merged_df.at[idx, 'participants'])):
                                         new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
                                         df_part_citizens.loc[len(df_part_citizens)] = new_row
-                                    over_stat = 0
                                 else:
                                     archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
-                                    print('Se borra')
-                                    print(merged_df)
-                            # Mostrar los valores obtenidos
-                            print(filtered_df)
-                            print(fila)
-                            input()
-                        flag = True
-                        over_stat += 1
-                        break
+                                    df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
+                                    flag = True
+                                    break
                 if pd.isna(row['population']):
                     df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
-        # 4 por poner algo, si hay 4 fallos deribado de selecciones estadisticas deja de intentearlo (es decir
-        # ha intentado crear familias y no ha podido porque los valores de las curvas normales no le han dado
-        # los que podia, y esto ha pasado 5 veces, por eso sale).
-        if over_stat > 10:
-            break
         if flag:
             flag = False
             continue
@@ -265,9 +250,6 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         if not len(df_part_citizens['name'].tolist()) == 0:
             df_homes.loc[len(df_homes)] = new_row_2
         df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
-        
-        print(archetype_to_fill)
-        print(df_distribution)
         
         if df_distribution['population'].sum() == 0:
             break
