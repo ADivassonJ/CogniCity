@@ -215,12 +215,35 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
                         # Verificar si en esa fila hay algún '*'
                         if not (fila.isin(['*']).any().any()):  
                             archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
+                        else:
+                            # Paso 1: Identificar columnas con "*"
+                            cols_with_star = [col for col in fila.columns if fila.iloc[0][col] == '*']
+
+                            # Paso 2: Obtener el valor de la columna 'name' en df1
+                            name_value = fila.iloc[0]['name']
+
+                            # Paso 3: Filtrar df2
+                            filtered_df = cond_archetypes[(cond_archetypes['item_1'] == name_value) & (cond_archetypes['item_2'].isin(cols_with_star))][['item_2', 'min']]
+
+                            for idy in filtered_df.index:
+                                if filtered_df.at[idy, 'min'] <= row['population']:
+                                    print('Se puede')
+                                    print(merged_df)
+                                    input()
+                                    for _ in range(int(merged_df.at[idy, 'participants'])):
+                                        new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
+                                        df_part_citizens.loc[len(df_part_citizens)] = new_row
+                                    over_stat = 0
+                                else:
+                                    archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
+                                    print('Se borra')
+                                    print(merged_df)
+                            # Mostrar los valores obtenidos
+                            print(filtered_df)
+                            print(fila)
+                            input()
                         flag = True
                         over_stat += 1
-                        
-                        print(arch_to_fill)
-                        print(archetype_to_fill)
-                        input()
                         break
                 if pd.isna(row['population']):
                     df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
