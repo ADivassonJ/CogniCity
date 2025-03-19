@@ -108,16 +108,51 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
     df_homes = pd.DataFrame(columns=['name', 'archetype', 'description', 'members'])
     df_part_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
     df_citizens = pd.DataFrame(columns=df_part_citizens.columns)
+    
+    df_stats_families = pd.DataFrame({
+        'archetype': archetype_to_fill['name'],
+        'presence': archetype_to_fill['presence'],
+        'percentage': archetype_to_fill['presence'] / archetype_to_fill['presence'].sum()*100,
+        'stat_presence': 0,
+        'stat_percentage': 0,
+        'error': 0
+    })
+
     over_stat = 0
     
     print('Distributing the population... (it might take a while)')
     
     while 1==1:
         archetype_to_fill = is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch)
+        
         if archetype_to_fill.empty:
             break
         
-        arch_to_fill = random_arch(archetype_to_fill)            
+        df_stats_families = df_stats_families[df_stats_families['archetype'].isin(archetype_to_fill['name'])]
+        
+        archetype_counts = df_homes['archetype'].value_counts()
+        df_stats_families['stat_presence'] = df_stats_families['archetype'].map(archetype_counts).fillna(0).astype(int)
+        df_stats_families['stat_percentage'] = (df_stats_families['stat_presence'] / df_stats_families['stat_presence'].sum()) * 100
+        df_stats_families['error'] = df_stats_families.apply(
+            lambda row: (row['stat_percentage'] - row['percentage']) / row['percentage'] if row['percentage'] != 0 else 0,
+            axis=1
+        )
+        
+        if df_stats_families['stat_presence'].sum() == 0:
+            arch_to_fill = df_stats_families.loc[df_stats_families['presence'].idxmax(), 'archetype']
+            
+            
+            print(arch_to_fill)
+            print(df_stats_families)
+            input()
+        else:
+            arch_to_fill = df_stats_families.loc[df_stats_families['error'].idxmin(), 'archetype']
+            
+            
+            print(arch_to_fill)
+            print(df_stats_families)
+            input()
+            
         
         # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
