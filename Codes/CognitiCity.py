@@ -94,38 +94,30 @@ def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch):
        ind_arch (str): Archetype name on which individuals (families with just one citizen) exists.
     Returns:
        archetype_to_fill (DataFrame): updated df with the archetypes data of the archetypes that can be applied
-    """ 
-    # Lista donde se almacenarán los valores de 'name' si se detecta un 0 o NaN
-    names_with_zero_or_nan = []
-
-    # Iterar sobre las filas del DataFrame
-    for index, row in df_distribution.iterrows():
-        # Si hay algún 0 o NaN en las columnas numéricas, guarda el valor de 'name'
-        if (row[1:] == 0).any() or row[1:].isna().any():
-            names_with_zero_or_nan.append(row['name'])
-
-    if names_with_zero_or_nan == []:
+    """
+    
+    # Determine names with any 0 or NaN (excluding the first column)
+    condition = df_distribution.iloc[:, 1:].eq(0) | df_distribution.iloc[:, 1:].isna()
+    problematic_names = set(df_distribution.loc[condition.any(axis=1), 'name'])
+    # If there is no problem, we return the original DataFrame.
+    if not problematic_names:
         return archetype_to_fill
-    # Filtrar nombres de columnas donde los valores sean distintos de NaN o 0
-    df_simplificado = archetype_to_fill[['name']].copy()
-    df_simplificado['archetypes'] = archetype_to_fill.iloc[:, 4:].apply(
-        lambda row: [col for col, val in zip(archetype_to_fill.columns[4:], row) if pd.notna(val) and val != 0],
-        axis=1)
-    # Lista donde almacenar los valores de 'name' de df_simplificado si existen en names_with_zero_or_nan
-    result_names = []
-
-    # Iterar sobre las filas de df_simplificado
-    for index, row in df_simplificado.iterrows():
-        # Verificar si alguno de los valores de 'archetypes' está en names_with_zero_or_nan
-        if any(name in row['archetypes'] for name in names_with_zero_or_nan):
-            result_names.append(row['name'])
-    if ind_arch in result_names:
-        result_names.remove(ind_arch)
-    # Eliminar filas en archetype_to_fill donde el valor en la columna "name" está en result_names
-    archetype_to_fill = archetype_to_fill[~archetype_to_fill['name'].isin(result_names)]
-    archetype_to_fill = archetype_to_fill.reset_index(drop=True)
-    # Ver el DataFrame resultante
-    return archetype_to_fill
+    # Columns containing archetype data in archetype_to_fill (from fifth column onwards)
+    archetype_cols = archetype_to_fill.columns[4:]
+    # Create a Boolean mask:
+    # For each row, evaluate whether there is at least one column in which, being non-null and other than 0,
+    # the column name is in problematic_names.
+    mask = archetype_to_fill.apply(
+        lambda row: any(col in problematic_names 
+                        for col, val in row[archetype_cols].items() 
+                        if pd.notna(val) and val != 0),
+        axis=1
+    )
+    # Exclude from deletion the row whose ‘name’ matches ind_arch
+    mask &= (archetype_to_fill['name'] != ind_arch)
+    
+    # Filtering and resetting the index
+    return archetype_to_fill[~mask].reset_index(drop=True)
 
 def families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes, ind_arch = 'f_arch_0'):
     """
@@ -160,22 +152,22 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         'error': 0
     })
     
-    print('Distributing the population... (it might take a while)')
+    print('Creating synthetic population... (it might take a while)')
     
     while 1==1:
+        
         # flag for jumping scenarios where we dont want any data to be saved
         flag = False
-        
         # Evaluation of the families that can be created
         archetype_to_fill = is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch)
-        
+        # If no families can be created, leaves loop
         if archetype_to_fill.empty:
             break
-        
+        # df_stats_families adapts to archetype_to_fill's available archetypes
         df_stats_families = df_stats_families[df_stats_families['archetype'].isin(archetype_to_fill['name'])]
-        
+        # The actual presence of each archetype in df_families is evaluated and saved in archetype_counts
         archetype_counts = df_families['archetype'].value_counts()
-
+        # df_stats_families is updated
         df_stats_families = df_stats_families.copy()
         df_stats_families.loc[:, 'stat_presence'] = df_stats_families['archetype'].map(archetype_counts).fillna(0).astype(int)
         df_stats_families.loc[:, 'stat_percentage'] = (df_stats_families['stat_presence'] / df_stats_families['stat_presence'].sum()) * 100
@@ -183,15 +175,20 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             lambda row: (row['stat_percentage'] - row['percentage']) / row['percentage'] if row['percentage'] != 0 else 0,
             axis=1
         )
-        
+        # If is the very first time it begins with the archetype with most presence in their archetype data df
         if df_stats_families['stat_presence'].sum() == 0:
             arch_to_fill = df_stats_families.loc[df_stats_families['presence'].idxmax(), 'archetype']
+        # If is NOT the first time, it continues with the archetype currently worstly represented in the sample
         else:
             arch_to_fill = df_stats_families.loc[df_stats_families['error'].idxmin(), 'archetype']
-              
-        # Obtenermos un df con el numero actual de individuos por distribuir en hogares y el tipo de hogar elegido en esta iteracion (random) lo que consume de cada
+        # We obtain a df with the actual number of citizens to be distributed in households and the number of 
+        # citizens of the chosen household that, the archetype of the household chosen in this iteration, 
+        # consumes from the available sample.
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
+        
+        # For the case of the individual family, the usage of cond_archetypes is a bit different than in the rest
         if arch_to_fill == ind_arch:
+            # merged_result is created to work with this new paradigma
             merged_result = (
                 merged_df[merged_df['participants'].str.contains(r'\*', na=False)]
                 .merge(
@@ -202,20 +199,23 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
                 ).dropna(subset=['population'])  # Elimina NaN
                 .query("population != 0")  # Elimina ceros
             )
-
+            # If merge_results is empty, no variable of this individual family can be created, so the option is deleted
+            # from archetype_to_fill, so nexts steps of the loop will no consider this family archetype.
             if merged_result.empty:
                 archetype_to_fill = archetype_to_fill[archetype_to_fill['name'] != arch_to_fill].reset_index(drop=True)
                 continue
-            
-            # Calcular la probabilidad a partir de 'mu' y seleccionar un valor aleatorio de 'name'
+            # Basically, in individual families mu value is equal to presence values in other dfs so it creates de 
+            # probability values of each type of citizen to be the one composing this family
             merged_result.loc[:, 'probability'] = merged_result['mu'] / merged_result['mu'].sum()
+            # Then, and using the previously calculated values, an stochastic value is selected
             random_choice = np.random.choice(merged_result['name'], p=merged_result['probability'])
-            
-            
+            # The non selected archetypes are added as 0 while the selected one as 1
             merged_df.loc[:, 'participants'] = np.where(merged_df['name'] == random_choice, 1, 0)
-            
+            # The data for the new citizen is created
             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': 'Cool guy'}
             df_part_citizens.loc[len(df_part_citizens)] = new_row
+            
+        # For the case of the colective families, the usage of cond_archetypes is conventional
         else:
             for idx in merged_df.index:
                 row = merged_df.loc[idx]
