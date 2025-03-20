@@ -220,73 +220,80 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             # merged_df is analyzed row by row
             for idx in merged_df.index:
                 row = merged_df.loc[idx]
-                # If that row's value for participans is NaN (we dont have any archetypes of that type to distribute) we dont act
+                # If that row's value for participans is NaN (we dont have any archetypes of that type to distribute) we jump to next loop's act
                 if pd.notna(row['participants']):
+                    ## Statistic value application
                     valor = row['participants']
-                    if isinstance(valor, str) and valor.strip().lower() == 'nan':  # Caso 'NaN'
-                        merged_df.at[idx, 'participants'] = 0
-                    elif isinstance(valor, str) and valor.strip() == '*':  # Caso '*'
+                    # If value is '*' then 'cond_archetypes' is consulted to get statistical values
+                    if isinstance(valor, str) and valor.strip() == '*':
                         row_2 = cond_archetypes[(cond_archetypes['item_1'] == arch_to_fill) & (cond_archetypes['item_2'] == row['name'])]
-                        counter = 0
-                        while counter < 5:
-                            stat_value = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
-                            if stat_value < int(row_2['min']) or stat_value > int(row_2['max']):
-                                counter =+ 1
-                            else:
-                                break
-                        if counter == 5:
-                            print('A problem with statistical values has been detected:')
-                            print(row_2)
-                            print('Please, solve the issue and run the code again.')
-                            sys.exit()
+                        # Assing an statistical value (stochastically)
+                        stat_value = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
+                        # If assigned value is out of min and max assign min or max
+                        if stat_value < int(row_2['min']):
+                            stat_value = int(row_2['min'])
+                        if stat_value > int(row_2['max']):
+                            stat_value = int(row_2['max'])
+                        # Sustitutes '*' by the value on 'stat_value'
                         merged_df.at[idx, 'participants'] = stat_value
                     else:
+                        # If it is a number (just in case) in gets swaped to int if its possible
                         try:
-                            merged_df.at[idx, 'participants'] = int(valor)  # Convertir a int si es posible
+                            merged_df.at[idx, 'participants'] = int(valor)
                         except ValueError:
-                            pass  # Si no se puede convertir, deja el valor tal como está
-                                        
+                            pass
+                    ## Fitness evaluation    
+                    # If the presented famly suits on the actual population availability ...                    
                     if merged_df.at[idx, 'participants'] <= row['population']:
+                        # Citizens are created
                         for _ in range(int(merged_df.at[idx, 'participants'])):
                             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
                             df_part_citizens.loc[len(df_part_citizens)] = new_row
+                    # If the presented famly DOES NOT suit on the actual population availability ...     
                     else:                                      
-                        # Obtener la fila donde es igual al valor dado
+                        # Evaluate issue
                         fila = archetype_to_fill.loc[archetype_to_fill["name"] == arch_to_fill]
-
-                        # Verificar si en esa fila hay algún '*'
+                        # Evaluate if there is any '*'
                         if not (fila.isin(['*']).any().any()):
-                            df_part_citizens = df_part_citizens.drop(df_part_citizens.index)  
+                            # If it's not, then no scenario exist on which that family may fit into the current population, so
+                            # this family option is deleted from the archetype_to_fill
                             archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
+                            # Also, the family, did not fit at the end, so 'df_part_citizens' is also deleted
+                            df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
+                            # This flags assures that no calculation will be done after 'break' and the loop will go on
                             flag = True
                             break
                         else:
-                            # Paso 1: Identificar columnas con "*"
+                            # If the issue comes from a '*' then we valuate if it may exist any statistical scenario where that family fits
+                            # All columns with '*' are saved
                             cols_with_star = [col for col in fila.columns if fila.iloc[0][col] == '*']
-
-                            # Paso 2: Obtener el valor de la columna 'name' en df1
+                            # Issue family archetype name is saved
                             name_value = fila.iloc[0]['name']
-
-                            # Paso 3: Filtrar df2
+                            # cond_archetypes gets filtered so we only work this the needed data
                             filtered_df = cond_archetypes[(cond_archetypes['item_1'] == name_value) & (cond_archetypes['item_2'].isin(cols_with_star))][['item_2', 'min']]
-
+                            # All values with '*' of this family are evaluated
                             for idy in filtered_df.index:
+                                # If the issue comes from a '*' which assigned value is higher than 'min' for that value, AND that min suits into the population
+                                # the min value is assigned instead of the original one.
                                 if filtered_df.at[idy, 'min'] <= row['population']:
                                     merged_df.loc[merged_df['name'] == filtered_df.at[idy, 'item_2'], 'participants'] = filtered_df.at[idy, 'min']
                                     for _ in range(int(merged_df.at[idx, 'participants'])):
+                                        # Citizens are created
                                         new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
                                         df_part_citizens.loc[len(df_part_citizens)] = new_row
+                                # If the issue comes from a '*' which assigned value is higher than 'min' for that value, BUT that min DOES NOT suit into the 
+                                # population, then there is no way that family can make it, so it is deleted from archetype_to_fill.
                                 else:
                                     archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
+                                    # Also, the family, did not fit at the end, so 'df_part_citizens' is also deleted
                                     df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
+                                    # This flags assures that no calculation will be done after 'break' and the loop will go on
                                     flag = True
                                     break
-                if pd.isna(row['population']):
-                    df_distribution.loc[df_distribution['name'] == row['name'], 'population'] = np.nan
+        # This flags assures that no calculation will be done after previous missed tries and the loop will go on
         if flag:
             flag = False
             continue
-        
         # Actualiza la población restante para ese archetype
         mask = df_distribution['population'].notna() & merged_df['participants'].notna()
         df_distribution.loc[mask, 'population'] = df_distribution.loc[mask, 'population'] - merged_df.loc[mask, 'participants']
