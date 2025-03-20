@@ -217,8 +217,10 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             
         # For the case of the colective families, the usage of cond_archetypes is conventional
         else:
+            # merged_df is analyzed row by row
             for idx in merged_df.index:
                 row = merged_df.loc[idx]
+                # If that row's value for participans is NaN (we dont have any archetypes of that type to distribute) we dont act
                 if pd.notna(row['participants']):
                     valor = row['participants']
                     if isinstance(valor, str) and valor.strip().lower() == 'nan':  # Caso 'NaN'
@@ -304,6 +306,16 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
 
 # Función para detectar '*' y agregar las filas correspondientes
 def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
+    """
+    Summary:
+       ddddd
+    Args:
+       cond_archetypes (DataFrame): _description_
+       df (DataFrame): _description_
+       name_column (str, optional): _description_. Defaults to 'name'.
+    Returns:
+       cond_archetypes (DataFrame): _description_
+    """
     for col in df.columns:
         # Saltar la columna 'name' ya que no es relevante para la búsqueda del '*'
         if col == name_column:
