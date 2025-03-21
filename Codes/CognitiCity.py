@@ -6,36 +6,36 @@ import pandas as pd
 from pathlib import Path
 pd.set_option('mode.chained_assignment', 'raise')  # Convierte el warning en error
 
-def load_filter_sort_reset(filepath):
+### Functions in use
+def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
     """
-    Summary: 
-       Load an Excel file, filter the rows where 'stat' is 'inactive' and return the DataFrame.
+    Summary:
+       Search for any '*' in the DataFrame 'df' and add the row and column namen into 'cond_archetypes', so all statistical
+      dependant situations are mapped on 'cond_archetypes'.
     Args:
-       filepath (Path): path to the file that wants to be readed
+       cond_archetypes (DataFrame): df with some archetypes' statistical values
+       df (DataFrame): DataFrame to analyse
+       name_column (str, optional): describes how the column on which names of the archetypes are saved. In case of 
+      any difference with the standar value, add the new str here.
     Returns:
-       df: Readed dfs
+       cond_archetypes (DataFrame): updated df with more archetypes' statistical values
     """
-
-    try:
-        df = pd.read_excel(filepath)
-        df = df[df['state'] != 'inactive']
-        return df
-    except Exception as e:
-        print(f"{filepath.name} not found or error loading: {e}")
-        return None
-
-def random_arch(df):
-    """
-    Selecciona aleatoriamente un 'name' del DataFrame basado en la 
-    distribución de probabilidades calculada a partir de la columna 'presence'.
-    """
-    if df is not None and not df.empty:
-        presence_probabilities = df['presence'] / df['presence'].sum()
-        random_name = np.random.choice(df['name'], p=presence_probabilities)
-        return random_name
-    else:
-        print("Error en random_arch: DataFrame vacío o None.")
-        return None
+    for col in df.columns:
+        # Saltar la columna 'name' ya que no es relevante para la búsqueda del '*'
+        if col == name_column:
+            continue
+        
+        # Iterar por cada celda de la columna
+        for index, value in df[col].items():
+            # Convertir el valor a string
+            value_str = str(value)
+            # Verificar si la celda contiene un '*'
+            if '*' in value_str:
+                # Obtener el valor de 'name' y la columna actual, manejando posibles valores NaN
+                name_value = df.loc[index, name_column] if pd.notna(df.loc[index, name_column]) else "Unknown"
+                # Añadir al DataFrame cond_archetypes
+                cond_archetypes.loc[len(cond_archetypes)] = [name_value, col, None, None, None, None]
+    return cond_archetypes
 
 def citizen_archetypes_distribution(df, population):
     """
@@ -62,62 +62,22 @@ def citizen_archetypes_distribution(df, population):
 
     return df[['name', 'population']].copy(), df['presence'].sum()
 
-def process_arch_to_fill(archetype_df, arch_name, df_distribution):
-    """
-    Para un 'arch_name' seleccionado, filtra la fila correspondiente en el DataFrame
-    'archetype_df', conserva solo las columnas que contengan la palabra 'archetype',
-    transpone el resultado y lo une con 'df_distribution' para poder compararlo.
-    
-    Retorna el DataFrame mergeado.
-    """    
-    row = archetype_df[archetype_df['name'] == arch_name]
-    # Seleccionar columnas que contengan "arch" (sin importar mayúsculas/minúsculas)
-    columns_to_keep = [col for col in row.columns if 'arch' in col.lower()] ########################## CUIDADO CON ESTO ASIER DEL FUTURO
-    row_filtered = row[columns_to_keep]
-    # Transponer y reformatear el DataFrame
-    transposed = row_filtered.T.reset_index()
-    transposed.columns = ['name', 'participants']  
-    # Unir con df_distribution para comparar los valores
-    merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
-    return merged_df
-
-def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch):
+def create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetypes): # Most probably, we should adapt this for getting all df needed, not just the specific two
     """
     Summary:
-       Analyse the df archetype_to_fill df to evaluate if the archetypes shown in this df can really be 
-      created or if, due to a lack of any archetype of citizen, it is no longer possible (e.g. if family 
-      archetype 3 needs one citizen type 1, one type 3 and 3 type 4 and we don't have enough of any type 
-      left, we already know that this family archetype can never be generated again).
+       It detects all the statistical dependence values and makes a table with two columns (item_1 and item_2) that
+      relate the two variables in their archetype tables, and the columns mu, sigma, min and max, which describe the 
+      characteristics of the normal curve to derive the statistical values.
     Args:
-       archetype_to_fill (DataFrame): df with the archetypes data of the archetypes that can be applied
-       df_distribution (DataFrame): All citizens that are to be added to a family
-       ind_arch (str): Archetype name on which individuals (families with just one citizen) exists.
-    Returns:
-       archetype_to_fill (DataFrame): updated df with the archetypes data of the archetypes that can be applied
+        archetypes_path (Path): Path to archetypes
+        citizen_archetypes (DataFrame): df with all citizens' archetype data
+        family_archetypes (DataFrame): df with all families' archetype data
     """
     
-    # Determine names with any 0 or NaN (excluding the first column)
-    condition = df_distribution.iloc[:, 1:].eq(0) | df_distribution.iloc[:, 1:].isna()
-    problematic_names = set(df_distribution.loc[condition.any(axis=1), 'name'])
-    # If there is no problem, we return the original DataFrame.
-    if not problematic_names:
-        return archetype_to_fill
-    # Columns containing archetype data in archetype_to_fill (from fifth column onwards)
-    archetype_cols = archetype_to_fill.columns[4:]
-    # Create a Boolean mask:
-    # For each row, evaluate whether there is at least one column in which, being non-null and other than 0,
-    # the column name is in problematic_names.
-    mask = archetype_to_fill.apply(
-        lambda row: any(col in problematic_names 
-                        for col, val in row[archetype_cols].items() 
-                        if pd.notna(val) and val != 0),
-        axis=1
-    )
-    # Exclude from deletion the row whose ‘name’ matches ind_arch
-    mask &= (archetype_to_fill['name'] != ind_arch)
-    
-    # Filtering and resetting the index
-    return archetype_to_fill[~mask].reset_index(drop=True)
+    cond_archetypes = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma', 'min', 'max'])
+    cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, citizen_archetypes)
+    cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, family_archetypes)
+    cond_archetypes.to_excel(archetypes_path/'cond_archetypes.xlsx', index=False)
 
 def families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes, ind_arch = 'f_arch_0'):
     """
@@ -294,16 +254,17 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         if flag:
             flag = False
             continue
-        # Actualiza la población restante para ese archetype
+        # Update remaining population for that archetype
         mask = df_distribution['population'].notna() & merged_df['participants'].notna()
         df_distribution.loc[mask, 'population'] = df_distribution.loc[mask, 'population'] - merged_df.loc[mask, 'participants']
-   
+        # Add new citizens to df_citizens
         df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)
+        # Create new family
         new_row_2 = {'name': f'family_{len(df_families)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': df_part_citizens['name'].tolist()}
-        if not len(df_part_citizens['name'].tolist()) == 0:
-            df_families.loc[len(df_families)] = new_row_2
+        df_families.loc[len(df_families)] = new_row_2
+        # df_part_citizens is done with its job, so it get reinitiated
         df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
-        
+        # If no citizens are left to be distributed, breaks the loop
         if df_distribution['population'].sum() == 0:
             break
         
@@ -311,34 +272,43 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
 
     return df_distribution, df_citizens, df_families  
 
-# Función para detectar '*' y agregar las filas correspondientes
-def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
+def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch):
     """
     Summary:
-       ddddd
+       Analyse the df archetype_to_fill df to evaluate if the archetypes shown in this df can really be 
+      created or if, due to a lack of any archetype of citizen, it is no longer possible (e.g. if family 
+      archetype 3 needs one citizen type 1, one type 3 and 3 type 4 and we don't have enough of any type 
+      left, we already know that this family archetype can never be generated again).
     Args:
-       cond_archetypes (DataFrame): _description_
-       df (DataFrame): _description_
-       name_column (str, optional): _description_. Defaults to 'name'.
+       archetype_to_fill (DataFrame): df with the archetypes data of the archetypes that can be applied
+       df_distribution (DataFrame): All citizens that are to be added to a family
+       ind_arch (str): Archetype name on which individuals (families with just one citizen) exists.
     Returns:
-       cond_archetypes (DataFrame): _description_
+       archetype_to_fill (DataFrame): updated df with the archetypes data of the archetypes that can be applied
     """
-    for col in df.columns:
-        # Saltar la columna 'name' ya que no es relevante para la búsqueda del '*'
-        if col == name_column:
-            continue
-        
-        # Iterar por cada celda de la columna
-        for index, value in df[col].items():
-            # Convertir el valor a string
-            value_str = str(value)
-            # Verificar si la celda contiene un '*'
-            if '*' in value_str:
-                # Obtener el valor de 'name' y la columna actual, manejando posibles valores NaN
-                name_value = df.loc[index, name_column] if pd.notna(df.loc[index, name_column]) else "Unknown"
-                # Añadir al DataFrame cond_archetypes
-                cond_archetypes.loc[len(cond_archetypes)] = [name_value, col, None, None, None, None]
-    return cond_archetypes
+    
+    # Determine names with any 0 or NaN (excluding the first column)
+    condition = df_distribution.iloc[:, 1:].eq(0) | df_distribution.iloc[:, 1:].isna()
+    problematic_names = set(df_distribution.loc[condition.any(axis=1), 'name'])
+    # If there is no problem, we return the original DataFrame.
+    if not problematic_names:
+        return archetype_to_fill
+    # Columns containing archetype data in archetype_to_fill (from fifth column onwards)
+    archetype_cols = archetype_to_fill.columns[4:]
+    # Create a Boolean mask:
+    # For each row, evaluate whether there is at least one column in which, being non-null and other than 0,
+    # the column name is in problematic_names.
+    mask = archetype_to_fill.apply(
+        lambda row: any(col in problematic_names 
+                        for col, val in row[archetype_cols].items() 
+                        if pd.notna(val) and val != 0),
+        axis=1
+    )
+    # Exclude from deletion the row whose ‘name’ matches ind_arch
+    mask &= (archetype_to_fill['name'] != ind_arch)
+    
+    # Filtering and resetting the index
+    return archetype_to_fill[~mask].reset_index(drop=True)
 
 def load_archetype_data(main_path, archetypes_path):
     """
@@ -378,23 +348,58 @@ def load_archetype_data(main_path, archetypes_path):
         print('please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
 
-def create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetypes): # Most probably, we should adapt this for getting all df needed, not just the specific two
+def load_filter_sort_reset(filepath):
     """
-    Summary:
-       It detects all the statistical dependence values and makes a table with two columns (item_1 and item_2) that
-      relate the two variables in their archetype tables, and the columns mu, sigma, min and max, which describe the 
-      characteristics of the normal curve to derive the statistical values.
+    Summary: 
+       Load an Excel file, filter the rows where 'stat' is 'inactive' and return the DataFrame.
     Args:
-        archetypes_path (Path): Path to archetypes
-        citizen_archetypes (DataFrame): df with all citizens' archetype data
-        family_archetypes (DataFrame): df with all families' archetype data
+       filepath (Path): path to the file that wants to be readed
+    Returns:
+       df: Readed dfs
     """
-    
-    cond_archetypes = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma', 'min', 'max'])
-    cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, citizen_archetypes)
-    cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, family_archetypes)
-    cond_archetypes.to_excel(archetypes_path/'cond_archetypes.xlsx', index=False)
 
+    try:
+        df = pd.read_excel(filepath)
+        df = df[df['state'] != 'inactive']
+        return df
+    except Exception as e:
+        print(f"{filepath.name} not found or error loading: {e}")
+        return None
+
+def process_arch_to_fill(archetype_df, arch_name, df_distribution):
+    """
+    Para un 'arch_name' seleccionado, filtra la fila correspondiente en el DataFrame
+    'archetype_df', conserva solo las columnas que contengan la palabra 'archetype',
+    transpone el resultado y lo une con 'df_distribution' para poder compararlo.
+    
+    Retorna el DataFrame mergeado.
+    """    
+    row = archetype_df[archetype_df['name'] == arch_name]
+    # Seleccionar columnas que contengan "arch" (sin importar mayúsculas/minúsculas)
+    columns_to_keep = [col for col in row.columns if 'arch' in col.lower()] ########################## CUIDADO CON ESTO ASIER DEL FUTURO
+    row_filtered = row[columns_to_keep]
+    # Transponer y reformatear el DataFrame
+    transposed = row_filtered.T.reset_index()
+    transposed.columns = ['name', 'participants']  
+    # Unir con df_distribution para comparar los valores
+    merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
+    return merged_df
+
+### Functions not in use
+def random_arch(df):
+    """
+    Selecciona aleatoriamente un 'name' del DataFrame basado en la 
+    distribución de probabilidades calculada a partir de la columna 'presence'.
+    """
+    if df is not None and not df.empty:
+        presence_probabilities = df['presence'] / df['presence'].sum()
+        random_name = np.random.choice(df['name'], p=presence_probabilities)
+        return random_name
+    else:
+        print("Error en random_arch: DataFrame vacío o None.")
+        return None
+
+### Main
 def main():
     # Input
     population = 450
@@ -430,7 +435,6 @@ def main():
     df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
     df_families.to_excel(f'{results_path}/df_families.xlsx', index=False)
     df_citizens.to_excel(f'{results_path}/df_citizens.xlsx', index=False)
-#        input("Presione Enter para finalizar...")
 
 if __name__ == '__main__':
     main()
