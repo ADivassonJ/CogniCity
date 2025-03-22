@@ -79,7 +79,7 @@ def create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetype
     cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, family_archetypes)
     cond_archetypes.to_excel(archetypes_path/'cond_archetypes.xlsx', index=False)
 
-def families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes, ind_arch = 'f_arch_0'):
+def families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes, ind_arch = 'f_arch_0'):
     """
     Summary:
        Creates df for all families and citizens population, where their characteristics are described
@@ -269,6 +269,39 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             break
         
     print("    [DONE]")
+    
+    # Suponiendo que df_citizens y df_families ya están definidos
+    df_final_stats_citizens = df_citizens['archetype'].value_counts().reset_index()
+    df_final_stats_citizens.columns = ['archetype', 'count']
+
+    # Para df_families
+    df_final_stats_families = df_families['archetype'].value_counts().reset_index()
+    df_final_stats_families.columns = ['archetype', 'count']
+
+    # Usar directamente los valores de citizen_archetypes y family_archetypes
+    df_final_stats_citizen_archetypes = citizen_archetypes[['name', 'presence']].copy()
+    df_final_stats_citizen_archetypes.columns = ['name', 'count']
+
+    df_final_stats_family_archetypes = family_archetypes[['name', 'presence']].copy()
+    df_final_stats_family_archetypes.columns = ['name', 'count']
+
+    # Combinar df_final_stats_families con df_final_stats_family_archetypes
+    merged_families = df_final_stats_families.merge(df_final_stats_family_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_families', '_family_archetypes')).drop(columns=['name'])
+    merged_families.fillna(0, inplace=True)
+    merged_families['rate_families'] = merged_families['count_families'] / merged_families['count_families'].sum()
+    merged_families['rate_family_archetypes'] = merged_families['count_family_archetypes'] / merged_families['count_family_archetypes'].sum()
+    merged_families['rate_difference'] = abs((merged_families['rate_families'] - merged_families['rate_family_archetypes'])/ merged_families['rate_family_archetypes']*100)
+
+    # Combinar df_final_stats_citizens con df_final_stats_citizen_archetypes
+    merged_citizens = df_final_stats_citizens.merge(df_final_stats_citizen_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_citizens', '_citizen_archetypes')).drop(columns=['name'])
+    merged_citizens.fillna(0, inplace=True)
+    merged_citizens['rate_citizens'] = merged_citizens['count_citizens'] / merged_citizens['count_citizens'].sum()
+    merged_citizens['rate_citizen_archetypes'] = merged_citizens['count_citizen_archetypes'] / merged_citizens['count_citizen_archetypes'].sum()
+    merged_citizens['rate_difference'] = abs((merged_citizens['rate_citizens'] - merged_citizens['rate_citizen_archetypes'])/merged_citizens['rate_citizen_archetypes']*100)
+
+    # Mostrar el promedio de rate_difference
+    print("Abs error on citizens:", round(merged_citizens['rate_difference'].mean(), 4), "%")
+    print("Abs error on families:", round(merged_families['rate_difference'].mean(), 4), "%")
 
     return df_distribution, df_citizens, df_families  
 
@@ -402,7 +435,7 @@ def random_arch(df):
 ### Main
 def main():
     # Input
-    population = 450
+    population = 45000
     study_area = 'Kanaleneiland'
     
     
@@ -426,7 +459,7 @@ def main():
     # Populations characterization
     df_distribution, total_presence = citizen_archetypes_distribution(archetype_to_analyze, population)
     # Creation of families and citizens df
-    df_distribution, df_citizens, df_families = families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes)
+    df_distribution, df_citizens, df_families = families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes)
     
     
     
