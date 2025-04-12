@@ -171,8 +171,9 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             random_choice = np.random.choice(merged_result['name'], p=merged_result['probability'])
             # The non selected archetypes are added as 0 while the selected one as 1
             merged_df.loc[:, 'participants'] = np.where(merged_df['name'] == random_choice, 1, 0)
-            # The data for the new citizen is created
-            new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': 'Cool guy'}
+            # The data for the new citizen is created   
+            citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
+            new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': citizen_description}
             df_part_citizens.loc[len(df_part_citizens)] = new_row
             
         # For the case of the colective families, the usage of cond_archetypes is conventional
@@ -207,7 +208,8 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
                     if merged_df.at[idx, 'participants'] <= row['population']:
                         # Citizens are created
                         for _ in range(int(merged_df.at[idx, 'participants'])):
-                            new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
+                            citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
+                            new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': citizen_description}
                             df_part_citizens.loc[len(df_part_citizens)] = new_row
                     # If the presented famly DOES NOT suit on the actual population availability ...     
                     else:                                      
@@ -239,7 +241,8 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
                                     merged_df.loc[merged_df['name'] == filtered_df.at[idy, 'item_2'], 'participants'] = filtered_df.at[idy, 'min']
                                     for _ in range(int(merged_df.at[idx, 'participants'])):
                                         # Citizens are created
-                                        new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': 'Cool guy'}
+                                        citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
+                                        new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': citizen_description}
                                         df_part_citizens.loc[len(df_part_citizens)] = new_row
                                 # If the issue comes from a '*' which assigned value is higher than 'min' for that value, BUT that min DOES NOT suit into the 
                                 # population, then there is no way that family can make it, so it is deleted from archetype_to_fill.
@@ -260,7 +263,8 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
         # Add new citizens to df_citizens
         df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)
         # Create new family
-        new_row_2 = {'name': f'family_{len(df_families)}', 'archetype': arch_to_fill, 'description': 'Cool family', 'members': df_part_citizens['name'].tolist()}
+        family_description = family_archetypes.loc[family_archetypes['name'] == arch_to_fill, 'description'].values[0]
+        new_row_2 = {'name': f'family_{len(df_families)}', 'archetype': arch_to_fill, 'description': family_description, 'members': df_part_citizens['name'].tolist()}
         df_families.loc[len(df_families)] = new_row_2
         # df_part_citizens is done with its job, so it get reinitiated
         df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
@@ -269,39 +273,6 @@ def families_creation(archetype_to_fill, df_distribution, total_presence, cond_a
             break
         
     print("    [DONE]")
-    
-    # Suponiendo que df_citizens y df_families ya están definidos
-    df_final_stats_citizens = df_citizens['archetype'].value_counts().reset_index()
-    df_final_stats_citizens.columns = ['archetype', 'count']
-
-    # Para df_families
-    df_final_stats_families = df_families['archetype'].value_counts().reset_index()
-    df_final_stats_families.columns = ['archetype', 'count']
-
-    # Usar directamente los valores de citizen_archetypes y family_archetypes
-    df_final_stats_citizen_archetypes = citizen_archetypes[['name', 'presence']].copy()
-    df_final_stats_citizen_archetypes.columns = ['name', 'count']
-
-    df_final_stats_family_archetypes = family_archetypes[['name', 'presence']].copy()
-    df_final_stats_family_archetypes.columns = ['name', 'count']
-
-    # Combinar df_final_stats_families con df_final_stats_family_archetypes
-    merged_families = df_final_stats_families.merge(df_final_stats_family_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_families', '_family_archetypes')).drop(columns=['name'])
-    merged_families.fillna(0, inplace=True)
-    merged_families['rate_families'] = merged_families['count_families'] / merged_families['count_families'].sum()
-    merged_families['rate_family_archetypes'] = merged_families['count_family_archetypes'] / merged_families['count_family_archetypes'].sum()
-    merged_families['rate_difference'] = abs((merged_families['rate_families'] - merged_families['rate_family_archetypes'])/ merged_families['rate_family_archetypes']*100)
-
-    # Combinar df_final_stats_citizens con df_final_stats_citizen_archetypes
-    merged_citizens = df_final_stats_citizens.merge(df_final_stats_citizen_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_citizens', '_citizen_archetypes')).drop(columns=['name'])
-    merged_citizens.fillna(0, inplace=True)
-    merged_citizens['rate_citizens'] = merged_citizens['count_citizens'] / merged_citizens['count_citizens'].sum()
-    merged_citizens['rate_citizen_archetypes'] = merged_citizens['count_citizen_archetypes'] / merged_citizens['count_citizen_archetypes'].sum()
-    merged_citizens['rate_difference'] = abs((merged_citizens['rate_citizens'] - merged_citizens['rate_citizen_archetypes'])/merged_citizens['rate_citizen_archetypes']*100)
-
-    # Mostrar el promedio de rate_difference
-    print("Abs error on citizens:", round(merged_citizens['rate_difference'].mean(), 4), "%")
-    print("Abs error on families:", round(merged_families['rate_difference'].mean(), 4), "%")
 
     return df_distribution, df_citizens, df_families  
 
@@ -418,6 +389,40 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
     return merged_df
 
+def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
+    # Suponiendo que df_citizens y df_families ya están definidos
+    df_final_stats_citizens = df_citizens['archetype'].value_counts().reset_index()
+    df_final_stats_citizens.columns = ['archetype', 'count']
+
+    # Para df_families
+    df_final_stats_families = df_families['archetype'].value_counts().reset_index()
+    df_final_stats_families.columns = ['archetype', 'count']
+
+    # Usar directamente los valores de citizen_archetypes y family_archetypes
+    df_final_stats_citizen_archetypes = citizen_archetypes[['name', 'presence']].copy()
+    df_final_stats_citizen_archetypes.columns = ['name', 'count']
+
+    df_final_stats_family_archetypes = family_archetypes[['name', 'presence']].copy()
+    df_final_stats_family_archetypes.columns = ['name', 'count']
+
+    # Combinar df_final_stats_families con df_final_stats_family_archetypes
+    merged_families = df_final_stats_families.merge(df_final_stats_family_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_families', '_family_archetypes')).drop(columns=['name'])
+    merged_families.fillna(0, inplace=True)
+    merged_families['rate_families'] = merged_families['count_families'] / merged_families['count_families'].sum()
+    merged_families['rate_family_archetypes'] = merged_families['count_family_archetypes'] / merged_families['count_family_archetypes'].sum()
+    merged_families['rate_difference'] = abs((merged_families['rate_families'] - merged_families['rate_family_archetypes'])/ merged_families['rate_family_archetypes']*100)
+
+    # Combinar df_final_stats_citizens con df_final_stats_citizen_archetypes
+    merged_citizens = df_final_stats_citizens.merge(df_final_stats_citizen_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_citizens', '_citizen_archetypes')).drop(columns=['name'])
+    merged_citizens.fillna(0, inplace=True)
+    merged_citizens['rate_citizens'] = merged_citizens['count_citizens'] / merged_citizens['count_citizens'].sum()
+    merged_citizens['rate_citizen_archetypes'] = merged_citizens['count_citizen_archetypes'] / merged_citizens['count_citizen_archetypes'].sum()
+    merged_citizens['rate_difference'] = abs((merged_citizens['rate_citizens'] - merged_citizens['rate_citizen_archetypes'])/merged_citizens['rate_citizen_archetypes']*100)
+
+    # Mostrar el promedio de rate_difference
+    print("Abs error on citizens:", round(merged_citizens['rate_difference'].mean(), 4), "%")
+    print("Abs error on families:", round(merged_families['rate_difference'].mean(), 4), "%")
+
 ### Functions not in use
 def random_arch(df):
     """
@@ -435,9 +440,8 @@ def random_arch(df):
 ### Main
 def main():
     # Input
-    population = 45000
+    population = 450
     study_area = 'Kanaleneiland'
-    
     
     ## Code initialization
     # Paths initialization
@@ -451,24 +455,28 @@ def main():
     # Data loading
     citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes = load_archetype_data(main_path, archetypes_path)
     
-    
-    ## Synthetic population generation
-    # Section added just in case in the future we want to optimize the error of the synthetic population
-    archetype_to_analyze = citizen_archetypes
-    archetype_to_fill = family_archetypes
-    # Populations characterization
-    df_distribution, total_presence = citizen_archetypes_distribution(archetype_to_analyze, population)
-    # Creation of families and citizens df
-    df_distribution, df_citizens, df_families = families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes)
-    
-    
-    
-    
-    print(f"Distribución final guradada en {results_path}")
-    df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
-    df_families.to_excel(f'{results_path}/df_families.xlsx', index=False)
-    df_citizens.to_excel(f'{results_path}/df_citizens.xlsx', index=False)
+    try:
+        df_distribution = pd.read_excel(f'{results_path}/df_distribution.xlsx')
+        df_families = pd.read_excel(f'{results_path}/df_families.xlsx')
+        df_citizens = pd.read_excel(f'{results_path}/df_citizens.xlsx')
+        print(f"Data about synthetic population readed.")       
+    except Exception as e:     
+        ## Synthetic population generation
+        # Section added just in case in the future we want to optimize the error of the synthetic population
+        archetype_to_analyze = citizen_archetypes
+        archetype_to_fill = family_archetypes
+        # Populations characterization
+        df_distribution, total_presence = citizen_archetypes_distribution(archetype_to_analyze, population)
+        # Creation of families and citizens df
+        df_distribution, df_citizens, df_families = families_creation(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes)
+        
+        print(f"Distribución final guardada en {results_path}")
+        df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
+        df_families.to_excel(f'{results_path}/df_families.xlsx', index=False)
+        df_citizens.to_excel(f'{results_path}/df_citizens.xlsx', index=False)
 
+    pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes)
+    
 if __name__ == '__main__':
     main()
 
