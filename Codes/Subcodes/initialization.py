@@ -1,261 +1,448 @@
-#   initialization 1.0.0  ->  Se toma la version V31 y se busca dividir todo el codigo en sub-funciones.
-
 import os
-import random
+import sys
+import time
 import numpy as np
-import osmnx as ox
 import pandas as pd
-from tqdm import tqdm
-from scipy.spatial import Voronoi
-from Subcodes.simulate_day import archetype_probability_movement
-from Subcodes.voronoi_tools import find_voronoi_region
+from pathlib import Path
 
-def add_bus_relation(df_buildings, area, data_path):
-    print("    Tagging all buildings to their buses.")       
-    return assign_buildings_to_buses(df_buildings, data_path, area)
-
-def assign_buildings_to_buses(df_buildings, data_path, area):
-    """Asigna cada edificio a una región del diagrama de Voronoi y determina su bus correspondiente."""
-    building_bus = {}
-    otras_coordenadas = np.array(df_buildings['coord'])
-    for i, coord in enumerate(otras_coordenadas):
-        print(f'holi')
-        bus_name = find_voronoi_region(data_path, area, coord)
-        building_bus[i] = bus_name
-    df_buildings['bus'] = pd.Series(building_bus)
+def Archetype_documentation_initialization(main_path, archetypes_path):
+    """
+    Summary:
+       Loads all the df related to archetype description. Also creates/loads (depending on the state of the files) the df with
+      all archetypes' statistical values.
+    Args:
+       main_path (Path): Main path where the code and all data is saved
+       archetypes_path (Path): Path to archetypes
+    Returns:
+       citizen_archetypes (DataFrame): df with all citizens' archetype data
+       family_archetypes (DataFrame): df with all families' archetype data
+       s_archetypes (DataFrame): ### WORK IN PROGRESS ###
+       cond_archetypes (DataFrame): df with all archetypes' statistical values
+    """
     
-    return df_buildings
-
-def assign_families_to_citizens(df_citizens, max_family_size=5):
-    """Asigna familias a los ciudadanos que viven en el mismo edificio."""
-    df_citizens['family'] = None  # Creamos la columna para almacenar la familia
-    family_counter = 0  # Contador global de familias
-
-    # Agrupamos por edificio de vivienda
-    grouped = df_citizens.groupby('Living')
-
-    for name, group in grouped:
-        citizens = group.index.tolist()
-        random.shuffle(citizens)  # Mezclamos a los ciudadanos del edificio
-
-        # Asignamos ciudadanos a familias
-        for i in range(0, len(citizens), max_family_size):
-            family_id = f"family_{family_counter}"
-            family_counter += 1
-            # Asignar familia a cada ciudadano en el rango correspondiente
-            for citizen_index in citizens[i:i + max_family_size]:
-                df_citizens.at[citizen_index, 'family'] = family_id
-
-    return df_citizens
-
-def building_has_service(directory, df_buildings, osmid, service_type):
-    try:
-        # Preprocess the DataFrame to create a dictionary for quicker access
-        building_info = df_buildings.set_index('osmid')[['amenity', 'building']].to_dict()
-        to_study_amenity = building_info['amenity'].get(osmid)
-        to_study_building = building_info['building'].get(osmid)
-        if pd.isna(to_study_amenity) or to_study_amenity == 'yes':
-            to_study = to_study_building
-            if pd.isna(to_study):
-                print("NO DATA FROM BUILDING")
-                return False
-        else:
-            to_study = to_study_amenity
-        if to_study == 'yes':
-            return random.choice([True, False])
-        else:
-            filepath = os.path.join(directory, 'building characterization.csv')
-            df_chara = pd.read_csv(filepath)
-            mask = df_chara.iloc[:, 0].str.contains(to_study, na=False)
-            if mask.any():
-                in_type = df_chara.loc[mask, service_type].iloc[0]
-                return in_type == 'x'
-            return False
-    except Exception as e:
-        print(f"Error checking building service:")
-        print(e)
-        return False
-
-def building_to_services(directory, type_services, df_buildings):
-    print("    Tagging all buildings to their services.")
+    # Read archetypes data from files
+    citizen_archetypes = load_filter_sort_reset(archetypes_path / 'citizen_archetypes.xlsx')
+    family_archetypes = load_filter_sort_reset(archetypes_path / 'family_archetypes.xlsx')
+    s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
     
-    # Crear un diccionario para almacenar los servicios disponibles por edificio
-    building_services = {}
-
-    # Iterar sobre cada edificio en df_buildings
-    for index, row in tqdm(df_buildings.iterrows(), total=len(df_buildings), desc="       ", bar_format="{desc}{percentage:3.4f}%"):
-        available_services = check_available_services(directory, type_services, df_buildings, row['osmid'])
-        building_services[index] = available_services if available_services else 'x'
-    
-    # Asignar los servicios al DataFrame
-    df_buildings['services'] = pd.Series(building_services)
-    return df_buildings
-
-def check_available_services(directory, type_services, df_buildings, building_osmid):
-    """Verifica qué servicios están disponibles para un edificio dado."""
-    available_services = []
-    for service in type_services:
-        if building_has_service(directory, df_buildings, building_osmid, service):
-            available_services.append(service)
-    return available_services
-
-def generate_agent_names(population, EV_percentage):
-    """Genera nombres para ciudadanos y vehículos eléctricos."""
-    citizen_names = [f'citizen_{i}' for i in range(population)]
-    vehicles_names = [f'elecvehi_{i}' for i in range(int(population * EV_percentage))]
-    return citizen_names, vehicles_names
-
-def get_building_lists(df_buildings):
-    """Crea listas de edificios donde se vive y se trabaja."""
-    living_buildings = []
-    working_buildings = []
-    for building in df_buildings.iterrows():
-        if 'Living' in building[1]['services']:
-            living_buildings.append(building[1]['osmid'])
-        if 'Working' in building[1]['services']:
-            working_buildings.append(building[1]['osmid'])
-    return living_buildings, working_buildings
-
-def get_df_buildings(area):
+    ## Evaluate cond_archetypes (file where statistics values of some characteristis are defined)
     try:
-        print(f"Retrieving building data for {area}.")
-        edificios = ox.features_from_place(area, tags={'building': True})
-        building_ID = edificios.index.get_level_values('osmid').tolist()
-        values = {'osmid': building_ID, 'coord': []}
-        names = ['osmid', 'coord']
-        for geom in edificios['geometry']:
-            centroid = geom.centroid
-            values['coord'].append((centroid.y, centroid.x))
-        variables = ['building', 'amenity', 'geometry']
-        for vari in variables:
-            if vari in edificios.columns:
-                data_array = edificios[vari].tolist()
-                names.append(vari)
-                values[vari] = data_array
-        df_buildings = pd.DataFrame(values, columns=names)
-        print("[Completed]")
-        return df_buildings
-    except Exception as e:
-        print("Error retrieving buildings data:", e)
-        return pd.DataFrame()
+        # If the file exists, verify that all needed data is there
+        cond_archetypes = pd.read_excel(archetypes_path / 'cond_archetypes.xlsx')
+        if cond_archetypes.isnull().sum().sum() != 0:
+            # If any data is missing, ask the user to fill it
+            print(f'{archetypes_path}/cond_archetypes has one or more values empty,')
+            print('please include all μ, σ, max and min for each detected scenario and run the code again.')
+            sys.exit()
+        # If everyhting is OK, go on
+        return citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes
+    except Exception:
+        # If the file DOES NOT exist, create the file and ask the user to fill the missing data
+        create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetypes)
+        print(f'{archetypes_path}/cond_archetypes has no information,')
+        print('please include all μ, σ, max and min for each detected scenario and run the code again.')
+        sys.exit()
 
-def initialization(area, population_citizens, EV_percentage, main_path, type_services):
-    print("Initializing sistem")
-    main_path = str(main_path)
-    data_path = f'{main_path}/Data/{area}'
-    if not os.path.exists(data_path):
-        os.makedirs(data_path)
+def Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes):
     try:
-        df_buildings = pd.read_csv(f'{data_path}/df_buildings.csv')
-        print('df_buildings.csv readed.')
-    except Exception as e:
-        # Scan selected area and obtain needed data from OpenStreetMap
-        df_buildings = get_df_buildings(area)
-        # Add to data labels of available services per building 
-        building_to_services(data_path, type_services, df_buildings)
-        # Delete all buildings that offer no services
-        df_buildings.drop(df_buildings[df_buildings['services'] == 'x'].index, inplace=True)
-        df_buildings.reset_index(drop=True, inplace=True)
-        # Add into 'df_buildings' relation to buses
-        add_bus_relation(df_buildings, area, data_path)
+        df_distribution = pd.read_excel(f'{results_path}/df_distribution.xlsx')
+        df_families = pd.read_excel(f'{results_path}/df_families.xlsx')
+        df_citizens = pd.read_excel(f'{results_path}/df_citizens.xlsx')
+        print(f"Data about synthetic population readed.")       
+    except Exception as e:     
+        ## Synthetic population generation
+        # Section added just in case in the future we want to optimize the error of the synthetic population
+        archetype_to_analyze = citizen_archetypes
+        archetype_to_fill = family_archetypes
         
-        df_buildings.to_csv(f'{data_path}/df_buildings.csv', index=False)
-    # Initialize population
-    df_actions, df_citizens, df_vehicles, moving_agents = initialize_population(df_buildings, population_citizens, EV_percentage, main_path)
+        # Citizen_inventory_creation
+        df_distribution, total_presence = Citizen_inventory_creation(archetype_to_analyze, population)
+        # Citizen_distribution_in_families
+        df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes)
+        
+        print(f"Distribución final guardada en {results_path}")
+        df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
+        df_families.to_excel(f'{results_path}/df_families.xlsx', index=False)
+        df_citizens.to_excel(f'{results_path}/df_citizens.xlsx', index=False)
+
+    pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes)
+
+    return df_citizens, df_families
+
+def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes, ind_arch = 'f_arch_0'):
+    """
+    Summary:
+       Creates df for all families and citizens population, where their characteristics are described
+    Args:
+       archetype_to_fill (DataFrame): df with the archetypes data of the archetypes that can be applied
+       df_distribution (DataFrame): df with info of citizens archetypes and each's population
+       total_presence (int): Citizens total presence from archetype data
+       cond_archetypes (DataFrame): df with all archetypes' statistical values
+       ind_arch (str, optional): Archetype name on which individuals (families with just one citizen) 
+      exists. If individial homes are an archetype different from 'f_arch_0', especify here under variable 'ind_arch'.
+    Returns:
+       df_distribution (DataFrame): All citizens that were not able to add to a family
+       df_citizens (DataFrame): df with all citizens of the system and theis main characteristics
+       df_families (DataFrame): df with all families of the system and theis main characteristics
+    """
+    # Creates some dfs for post-prior use
+    df_families = pd.DataFrame(columns=['name', 'archetype', 'description', 'members'])
+    df_citizens = pd.DataFrame(columns=['name', 'archetype', 'description'])
+    # df for citizens while they are on the creation loop (sometimes, it creates some agents on a family, before
+    # acknoledgin it is not posible to create that famili because one specific characteristic. In those cases
+    # this df is cleaned in the same loop, disenabeling the merge with the real df_citizens)
+    df_part_citizens = pd.DataFrame(columns=df_citizens.columns)
+    # df for statistical correction while creating the families
+    df_stats_families = pd.DataFrame({
+        'archetype': archetype_to_fill['name'],
+        'presence': archetype_to_fill['presence'],
+        'percentage': archetype_to_fill['presence'] / archetype_to_fill['presence'].sum()*100,
+        'stat_presence': 0,
+        'stat_percentage': 0,
+        'error': 0
+    })
     
-    print("[Completed]")
-    return df_buildings, df_actions, df_citizens, df_vehicles, moving_agents
-
-def initialize_dataframes():
-    """Inicializa los DataFrames vacíos."""
-    df_actions = pd.DataFrame(columns=['osmid', 'service', 'day', 'time', 'agent_name', 'action', 'agent_type', 'archetype', 'bus'])
-    df_citizens = pd.DataFrame(columns=['agent_name', 'archetype', 'link_to', 'vehicle', 'Living', 'Working'])
-    df_vehicles = pd.DataFrame(columns=['agent_name', 'archetype', 'SoC'])
-    moving_agents = pd.DataFrame(columns=['agent_name', 'agent_type', 'osmid', 'link_to', 'day', 'time', 'archetype', 'SoC'])
-    return df_actions, df_citizens, df_vehicles, moving_agents
-
-def initialize_population(df_buildings, population, EV_percentage, main_path):
-    print("    Initializing population")
+    print('Creating synthetic population... (it might take a while)')
     
-    day, time = 0, 0
-    living_buildings, working_buildings = get_building_lists(df_buildings)
-    citizen_names, vehicles_names = generate_agent_names(population, EV_percentage)
+    while 1==1:
+        
+        # flag for jumping scenarios where we dont want any data to be saved
+        flag = False
+        # Evaluation of the families that can be created
+        archetype_to_fill = is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch)
+        # If no families can be created, leaves loop
+        if archetype_to_fill.empty:
+            break
+        # df_stats_families adapts to archetype_to_fill's available archetypes
+        df_stats_families = df_stats_families[df_stats_families['archetype'].isin(archetype_to_fill['name'])]
+        # The actual presence of each archetype in df_families is evaluated and saved in archetype_counts
+        archetype_counts = df_families['archetype'].value_counts()
+        # df_stats_families is updated
+        df_stats_families = df_stats_families.copy()
+        df_stats_families.loc[:, 'stat_presence'] = df_stats_families['archetype'].map(archetype_counts).fillna(0).astype(int)
+        df_stats_families.loc[:, 'stat_percentage'] = (df_stats_families['stat_presence'] / df_stats_families['stat_presence'].sum()) * 100
+        df_stats_families.loc[:, 'error'] = df_stats_families.apply(
+            lambda row: (row['stat_percentage'] - row['percentage']) / row['percentage'] if row['percentage'] != 0 else 0,
+            axis=1
+        )
+        # If is the very first time it begins with the archetype with most presence in their archetype data df
+        if df_stats_families['stat_presence'].sum() == 0:
+            arch_to_fill = df_stats_families.loc[df_stats_families['presence'].idxmax(), 'archetype']
+        # If is NOT the first time, it continues with the archetype currently worstly represented in the sample
+        else:
+            arch_to_fill = df_stats_families.loc[df_stats_families['error'].idxmin(), 'archetype']
+        # We obtain a df with the actual number of citizens to be distributed in households and the number of 
+        # citizens of the chosen household that, the archetype of the household chosen in this iteration, 
+        # consumes from the available sample.
+        merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
+        
+        # For the case of the individual family, the usage of cond_archetypes is a bit different than in the rest
+        if arch_to_fill == ind_arch:
+            # merged_result is created to work with this new paradigma
+            merged_result = (
+                merged_df[merged_df['participants'].str.contains(r'\*', na=False)]
+                .merge(
+                    cond_archetypes[cond_archetypes['item_1'] == ind_arch],
+                    left_on='name',
+                    right_on='item_2',
+                    how='inner'
+                ).dropna(subset=['population'])  # Elimina NaN
+                .query("population != 0")  # Elimina ceros
+            )
+            # If merge_results is empty, no variable of this individual family can be created, so the option is deleted
+            # from archetype_to_fill, so nexts steps of the loop will no consider this family archetype.
+            if merged_result.empty:
+                archetype_to_fill = archetype_to_fill[archetype_to_fill['name'] != arch_to_fill].reset_index(drop=True)
+                continue
+            # Basically, in individual families mu value is equal to presence values in other dfs so it creates de 
+            # probability values of each type of citizen to be the one composing this family
+            merged_result.loc[:, 'probability'] = merged_result['mu'] / merged_result['mu'].sum()
+            # Then, and using the previously calculated values, an stochastic value is selected
+            random_choice = np.random.choice(merged_result['name'], p=merged_result['probability'])
+            # The non selected archetypes are added as 0 while the selected one as 1
+            merged_df.loc[:, 'participants'] = np.where(merged_df['name'] == random_choice, 1, 0)
+            # The data for the new citizen is created   
+            citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
+            new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': citizen_description}
+            df_part_citizens.loc[len(df_part_citizens)] = new_row
+            
+        # For the case of the colective families, the usage of cond_archetypes is conventional
+        else:
+            # merged_df is analyzed row by row
+            for idx in merged_df.index:
+                row = merged_df.loc[idx]
+                # If that row's value for participans is NaN (we dont have any archetypes of that type to distribute) we jump to next loop's act
+                if pd.notna(row['participants']):
+                    ## Statistic value application
+                    valor = row['participants']
+                    # If value is '*' then 'cond_archetypes' is consulted to get statistical values
+                    if isinstance(valor, str) and valor.strip() == '*':
+                        row_2 = cond_archetypes[(cond_archetypes['item_1'] == arch_to_fill) & (cond_archetypes['item_2'] == row['name'])]
+                        # Assing an statistical value (stochastically)
+                        stat_value = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
+                        # If assigned value is out of min and max assign min or max
+                        if stat_value < int(row_2['min']):
+                            stat_value = int(row_2['min'])
+                        if stat_value > int(row_2['max']):
+                            stat_value = int(row_2['max'])
+                        # Sustitutes '*' by the value on 'stat_value'
+                        merged_df.at[idx, 'participants'] = stat_value
+                    else:
+                        # If it is a number (just in case) in gets swaped to int if its possible
+                        try:
+                            merged_df.at[idx, 'participants'] = int(valor)
+                        except ValueError:
+                            pass
+                    ## Fitness evaluation    
+                    # If the presented famly suits on the actual population availability ...                    
+                    if merged_df.at[idx, 'participants'] <= row['population']:
+                        # Citizens are created
+                        for _ in range(int(merged_df.at[idx, 'participants'])):
+                            citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
+                            new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': citizen_description}
+                            df_part_citizens.loc[len(df_part_citizens)] = new_row
+                    # If the presented famly DOES NOT suit on the actual population availability ...     
+                    else:                                      
+                        # Evaluate issue
+                        fila = archetype_to_fill.loc[archetype_to_fill["name"] == arch_to_fill]
+                        # Evaluate if there is any '*'
+                        if not (fila.isin(['*']).any().any()):
+                            # If it's not, then no scenario exist on which that family may fit into the current population, so
+                            # this family option is deleted from the archetype_to_fill
+                            archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
+                            # Also, the family, did not fit at the end, so 'df_part_citizens' is also deleted
+                            df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
+                            # This flags assures that no calculation will be done after 'break' and the loop will go on
+                            flag = True
+                            break
+                        else:
+                            # If the issue comes from a '*' then we valuate if it may exist any statistical scenario where that family fits
+                            # All columns with '*' are saved
+                            cols_with_star = [col for col in fila.columns if fila.iloc[0][col] == '*']
+                            # Issue family archetype name is saved
+                            name_value = fila.iloc[0]['name']
+                            # cond_archetypes gets filtered so we only work this the needed data
+                            filtered_df = cond_archetypes[(cond_archetypes['item_1'] == name_value) & (cond_archetypes['item_2'].isin(cols_with_star))][['item_2', 'min']]
+                            # All values with '*' of this family are evaluated
+                            for idy in filtered_df.index:
+                                # If the issue comes from a '*' which assigned value is higher than 'min' for that value, AND that min suits into the population
+                                # the min value is assigned instead of the original one.
+                                if filtered_df.at[idy, 'min'] <= row['population']:
+                                    merged_df.loc[merged_df['name'] == filtered_df.at[idy, 'item_2'], 'participants'] = filtered_df.at[idy, 'min']
+                                    for _ in range(int(merged_df.at[idx, 'participants'])):
+                                        # Citizens are created
+                                        citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
+                                        new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': citizen_description}
+                                        df_part_citizens.loc[len(df_part_citizens)] = new_row
+                                # If the issue comes from a '*' which assigned value is higher than 'min' for that value, BUT that min DOES NOT suit into the 
+                                # population, then there is no way that family can make it, so it is deleted from archetype_to_fill.
+                                else:
+                                    archetype_to_fill = archetype_to_fill[archetype_to_fill["name"] != arch_to_fill].reset_index(drop=True)
+                                    # Also, the family, did not fit at the end, so 'df_part_citizens' is also deleted
+                                    df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
+                                    # This flags assures that no calculation will be done after 'break' and the loop will go on
+                                    flag = True
+                                    break
+        # This flags assures that no calculation will be done after previous missed tries and the loop will go on
+        if flag:
+            flag = False
+            continue
+        # Update remaining population for that archetype
+        mask = df_distribution['population'].notna() & merged_df['participants'].notna()
+        df_distribution.loc[mask, 'population'] = df_distribution.loc[mask, 'population'] - merged_df.loc[mask, 'participants']
+        # Add new citizens to df_citizens
+        df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)
+        # Create new family
+        family_description = family_archetypes.loc[family_archetypes['name'] == arch_to_fill, 'description'].values[0]
+        new_row_2 = {'name': f'family_{len(df_families)}', 'archetype': arch_to_fill, 'description': family_description, 'members': df_part_citizens['name'].tolist()}
+        df_families.loc[len(df_families)] = new_row_2
+        # df_part_citizens is done with its job, so it get reinitiated
+        df_part_citizens = df_part_citizens.drop(df_part_citizens.index)
+        # If no citizens are left to be distributed, breaks the loop
+        if df_distribution['population'].sum() == 0:
+            break
+        
+    print("    [DONE]")
+
+    return df_distribution, df_citizens, df_families  
+
+def Citizen_inventory_creation(df, population):
+    """
+    Summary:
+       Calculates the percentage of 'presence' and assigns to each row the population (rounded) proportional to that percentage.
+    Args:
+       df (DataFrame): df with archetype's data
+       population (int): amount of citizens to evaluate
+    Returns:
+      - _ (DataFrame): df with info of citizens archetypes and each's population
+      - total_presence (int): Citizens total presence from archetype data
+    """
+
+    # Check if any presence exists
+    if df['presence'].sum() > 0:
+        # Calculate presence percentage
+        df['presence_percentage'] = df['presence'] / df['presence'].sum()
+    else:
+        # If no presence is detectet rise and error for the user
+        print("[Error] No available presences has been detected on citicens_archetype's file.")
+        sys.exit()
+    # Adds new row with population of each agent
+    df['population'] = (df['presence_percentage'] * population).round().astype(int)
+
+    return df[['name', 'population']].copy(), df['presence'].sum()
+
+def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
+    """
+    Summary:
+       Search for any '*' in the DataFrame 'df' and add the row and column namen into 'cond_archetypes', so all statistical
+      dependant situations are mapped on 'cond_archetypes'.
+    Args:
+       cond_archetypes (DataFrame): df with some archetypes' statistical values
+       df (DataFrame): DataFrame to analyse
+       name_column (str, optional): describes how the column on which names of the archetypes are saved. In case of 
+      any difference with the standar value, add the new str here.
+    Returns:
+       cond_archetypes (DataFrame): updated df with more archetypes' statistical values
+    """
+    for col in df.columns:
+        # Saltar la columna 'name' ya que no es relevante para la búsqueda del '*'
+        if col == name_column:
+            continue
+        
+        # Iterar por cada celda de la columna
+        for index, value in df[col].items():
+            # Convertir el valor a string
+            value_str = str(value)
+            # Verificar si la celda contiene un '*'
+            if '*' in value_str:
+                # Obtener el valor de 'name' y la columna actual, manejando posibles valores NaN
+                name_value = df.loc[index, name_column] if pd.notna(df.loc[index, name_column]) else "Unknown"
+                # Añadir al DataFrame cond_archetypes
+                cond_archetypes.loc[len(cond_archetypes)] = [name_value, col, None, None, None, None]
+    return cond_archetypes
+
+def create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetypes): # Most probably, we should adapt this for getting all df needed, not just the specific two
+    """
+    Summary:
+       It detects all the statistical dependence values and makes a table with two columns (item_1 and item_2) that
+      relate the two variables in their archetype tables, and the columns mu, sigma, min and max, which describe the 
+      characteristics of the normal curve to derive the statistical values.
+    Args:
+        archetypes_path (Path): Path to archetypes
+        citizen_archetypes (DataFrame): df with all citizens' archetype data
+        family_archetypes (DataFrame): df with all families' archetype data
+    """
     
-    df_actions, df_citizens, df_vehicles, moving_agents = initialize_dataframes()
+    cond_archetypes = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma', 'min', 'max'])
+    cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, citizen_archetypes)
+    cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, family_archetypes)
+    cond_archetypes.to_excel(archetypes_path/'cond_archetypes.xlsx', index=False)
 
-    # Procesar ciudadanos
-    df_citizens, df_actions = process_citizens(citizen_names, living_buildings, working_buildings, vehicles_names, df_buildings, day, time, df_citizens, df_actions, main_path)
-
-    # Procesar vehículos
-    df_vehicles, df_actions = process_vehicles(vehicles_names, df_actions, df_buildings, day, time, df_vehicles, df_citizens)
-
-    return df_actions, df_citizens, df_vehicles, moving_agents
-
-def load_bus_data(directory, area):
-    """Carga los datos de buses desde un archivo Excel."""
-    filepath = os.path.join(directory, f"{area}_bus_data.xlsx")
-    return pd.read_excel(filepath)
-
-def process_citizens(citizen_names, living_buildings, working_buildings, vehicles_names, df_buildings, day, time, df_citizens, df_actions, main_path):
-    """Asigna datos a los ciudadanos y actualiza los DataFrames."""
-    citizens_data = []
-    actions_data = []
-
-    for citizen in tqdm(citizen_names, desc="       citizens: ", bar_format="{desc}{percentage:3.4f}%"):
-        archetype = random.choices(['Worker', 'Student', 'Other'], [1, 0, 0])[0]
-        living_on = random.choice(living_buildings)  # Aquí podría añadirse la lógica de saturación.
-        working_on = random.choice(working_buildings)
-
-        # Añadir ciudadano
-        citizens_data.append({'agent_name': citizen, 'archetype': archetype, 'link_to': None, 'Living': living_on, 'Working': working_on})
-
-        # Añadir acción
-        etiquetas, valores = archetype_probability_movement(archetype, "00:00", main_path)
-        intention = random.choices(etiquetas, weights=valores)[0]       
-        osmid = living_on if intention == 'Living' else working_on
-        bus = df_buildings.loc[df_buildings['osmid'] == osmid, 'bus'].iloc[0]
-        actions_data.append({'osmid': osmid, 'service': intention, 'day': day, 'time': time, 
-                             'agent_name': citizen, 'action': 'in', 'agent_type': 'citizen', 
-                             'archetype': archetype, 'bus': bus})
-
-    df_citizens = pd.DataFrame(citizens_data)
-    df_citizens = assign_families_to_citizens(df_citizens)
-
-    df_actions = pd.concat([df_actions, pd.DataFrame(actions_data)], ignore_index=True)
+def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch):
+    """
+    Summary:
+       Analyse the df archetype_to_fill df to evaluate if the archetypes shown in this df can really be 
+      created or if, due to a lack of any archetype of citizen, it is no longer possible (e.g. if family 
+      archetype 3 needs one citizen type 1, one type 3 and 3 type 4 and we don't have enough of any type 
+      left, we already know that this family archetype can never be generated again).
+    Args:
+       archetype_to_fill (DataFrame): df with the archetypes data of the archetypes that can be applied
+       df_distribution (DataFrame): All citizens that are to be added to a family
+       ind_arch (str): Archetype name on which individuals (families with just one citizen) exists.
+    Returns:
+       archetype_to_fill (DataFrame): updated df with the archetypes data of the archetypes that can be applied
+    """
     
-    return df_citizens, df_actions
-
-def process_vehicles(vehicles_names, df_actions, df_buildings, day, time, df_vehicles, df_citizens):
-    """Asigna datos a los vehículos eléctricos y actualiza los DataFrames."""
-    vehicles_data = []
-    actions_data = []
-
-    # Obtener la lista de familias de los ciudadanos
-    families = df_citizens['family'].unique()
-
-    for vehicle in tqdm(vehicles_names, desc="       vehicles: ", bar_format="{desc}{percentage:3.4f}%"):
-        archetype = random.choice(['012', '345', '6789'])
-        SoC = 0  # State of Charge inicial
-
-        # Asignar una familia aleatoria al vehículo
-        family = random.choice(families)                                                #### en base estadistica por arquetipo!!!!
-
-        # Añadir vehículo
-        vehicles_data.append({'agent_name': vehicle, 'archetype': archetype, 'SoC': SoC, 'family': family})
-
-        # Añadir acción
-        osmid = random.choice(df_actions['osmid'])
-        bus = df_buildings.loc[df_buildings['osmid'] == osmid, 'bus'].iloc[0]
-        actions_data.append({'osmid': osmid, 'service': 'NaN', 'day': day, 'time': time, 
-                             'agent_name': vehicle, 'action': 'in', 'agent_type': 'vehicle', 
-                             'archetype': archetype, 'bus': bus})
-
-    df_vehicles = pd.DataFrame(vehicles_data)
-    df_actions = pd.concat([df_actions, pd.DataFrame(actions_data)], ignore_index=True)
+    # Determine names with any 0 or NaN (excluding the first column)
+    condition = df_distribution.iloc[:, 1:].eq(0) | df_distribution.iloc[:, 1:].isna()
+    problematic_names = set(df_distribution.loc[condition.any(axis=1), 'name'])
+    # If there is no problem, we return the original DataFrame.
+    if not problematic_names:
+        return archetype_to_fill
+    # Columns containing archetype data in archetype_to_fill (from fifth column onwards)
+    archetype_cols = archetype_to_fill.columns[4:]
+    # Create a Boolean mask:
+    # For each row, evaluate whether there is at least one column in which, being non-null and other than 0,
+    # the column name is in problematic_names.
+    mask = archetype_to_fill.apply(
+        lambda row: any(col in problematic_names 
+                        for col, val in row[archetype_cols].items() 
+                        if pd.notna(val) and val != 0),
+        axis=1
+    )
+    # Exclude from deletion the row whose ‘name’ matches ind_arch
+    mask &= (archetype_to_fill['name'] != ind_arch)
     
-    return df_vehicles, df_actions
+    # Filtering and resetting the index
+    return archetype_to_fill[~mask].reset_index(drop=True)
 
+def load_filter_sort_reset(filepath):
+    """
+    Summary: 
+       Load an Excel file, filter the rows where 'stat' is 'inactive' and return the DataFrame.
+    Args:
+       filepath (Path): path to the file that wants to be readed
+    Returns:
+       df: Readed dfs
+    """
 
+    try:
+        df = pd.read_excel(filepath)
+        df = df[df['state'] != 'inactive']
+        return df
+    except Exception as e:
+        print(f"{filepath.name} not found or error loading: {e}")
+        return None
 
+def process_arch_to_fill(archetype_df, arch_name, df_distribution):
+    """
+    Para un 'arch_name' seleccionado, filtra la fila correspondiente en el DataFrame
+    'archetype_df', conserva solo las columnas que contengan la palabra 'archetype',
+    transpone el resultado y lo une con 'df_distribution' para poder compararlo.
+    
+    Retorna el DataFrame mergeado.
+    """    
+    row = archetype_df[archetype_df['name'] == arch_name]
+    # Seleccionar columnas que contengan "arch" (sin importar mayúsculas/minúsculas)
+    columns_to_keep = [col for col in row.columns if 'arch' in col.lower()] ########################## CUIDADO CON ESTO ASIER DEL FUTURO
+    row_filtered = row[columns_to_keep]
+    # Transponer y reformatear el DataFrame
+    transposed = row_filtered.T.reset_index()
+    transposed.columns = ['name', 'participants']  
+    # Unir con df_distribution para comparar los valores
+    merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
+    return merged_df
 
+def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
+    # Suponiendo que df_citizens y df_families ya están definidos
+    df_final_stats_citizens = df_citizens['archetype'].value_counts().reset_index()
+    df_final_stats_citizens.columns = ['archetype', 'count']
 
+    # Para df_families
+    df_final_stats_families = df_families['archetype'].value_counts().reset_index()
+    df_final_stats_families.columns = ['archetype', 'count']
+
+    # Usar directamente los valores de citizen_archetypes y family_archetypes
+    df_final_stats_citizen_archetypes = citizen_archetypes[['name', 'presence']].copy()
+    df_final_stats_citizen_archetypes.columns = ['name', 'count']
+
+    df_final_stats_family_archetypes = family_archetypes[['name', 'presence']].copy()
+    df_final_stats_family_archetypes.columns = ['name', 'count']
+
+    # Combinar df_final_stats_families con df_final_stats_family_archetypes
+    merged_families = df_final_stats_families.merge(df_final_stats_family_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_families', '_family_archetypes')).drop(columns=['name'])
+    merged_families.fillna(0, inplace=True)
+    merged_families['rate_families'] = merged_families['count_families'] / merged_families['count_families'].sum()
+    merged_families['rate_family_archetypes'] = merged_families['count_family_archetypes'] / merged_families['count_family_archetypes'].sum()
+    merged_families['rate_difference'] = abs((merged_families['rate_families'] - merged_families['rate_family_archetypes'])/ merged_families['rate_family_archetypes']*100)
+
+    # Combinar df_final_stats_citizens con df_final_stats_citizen_archetypes
+    merged_citizens = df_final_stats_citizens.merge(df_final_stats_citizen_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_citizens', '_citizen_archetypes')).drop(columns=['name'])
+    merged_citizens.fillna(0, inplace=True)
+    merged_citizens['rate_citizens'] = merged_citizens['count_citizens'] / merged_citizens['count_citizens'].sum()
+    merged_citizens['rate_citizen_archetypes'] = merged_citizens['count_citizen_archetypes'] / merged_citizens['count_citizen_archetypes'].sum()
+    merged_citizens['rate_difference'] = abs((merged_citizens['rate_citizens'] - merged_citizens['rate_citizen_archetypes'])/merged_citizens['rate_citizen_archetypes']*100)
+
+    # Mostrar el promedio de rate_difference
+    print("Abs error on citizens:", round(merged_citizens['rate_difference'].mean(), 4), "%")
+    print("Abs error on families:", round(merged_families['rate_difference'].mean(), 4), "%")
