@@ -289,7 +289,7 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
         print(f"Please fix the problem and restart the program.")
         sys.exit()
     
-    list_home, list_study, list_work, list_entertainment, list_healthcare, list_public_transportation, list_private_transportation, list_charging_station = services_groups_creation(SG_relationship)
+    services_groups = services_groups_creation(SG_relationship)
     
     print(df_citizens)
     input()
@@ -322,9 +322,44 @@ def Citizen_inventory_creation(df, population):
     return df[['name', 'population']].copy(), df['presence'].sum()
 
 
-def services_groups_creation(SG_relationship):
-    
+def services_groups_creation(df):
+    # Primero quitamos las filas marcadas como 'not considered'
+    df = df[df['not considered'] != 'x'].reset_index(drop=True)
 
+    # Lista de columnas que definen los grupos
+    groups = [
+        "home", "study", "work", "entertainment", "healthcare",
+        "public_transportation", "private_transportation", "charging_station"
+    ]
+
+    # Diccionarios de salida, uno por grupo
+    group_dicts = {}
+
+    # Para cada grupo, filtramos filas con 'x' y construimos el diccionario correspondiente
+    for group in groups:
+        group_df = df[df[group] == 'x'][['name', 'surname']].dropna()
+        
+        group_ref = {}
+        
+        for _, row in group_df.iterrows():
+            name = row['name']
+            surname = row['surname']
+            
+            if name not in group_ref:
+                group_ref[name] = []
+            
+            if surname not in group_ref[name]:
+                group_ref[name].append(surname)
+        
+        group_dicts[group + "_list"] = group_ref  # Ej: "home_ref"
+
+    # Ahora tienes un diccionario por grupo, puedes acceder así:
+    # group_dicts['home_ref'], group_dicts['work_ref'], etc.
+    # Ejemplo:
+    print(group_dicts['study_list'])
+    input()
+    
+    return group_dicts
 
 
 def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):

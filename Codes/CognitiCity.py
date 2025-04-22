@@ -30,7 +30,7 @@ def main():
     ######################################################################################
     
     # Synthetic population initialization
-    df_citizens, df_families = Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes)
+    df_citizens, df_families = Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes, data_path)
     
 if __name__ == '__main__':
     main()
