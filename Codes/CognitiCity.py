@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from Subcodes.Initialization import Archetype_documentation_initialization, Synthetic_population_initialization
+from Subcodes.Initialization import Archetype_documentation_initialization, Geodata_initialization, Synthetic_population_initialization
 pd.set_option('mode.chained_assignment', 'raise')  # Convierte el warning en error
 
 ### Main
@@ -27,10 +27,10 @@ def main():
     citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes = Archetype_documentation_initialization(main_path, archetypes_path)
     
     # Geodata initialization
-    ######################################################################################
+    services_groups = Geodata_initialization(study_area, data_path)
     
     # Synthetic population initialization
-    df_citizens, df_families = Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes, data_path)
+    df_citizens, df_families = Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes, data_path, services_groups)
     
 if __name__ == '__main__':
     main()

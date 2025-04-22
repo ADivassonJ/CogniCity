@@ -1,9 +1,23 @@
-import os
+
 import sys
-import time
+import random
 import numpy as np
 import pandas as pd
 from pathlib import Path
+
+import osmnx as ox
+ox.settings.timeout = 500
+import os
+import re
+import ast
+import math
+import shutil
+import numpy as np
+import pandas as pd
+import networkx as nx
+import geopandas as gpd
+import multiprocessing as mp
+from functools import partial
 
 def Archetype_documentation_initialization(main_path, archetypes_path):
     """
@@ -43,7 +57,7 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
         print('please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
 
-def Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes, data_path):
+def Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes, data_path, services_groups):
     try:
         df_distribution = pd.read_excel(f'{results_path}/df_distribution.xlsx')
         df_families = pd.read_excel(f'{results_path}/df_families.xlsx')
@@ -60,7 +74,7 @@ def Synthetic_population_initialization(results_path, citizen_archetypes, family
         # Citizen_distribution_in_families
         df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes)
         # Utilities_assignment
-        df_citizens, df_families = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path)
+        df_citizens, df_families = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups)
         
         print(f"Distribución final guardada en {results_path}")
         df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
@@ -268,32 +282,43 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
 
     return df_distribution, df_citizens, df_families  
 
+def find_group(name, df_families, row_out):
+    for idx, row in df_families.iterrows():
+        if name in row['members']:
+            return row[row_out]
+    return None
 
-def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path):
-    # Asignar a df_citizens sus familias
-    def find_group(name):
-        for idx, row in df_families.iterrows():
-            if name in row['members']:
-                return row['name']
+def random_name_surname(ref_dict):
+    if not ref_dict:
         return None
     
+    name = random.choice(list(ref_dict.keys()))
+    if not ref_dict[name]:
+        return None
+
+    surname = random.choice(ref_dict[name])
+    return f"{name}_{surname}"
+
+def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups):
+    # Asignar a df_citizens sus familias
     print(df_citizens)
+    print(df_families)
+
+
+    df_families['home_type'] = df_families['name'].apply(lambda _: random_name_surname(services_groups['home_list']))
+
+    # Aqui hay que entre en los geodatos y eliga de ese tipo algun poi y copie su osm_id
     
-    # Crear nueva columna en df1
-    df_citizens['family'] = df_citizens['name'].apply(find_group)
     
-    try:
-        SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
-    except Exception as e:
-        print(f"File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
-        print(f"Please fix the problem and restart the program.")
-        sys.exit()
-    
-    services_groups = services_groups_creation(SG_relationship)
-    
+    # Asignar familia a cada ciudadano
+    df_citizens['family'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'name'))
+    # Asignar hogar a cada ciudadano
+    df_citizens['home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'home'))
+
+    print(df_families)
     print(df_citizens)
     input()
-    
+
     return
 
 def Citizen_inventory_creation(df, population):
@@ -351,13 +376,7 @@ def services_groups_creation(df):
             if surname not in group_ref[name]:
                 group_ref[name].append(surname)
         
-        group_dicts[group + "_list"] = group_ref  # Ej: "home_ref"
-
-    # Ahora tienes un diccionario por grupo, puedes acceder así:
-    # group_dicts['home_ref'], group_dicts['work_ref'], etc.
-    # Ejemplo:
-    print(group_dicts['study_list'])
-    input()
+        group_dicts[group + "_list"] = group_ref
     
     return group_dicts
 
@@ -517,3 +536,122 @@ def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_arch
     # Mostrar el promedio de rate_difference
     print("Abs error on citizens:", round(merged_citizens['rate_difference'].mean(), 4), "%")
     print("Abs error on families:", round(merged_families['rate_difference'].mean(), 4), "%")
+
+
+
+def Geodata_initialization(study_area, data_path):
+    try:
+        SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
+    except Exception as e:
+        print(f"File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
+        print(f"Please fix the problem and restart the program.")
+        sys.exit()
+    
+    services_groups = services_groups_creation(SG_relationship)
+    print(f'esto va')
+    home_list = get_osm_elements(study_area, services_groups['home_list'])
+    print(home_list)
+    input()
+    
+    #dentro de cada categoria, que busque en el area si exite algun servicio. si esxiste que lo guarde en el geodatos, si no, que lo borre del diccionario
+    
+def get_osm_elements(area_name, poss_ref):
+    """
+    Obtiene y filtra los elementos de OSM según un conjunto fijo de etiquetas y prioridades,
+    y devuelve un DataFrame con la estructura personalizada.
+
+    Parámetros:
+    - area_name (str): Nombre del área para buscar datos.
+    - poss_ref (dict): Reglas de prioridad para las etiquetas.
+
+    Retorna:
+    - DataFrame: Datos filtrados con las claves `osm_id`, `geometry`, `lat`, `lon`.
+    """
+    # Conjunto fijo de etiquetas a consultar
+    tags = {key: True for key in poss_ref.keys()}
+    
+    # Descargar datos de la zona especificada
+    gdf = ox.geometries_from_place(area_name, tags)
+    
+    # Convertir a DataFrame
+    data = gdf.reset_index()
+
+    # Crear la estructura personalizada
+    filtered_data = []
+
+    for _, row in data.iterrows():
+        for key, values in poss_ref.items():
+            if key in row and pd.notna(row[key]):
+                if isinstance(values, list):  # Si hay una lista de valores aceptados
+                    if row[key] in values:
+                        break
+                elif row[key] == values:  # Si el valor aceptado es único
+                    break
+        else:
+            # Si ninguna clave cumple, continuar con la siguiente fila
+            continue
+        building_type_name = building_type(row, poss_ref)
+        osmid_reformed = osmid_reform(row)
+        
+        # Añadir los datos con la estructura personalizada
+        filtered_data.append({
+            'building_type':building_type_name,
+            'osm_id': osmid_reformed,
+            'geometry': row['geometry'],
+            'lat': row['geometry'].centroid.y if row['geometry'] is not None else None,
+            'lon': row['geometry'].centroid.x if row['geometry'] is not None else None,
+        })
+
+    # Convertir a DataFrame final
+    return pd.DataFrame(filtered_data)
+
+def osmid_reform(row):
+    osmid = row.get('osmid')
+    element_type = row.get('element_type')
+    
+    if pd.isna(osmid) or pd.isna(element_type):
+        return None  # Si faltan datos, devolver None
+    
+    # Determinar el prefijo basado en el tipo del elemento
+    if element_type.lower() == 'node':
+        return f'N{osmid}'
+    elif element_type.lower() == 'relation':
+        return f'R{osmid}'
+    elif element_type.lower() == 'way':
+        return f'W{osmid}'
+
+    # Si no es un tipo válido, devolver None
+    return None
+
+def building_type(row, poss_ref):
+    # Revisar cada categoría en orden de prioridad
+    for category, values in poss_ref.items():
+        actor = row[category] if category in row and pd.notna(row[category]) else False
+        
+        # Verificar si el valor de la categoría está en las prioridades definidas
+        if actor:
+            if isinstance(values, list):  # Si las prioridades son una lista
+                if actor in values:
+                    return f'{category}_{actor}'
+            elif actor == values:  # Si la prioridad es un valor único
+                return f'{category}_{actor}'
+
+    # Si no se encuentra ninguna coincidencia
+    return 'unknown'
+
+def obtener_geometrias(city_name, pos_ref):
+    data = get_osm_elements(city_name, pos_ref)
+    return data
+
+def obtener_dataframe_direcciones(city, pos_ref): 
+    """Obtiene un DataFrame con las coordenadas de cada dirección y asigna un 'Territorio' (distrito)."""
+    print('Procesando datos...')
+
+    refug_data = obtener_geometrias(city, pos_ref)
+    df_refug_data = pd.DataFrame(refug_data)
+    gdf_refug_data = gpd.GeoDataFrame(df_refug_data, geometry='geometry')
+    gdf_refug_data.set_crs("EPSG:4326", inplace=True)
+    
+    return gdf_refug_data
+
+    
