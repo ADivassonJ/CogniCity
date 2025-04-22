@@ -59,6 +59,8 @@ def Synthetic_population_initialization(results_path, citizen_archetypes, family
         df_distribution, total_presence = Citizen_inventory_creation(archetype_to_analyze, population)
         # Citizen_distribution_in_families
         df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes)
+        # Utilities_assignment
+        df_citizens, df_families = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes)
         
         print(f"Distribución final guardada en {results_path}")
         df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
@@ -265,6 +267,10 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
     print("    [DONE]")
 
     return df_distribution, df_citizens, df_families  
+
+
+def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes):
+    return
 
 def Citizen_inventory_creation(df, population):
     """
