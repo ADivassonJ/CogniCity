@@ -43,7 +43,7 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
         print('please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
 
-def Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes):
+def Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes, data_path):
     try:
         df_distribution = pd.read_excel(f'{results_path}/df_distribution.xlsx')
         df_families = pd.read_excel(f'{results_path}/df_families.xlsx')
@@ -60,7 +60,7 @@ def Synthetic_population_initialization(results_path, citizen_archetypes, family
         # Citizen_distribution_in_families
         df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes)
         # Utilities_assignment
-        df_citizens, df_families = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes)
+        df_citizens, df_families = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path)
         
         print(f"Distribución final guardada en {results_path}")
         df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
@@ -269,7 +269,31 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
     return df_distribution, df_citizens, df_families  
 
 
-def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes):
+def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path):
+    # Asignar a df_citizens sus familias
+    def find_group(name):
+        for idx, row in df_families.iterrows():
+            if name in row['members']:
+                return row['name']
+        return None
+    
+    print(df_citizens)
+    
+    # Crear nueva columna en df1
+    df_citizens['family'] = df_citizens['name'].apply(find_group)
+    
+    try:
+        SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
+    except Exception as e:
+        print(f"File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
+        print(f"Please fix the problem and restart the program.")
+        sys.exit()
+    
+    list_home, list_study, list_work, list_entertainment, list_healthcare, list_public_transportation, list_private_transportation, list_charging_station = services_groups_creation(SG_relationship)
+    
+    print(df_citizens)
+    input()
+    
     return
 
 def Citizen_inventory_creation(df, population):
@@ -296,6 +320,12 @@ def Citizen_inventory_creation(df, population):
     df['population'] = (df['presence_percentage'] * population).round().astype(int)
 
     return df[['name', 'population']].copy(), df['presence'].sum()
+
+
+def services_groups_creation(SG_relationship):
+    
+
+
 
 def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
     """
