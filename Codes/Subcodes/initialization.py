@@ -542,16 +542,22 @@ def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_arch
 def Geodata_initialization(study_area, data_path):
     study_area_path = data_path / study_area
     os.makedirs(study_area_path, exist_ok=True)
-    networks = ['all', 'all_public', 'bike', 'drive', 'drive_service', 'walk']
-    
+    networks = ['all', 'bike', 'drive', 'drive_service', 'walk']
     try:
+        print(f'Loading services data ...')
         osm_elements_df = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
-    except Exception as e: 
+        print(f'    [DONE]')
+    except Exception as e:
+        print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
+        print(f'    Since the maps may have changed in part, all maps will be downloaded:')
+        print(f'    {networks}')
         try:
+            print(f'        Downloading services data from {study_area} ...')
             SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
+            print(f'    [DONE]')
         except Exception as e:
-            print(f"File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
-            print(f"Please fix the problem and restart the program.")
+            print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
+            print(f"    Please fix the problem and restart the program.")
             sys.exit()
         services_groups = services_groups_creation(SG_relationship)
         # Lista para acumular los resultados
@@ -570,27 +576,28 @@ def Geodata_initialization(study_area, data_path):
         osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
         osm_elements_df.to_excel(f'{study_area_path}/SG_relationship.xlsx', index=False)
     
-    networks_df = []    
+    networks_map = {}   
     try:
         print(f'Loading map data ...')
         for net_type in networks:           
-            networks_df[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
+            networks_map[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
         print(f'    [DONE]')
     except Exception as e:
-        print(f'    [ERROR] Data missing.')
+        print(f'    [WARNING] Data is missing, it needs to be downloaded.')
         for net_type in networks: 
             print(f'        Downloading data for {net_type} network from {study_area} ...')
-            output = 0           
-            output = ox.graph_from_place(study_area, network_type=net_type)
-            ox.save_graphml(output, study_area_path / (net_type + '.graphml')) 
-            networks_df[net_type + "_map"] = output
+            try:
+                graph = ox.graph_from_place(study_area, network_type=net_type)
+                ox.save_graphml(graph, study_area_path / f"{net_type}.graphml")
+                networks_map[f"{net_type}_map"] = graph
+            except Exception as e:
+                print(f'        [ERROR] Failed to download {net_type} network.')
+                print(f'        {e}')
+                sys.exit()
+
         print(f'    [DONE]')
-        
-    
-    print(osm_elements_df)
-    input()
-    
-    #dentro de cada categoria, que busque en el area si exite algun servicio. si esxiste que lo guarde en el geodatos, si no, que lo borre del diccionario
+
+    return osm_elements_df, networks_map
     
 def get_osm_elements(area_name, poss_ref):
     """
