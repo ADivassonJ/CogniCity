@@ -540,17 +540,54 @@ def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_arch
 
 
 def Geodata_initialization(study_area, data_path):
-    try:
-        SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
-    except Exception as e:
-        print(f"File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
-        print(f"Please fix the problem and restart the program.")
-        sys.exit()
+    study_area_path = data_path / study_area
+    os.makedirs(study_area_path, exist_ok=True)
+    networks = ['all', 'all_public', 'bike', 'drive', 'drive_service', 'walk']
     
-    services_groups = services_groups_creation(SG_relationship)
-    print(f'esto va')
-    home_list = get_osm_elements(study_area, services_groups['home_list'])
-    print(home_list)
+    try:
+        osm_elements_df = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
+    except Exception as e: 
+        try:
+            SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
+        except Exception as e:
+            print(f"File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
+            print(f"Please fix the problem and restart the program.")
+            sys.exit()
+        services_groups = services_groups_creation(SG_relationship)
+        # Lista para acumular los resultados
+        all_osm_data = []
+        # Esto hay que paralelizarlooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
+        for group_name, group_ref in services_groups.items():
+            # group_ref es el diccionario que se pasa como poss_ref
+            df_group = get_osm_elements(study_area, group_ref)
+            
+            # Añadir columna indicando a qué grupo pertenece (opcional pero útil)
+            df_group['service_group'] = group_name.replace('_list', '')
+            
+            all_osm_data.append(df_group)
+
+        # Unir todos los DataFrames en uno solo
+        osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
+        osm_elements_df.to_excel(f'{study_area_path}/SG_relationship.xlsx', index=False)
+    
+    networks_df = []    
+    try:
+        print(f'Loading map data ...')
+        for net_type in networks:           
+            networks_df[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
+        print(f'    [DONE]')
+    except Exception as e:
+        print(f'    [ERROR] Data missing.')
+        for net_type in networks: 
+            print(f'        Downloading data for {net_type} network from {study_area} ...')
+            output = 0           
+            output = ox.graph_from_place(study_area, network_type=net_type)
+            ox.save_graphml(output, study_area_path / (net_type + '.graphml')) 
+            networks_df[net_type + "_map"] = output
+        print(f'    [DONE]')
+        
+    
+    print(osm_elements_df)
     input()
     
     #dentro de cada categoria, que busque en el area si exite algun servicio. si esxiste que lo guarde en el geodatos, si no, que lo borre del diccionario
