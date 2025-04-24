@@ -39,7 +39,6 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
         citizen_archetypes = load_filter_sort_reset(archetypes_path / 'citizen_archetypes.xlsx')
         family_archetypes = load_filter_sort_reset(archetypes_path / 'family_archetypes.xlsx')
         s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
-        print(f'    [DONE]')
     except Exception as e:
         print(f"    [ERROR] File regarding archetypes are not found in the intended folder ({archetypes_path}).")
         print(f"    Please fix the problem and restart the program.")
@@ -55,7 +54,6 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
             print(f'    please include all μ, σ, max and min for each detected scenario and run the code again.')
             sys.exit()
         # If everyhting is OK, go on
-        print(f'    [DONE]')
         return citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes
     except Exception:
         # If the file DOES NOT exist, create the file and ask the user to fill the missing data
@@ -64,13 +62,13 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
         print(f'    please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
 
-def Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes, data_path, services_groups):
+def Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, cond_archetypes, data_path, services_groups, study_area):
+    study_area_path = data_path / study_area
     try:
         print(f"Loading synthetic population data ...") 
-        df_distribution = pd.read_excel(f'{results_path}/df_distribution.xlsx')
-        df_families = pd.read_excel(f'{results_path}/df_families.xlsx')
-        df_citizens = pd.read_excel(f'{results_path}/df_citizens.xlsx')
-        print(f'    [DONE]')      
+        df_distribution = pd.read_excel(f'{study_area_path}/df_distribution.xlsx')
+        df_families = pd.read_excel(f'{study_area_path}/df_families.xlsx')
+        df_citizens = pd.read_excel(f'{study_area_path}/df_citizens.xlsx')     
     except Exception as e:     
         print(f'    [WARNING] Data is missing.') 
         print(f'    Creating synthetic population (it might take a while) ...')
@@ -84,16 +82,13 @@ def Synthetic_population_initialization(results_path, citizen_archetypes, family
         # Citizen_distribution_in_families
         df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes)
         # Utilities_assignment
-        df_citizens, df_families = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups)
-        
-        print(f'    [DONE]')
-        print(f"    Saving data ...")
-        df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
-        df_families.to_excel(f'{results_path}/df_families.xlsx', index=False)
-        df_citizens.to_excel(f'{results_path}/df_citizens.xlsx', index=False)
-        print(f"    Data saved in {results_path}.")
+        df_families, df_citizens = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups)
 
-    pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes)
+        print(f"    Saving data ...")
+        df_distribution.to_excel(f'{study_area_path}/df_distribution.xlsx', index=False)
+        df_families.to_excel(f'{study_area_path}/df_families.xlsx', index=False)
+        df_citizens.to_excel(f'{study_area_path}/df_citizens.xlsx', index=False)
+        print(f"        [DONE] Data saved in {study_area_path}.")
 
     return df_citizens, df_families
 
@@ -308,10 +303,6 @@ def random_name_surname(ref_dict):
     return f"{name}_{surname}"
 
 def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups):
-    # Asignar a df_citizens sus familias
-    print(df_citizens)
-    print(df_families)
-
     # Filtramos los valores posibles de 'name' donde 'group' es 'home'
     home_ids = services_groups[services_groups['service_group'] == 'home']['osm_id'].tolist()
     # Asignamos un valor aleatorio de home_names a cada fila en df_families
@@ -335,12 +326,8 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
         df_citizens.at[idx, 'WoS_type'] = services_groups.loc[
             services_groups['osm_id'] == work_id, 'building_type'
         ].values[0]  # Esto obtiene el nombre correspondiente
-    
-    print(df_families)
-    print(df_citizens)
-    input()
 
-    return
+    return df_families, df_citizens
 
 def Citizen_inventory_creation(df, population):
     """
@@ -524,56 +511,22 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
     return merged_df
 
-def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
-    # Suponiendo que df_citizens y df_families ya están definidos
-    df_final_stats_citizens = df_citizens['archetype'].value_counts().reset_index()
-    df_final_stats_citizens.columns = ['archetype', 'count']
-
-    # Para df_families
-    df_final_stats_families = df_families['archetype'].value_counts().reset_index()
-    df_final_stats_families.columns = ['archetype', 'count']
-
-    # Usar directamente los valores de citizen_archetypes y family_archetypes
-    df_final_stats_citizen_archetypes = citizen_archetypes[['name', 'presence']].copy()
-    df_final_stats_citizen_archetypes.columns = ['name', 'count']
-
-    df_final_stats_family_archetypes = family_archetypes[['name', 'presence']].copy()
-    df_final_stats_family_archetypes.columns = ['name', 'count']
-
-    # Combinar df_final_stats_families con df_final_stats_family_archetypes
-    merged_families = df_final_stats_families.merge(df_final_stats_family_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_families', '_family_archetypes')).drop(columns=['name'])
-    merged_families.fillna(0, inplace=True)
-    merged_families['rate_families'] = merged_families['count_families'] / merged_families['count_families'].sum()
-    merged_families['rate_family_archetypes'] = merged_families['count_family_archetypes'] / merged_families['count_family_archetypes'].sum()
-    merged_families['rate_difference'] = abs((merged_families['rate_families'] - merged_families['rate_family_archetypes'])/ merged_families['rate_family_archetypes']*100)
-
-    # Combinar df_final_stats_citizens con df_final_stats_citizen_archetypes
-    merged_citizens = df_final_stats_citizens.merge(df_final_stats_citizen_archetypes, left_on='archetype', right_on='name', how='outer', suffixes=('_citizens', '_citizen_archetypes')).drop(columns=['name'])
-    merged_citizens.fillna(0, inplace=True)
-    merged_citizens['rate_citizens'] = merged_citizens['count_citizens'] / merged_citizens['count_citizens'].sum()
-    merged_citizens['rate_citizen_archetypes'] = merged_citizens['count_citizen_archetypes'] / merged_citizens['count_citizen_archetypes'].sum()
-    merged_citizens['rate_difference'] = abs((merged_citizens['rate_citizens'] - merged_citizens['rate_citizen_archetypes'])/merged_citizens['rate_citizen_archetypes']*100)
-
-    # Mostrar el promedio de rate_difference
-    print("Abs error on citizens:", round(merged_citizens['rate_difference'].mean(), 4), "%")
-    print("Abs error on families:", round(merged_families['rate_difference'].mean(), 4), "%")
-
 def Geodata_initialization(study_area, data_path):
     study_area_path = data_path / study_area
     os.makedirs(study_area_path, exist_ok=True)
     networks = ['all', 'bike', 'drive', 'drive_service', 'walk']
     try:
-        print(f'Loading services data ...')
+        print(f'Loading POIs data ...')
         osm_elements_df = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
-        print(f'    [DONE]')
     except Exception as e:
         print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
         print(f'    Since the maps may have changed in part, all maps will be downloaded:')
         print(f'    {networks}')
         try:
             print(f'        Downloading services data from {study_area} ...')
+            print(f'        Saving data ...')
             SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
-            print(f'    [DONE]')
+            print(f'            [DONE] ')
         except Exception as e:
             print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
             print(f"    Please fix the problem and restart the program.")
@@ -594,10 +547,9 @@ def Geodata_initialization(study_area, data_path):
     
     networks_map = {}   
     try:
-        print(f'Loading map data ...')
+        print(f'Loading maps ...')
         for net_type in networks:           
             networks_map[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
-        print(f'    [DONE]')
     except Exception as e:
         print(f'    [WARNING] Data is missing, it needs to be downloaded.')
         for net_type in networks: 
