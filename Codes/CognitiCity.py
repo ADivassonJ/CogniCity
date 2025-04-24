@@ -31,7 +31,7 @@ def main():
     # Synthetic population initialization
     df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, cond_archetypes, data_path, osm_elements_df, study_area)
     print('#'*20, ' Initialization finalized ','#'*20)
-    
+
     
     
     pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes)

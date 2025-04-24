@@ -1,23 +1,13 @@
-
+import os
 import sys
 import random
-import numpy as np
-import pandas as pd
-from pathlib import Path
-
 import osmnx as ox
 ox.settings.timeout = 500
-import os
-import re
-import ast
-import math
-import shutil
 import numpy as np
 import pandas as pd
-import networkx as nx
 import geopandas as gpd
-import multiprocessing as mp
-from functools import partial
+
+
 
 def Archetype_documentation_initialization(main_path, archetypes_path):
     """
@@ -91,6 +81,63 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
         print(f"        [DONE] Data saved in {study_area_path}.")
 
     return df_citizens, df_families
+
+def Geodata_initialization(study_area, data_path):
+    study_area_path = data_path / study_area
+    os.makedirs(study_area_path, exist_ok=True)
+    networks = ['all', 'bike', 'drive', 'drive_service', 'walk']
+    try:
+        print(f'Loading POIs data ...')
+        osm_elements_df = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
+    except Exception as e:
+        print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
+        try:
+            print(f'        Downloading services data from {study_area} ...')
+            print(f'        Saving data ...')
+            SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
+        except Exception as e:
+            print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
+            print(f"    Please fix the problem and restart the program.")
+            sys.exit()
+        print(f'        Processing data ...')
+        services_groups = services_groups_creation(SG_relationship)
+        # Lista para acumular los resultados
+        all_osm_data = []
+        ##### Esto hay que paralelizarlooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
+        for group_name, group_ref in services_groups.items():
+            # group_ref es el diccionario que se pasa como poss_ref
+            df_group = get_osm_elements(study_area, group_ref)
+            # Añadir columna indicando a qué grupo pertenece
+            df_group['service_group'] = group_name.replace('_list', '')
+            all_osm_data.append(df_group)
+        # Unir todos los DataFrames en uno solo
+        osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
+        osm_elements_df.to_excel(f'{study_area_path}/SG_relationship.xlsx', index=False)
+    
+    networks_map = {}   
+    try:
+        print(f'Loading maps ...')
+        for net_type in networks:           
+            networks_map[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
+    except Exception as e:
+        print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
+        print(f'    Since the maps may have changed in part, all maps will be downloaded: {networks}')
+        for net_type in networks: 
+            print(f'        Downloading data for {net_type} network from {study_area} ...')
+            try:
+                graph = ox.graph_from_place(study_area, network_type=net_type)
+                ox.save_graphml(graph, study_area_path / f"{net_type}.graphml")
+                networks_map[f"{net_type}_map"] = graph
+            except Exception as e:
+                print(f'        [ERROR] Failed to download {net_type} network.')
+                print(f'        {e}')
+                sys.exit()
+    
+    ####CUIDADOO!!! HAY QUE AÑADIR LOS DATOS DE LOS BUSES ELECTRICOS A LOS QUE ASIGNAMOS LOS DISTINTOS POIs
+
+    return osm_elements_df, networks_map
+
+
 
 def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes, ind_arch = 'f_arch_0'):
     """
@@ -285,23 +332,6 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
 
     return df_distribution, df_citizens, df_families  
 
-def find_group(name, df_families, row_out):
-    for idx, row in df_families.iterrows():
-        if name in row['members']:
-            return row[row_out]
-    return None
-
-def random_name_surname(ref_dict):
-    if not ref_dict:
-        return None
-    
-    name = random.choice(list(ref_dict.keys()))
-    if not ref_dict[name]:
-        return None
-
-    surname = random.choice(ref_dict[name])
-    return f"{name}_{surname}"
-
 def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups):
     # Filtramos los valores posibles de 'name' donde 'group' es 'home'
     home_ids = services_groups[services_groups['service_group'] == 'home']['osm_id'].tolist()
@@ -355,6 +385,24 @@ def Citizen_inventory_creation(df, population):
     return df[['name', 'population']].copy(), df['presence'].sum()
 
 
+
+def find_group(name, df_families, row_out):
+    for idx, row in df_families.iterrows():
+        if name in row['members']:
+            return row[row_out]
+    return None
+
+def random_name_surname(ref_dict):
+    if not ref_dict:
+        return None
+    
+    name = random.choice(list(ref_dict.keys()))
+    if not ref_dict[name]:
+        return None
+
+    surname = random.choice(ref_dict[name])
+    return f"{name}_{surname}"
+
 def services_groups_creation(df):
     # Primero quitamos las filas marcadas como 'not considered'
     df = df[df['not considered'] != 'x'].reset_index(drop=True)
@@ -387,7 +435,6 @@ def services_groups_creation(df):
         group_dicts[group + "_list"] = group_ref
     
     return group_dicts
-
 
 def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
     """
@@ -487,7 +534,6 @@ def load_filter_sort_reset(filepath):
     df = df[df['state'] != 'inactive']
     return df
 
-
 def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     """
     Para un 'arch_name' seleccionado, filtra la fila correspondiente en el DataFrame
@@ -507,61 +553,6 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
     return merged_df
 
-def Geodata_initialization(study_area, data_path):
-    study_area_path = data_path / study_area
-    os.makedirs(study_area_path, exist_ok=True)
-    networks = ['all', 'bike', 'drive', 'drive_service', 'walk']
-    try:
-        print(f'Loading POIs data ...')
-        osm_elements_df = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
-    except Exception as e:
-        print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
-        try:
-            print(f'        Downloading services data from {study_area} ...')
-            print(f'        Saving data ...')
-            SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
-        except Exception as e:
-            print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
-            print(f"    Please fix the problem and restart the program.")
-            sys.exit()
-        print(f'        Processing data ...')
-        services_groups = services_groups_creation(SG_relationship)
-        # Lista para acumular los resultados
-        all_osm_data = []
-        ##### Esto hay que paralelizarlooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
-        for group_name, group_ref in services_groups.items():
-            # group_ref es el diccionario que se pasa como poss_ref
-            df_group = get_osm_elements(study_area, group_ref)
-            # Añadir columna indicando a qué grupo pertenece
-            df_group['service_group'] = group_name.replace('_list', '')
-            all_osm_data.append(df_group)
-        # Unir todos los DataFrames en uno solo
-        osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
-        osm_elements_df.to_excel(f'{study_area_path}/SG_relationship.xlsx', index=False)
-    
-    networks_map = {}   
-    try:
-        print(f'Loading maps ...')
-        for net_type in networks:           
-            networks_map[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
-    except Exception as e:
-        print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
-        print(f'    Since the maps may have changed in part, all maps will be downloaded: {networks}')
-        for net_type in networks: 
-            print(f'        Downloading data for {net_type} network from {study_area} ...')
-            try:
-                graph = ox.graph_from_place(study_area, network_type=net_type)
-                ox.save_graphml(graph, study_area_path / f"{net_type}.graphml")
-                networks_map[f"{net_type}_map"] = graph
-            except Exception as e:
-                print(f'        [ERROR] Failed to download {net_type} network.')
-                print(f'        {e}')
-                sys.exit()
-    
-    ####CUIDADOO!!! HAY QUE AÑADIR LOS DATOS DE LOS BUSES ELECTRICOS A LOS QUE ASIGNAMOS LOS DISTINTOS POIs
-
-    return osm_elements_df, networks_map
-    
 def get_osm_elements(area_name, poss_ref):
     """
     Obtiene y filtra los elementos de OSM según un conjunto fijo de etiquetas y prioridades,
