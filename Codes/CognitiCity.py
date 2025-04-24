@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from Subcodes.Initialization import Archetype_documentation_initialization, Geodata_initialization, Synthetic_population_initialization
+from Subcodes.initialization import Archetype_documentation_initialization, Geodata_initialization, Synthetic_population_initialization
 pd.set_option('mode.chained_assignment', 'raise')  # Convierte el warning en error
 
 ### Main

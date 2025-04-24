@@ -33,37 +33,47 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
        s_archetypes (DataFrame): ### WORK IN PROGRESS ###
        cond_archetypes (DataFrame): df with all archetypes' statistical values
     """
-    
     # Read archetypes data from files
-    citizen_archetypes = load_filter_sort_reset(archetypes_path / 'citizen_archetypes.xlsx')
-    family_archetypes = load_filter_sort_reset(archetypes_path / 'family_archetypes.xlsx')
-    s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
-    
+    try:
+        print(f'Loading archetypes data ...')
+        citizen_archetypes = load_filter_sort_reset(archetypes_path / 'citizen_archetypes.xlsx')
+        family_archetypes = load_filter_sort_reset(archetypes_path / 'family_archetypes.xlsx')
+        s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
+        print(f'    [DONE]')
+    except Exception as e:
+        print(f"    [ERROR] File regarding archetypes are not found in the intended folder ({archetypes_path}).")
+        print(f"    Please fix the problem and restart the program.")
+        sys.exit()
     ## Evaluate cond_archetypes (file where statistics values of some characteristis are defined)
     try:
         # If the file exists, verify that all needed data is there
+        print(f'Loading statistical data ...')
         cond_archetypes = pd.read_excel(archetypes_path / 'cond_archetypes.xlsx')
         if cond_archetypes.isnull().sum().sum() != 0:
             # If any data is missing, ask the user to fill it
-            print(f'{archetypes_path}/cond_archetypes has one or more values empty,')
-            print('please include all μ, σ, max and min for each detected scenario and run the code again.')
+            print(f'    [ERROR] {archetypes_path}/cond_archetypes has one or more values empty,')
+            print(f'    please include all μ, σ, max and min for each detected scenario and run the code again.')
             sys.exit()
         # If everyhting is OK, go on
+        print(f'    [DONE]')
         return citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes
     except Exception:
         # If the file DOES NOT exist, create the file and ask the user to fill the missing data
         create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetypes)
-        print(f'{archetypes_path}/cond_archetypes has no information,')
-        print('please include all μ, σ, max and min for each detected scenario and run the code again.')
+        print(f'    [ERROR] {archetypes_path}/cond_archetypes has no information,')
+        print(f'    please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
 
 def Synthetic_population_initialization(results_path, citizen_archetypes, family_archetypes, population, cond_archetypes, data_path, services_groups):
     try:
+        print(f"Loading synthetic population data ...") 
         df_distribution = pd.read_excel(f'{results_path}/df_distribution.xlsx')
         df_families = pd.read_excel(f'{results_path}/df_families.xlsx')
         df_citizens = pd.read_excel(f'{results_path}/df_citizens.xlsx')
-        print(f"Data about synthetic population readed.")       
+        print(f'    [DONE]')      
     except Exception as e:     
+        print(f'    [WARNING] Data is missing.') 
+        print(f'    Creating synthetic population (it might take a while) ...')
         ## Synthetic population generation
         # Section added just in case in the future we want to optimize the error of the synthetic population
         archetype_to_analyze = citizen_archetypes
@@ -76,10 +86,12 @@ def Synthetic_population_initialization(results_path, citizen_archetypes, family
         # Utilities_assignment
         df_citizens, df_families = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups)
         
-        print(f"Distribución final guardada en {results_path}")
+        print(f'    [DONE]')
+        print(f"    Saving data ...")
         df_distribution.to_excel(f'{results_path}/df_distribution.xlsx', index=False)
         df_families.to_excel(f'{results_path}/df_families.xlsx', index=False)
         df_citizens.to_excel(f'{results_path}/df_citizens.xlsx', index=False)
+        print(f"    Data saved in {results_path}.")
 
     pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes)
 
@@ -117,8 +129,6 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
         'stat_percentage': 0,
         'error': 0
     })
-    
-    print('Creating synthetic population... (it might take a while)')
     
     while 1==1:
         
@@ -277,8 +287,6 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
         # If no citizens are left to be distributed, breaks the loop
         if df_distribution['population'].sum() == 0:
             break
-        
-    print("    [DONE]")
 
     return df_distribution, df_citizens, df_families  
 
@@ -304,11 +312,15 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
     print(df_citizens)
     print(df_families)
 
-
-    df_families['home_type'] = df_families['name'].apply(lambda _: random_name_surname(services_groups['home_list']))
-
-    # Aqui hay que entre en los geodatos y eliga de ese tipo algun poi y copie su osm_id
-    
+    # Filtramos los valores posibles de 'name' donde 'group' es 'home'
+    home_ids = services_groups[services_groups['service_group'] == 'home']['osm_id'].tolist()
+    # Asignamos un valor aleatorio de home_names a cada fila en df_families
+    for idx in range(len(df_families)):
+        home_id = random.choice(home_ids)
+        df_families.at[idx, 'home'] = home_id
+        df_families.at[idx, 'home_type'] = services_groups.loc[
+            services_groups['osm_id'] == home_id, 'building_type'
+        ].values[0]  # Esto obtiene el nombre correspondiente
     
     # Asignar familia a cada ciudadano
     df_citizens['family'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'name'))
@@ -339,7 +351,7 @@ def Citizen_inventory_creation(df, population):
         df['presence_percentage'] = df['presence'] / df['presence'].sum()
     else:
         # If no presence is detectet rise and error for the user
-        print("[Error] No available presences has been detected on citicens_archetype's file.")
+        print("        [Error] No available presences has been detected on citicens_archetype's file.")
         sys.exit()
     # Adds new row with population of each agent
     df['population'] = (df['presence_percentage'] * population).round().astype(int)
@@ -537,8 +549,6 @@ def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_arch
     print("Abs error on citizens:", round(merged_citizens['rate_difference'].mean(), 4), "%")
     print("Abs error on families:", round(merged_families['rate_difference'].mean(), 4), "%")
 
-
-
 def Geodata_initialization(study_area, data_path):
     study_area_path = data_path / study_area
     os.makedirs(study_area_path, exist_ok=True)
@@ -562,16 +572,13 @@ def Geodata_initialization(study_area, data_path):
         services_groups = services_groups_creation(SG_relationship)
         # Lista para acumular los resultados
         all_osm_data = []
-        # Esto hay que paralelizarlooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
+        ##### Esto hay que paralelizarlooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
         for group_name, group_ref in services_groups.items():
             # group_ref es el diccionario que se pasa como poss_ref
             df_group = get_osm_elements(study_area, group_ref)
-            
-            # Añadir columna indicando a qué grupo pertenece (opcional pero útil)
+            # Añadir columna indicando a qué grupo pertenece
             df_group['service_group'] = group_name.replace('_list', '')
-            
             all_osm_data.append(df_group)
-
         # Unir todos los DataFrames en uno solo
         osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
         osm_elements_df.to_excel(f'{study_area_path}/SG_relationship.xlsx', index=False)
@@ -594,8 +601,9 @@ def Geodata_initialization(study_area, data_path):
                 print(f'        [ERROR] Failed to download {net_type} network.')
                 print(f'        {e}')
                 sys.exit()
-
         print(f'    [DONE]')
+    
+    ####CUIDADOO!!! HAY QUE AÑADIR LOS DATOS DE LOS BUSES ELECTRICOS A LOS QUE ASIGNAMOS LOS DISTINTOS POIs
 
     return osm_elements_df, networks_map
     
