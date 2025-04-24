@@ -50,16 +50,16 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
         cond_archetypes = pd.read_excel(archetypes_path / 'cond_archetypes.xlsx')
         if cond_archetypes.isnull().sum().sum() != 0:
             # If any data is missing, ask the user to fill it
-            print(f'    [ERROR] {archetypes_path}/cond_archetypes has one or more values empty,')
-            print(f'    please include all μ, σ, max and min for each detected scenario and run the code again.')
+            print(f'    [ERROR] {archetypes_path}/cond_archetypes has one or more values empty.')
+            print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
             sys.exit()
         # If everyhting is OK, go on
         return citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes
     except Exception:
         # If the file DOES NOT exist, create the file and ask the user to fill the missing data
         create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetypes)
-        print(f'    [ERROR] {archetypes_path}/cond_archetypes has no information,')
-        print(f'    please include all μ, σ, max and min for each detected scenario and run the code again.')
+        print(f'    [ERROR] {archetypes_path}/cond_archetypes has no information.')
+        print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
 
 def Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, cond_archetypes, data_path, services_groups, study_area):
@@ -71,7 +71,7 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
         df_citizens = pd.read_excel(f'{study_area_path}/df_citizens.xlsx')     
     except Exception as e:     
         print(f'    [WARNING] Data is missing.') 
-        print(f'    Creating synthetic population (it might take a while) ...')
+        print(f'        Creating synthetic population (it might take a while) ...')
         ## Synthetic population generation
         # Section added just in case in the future we want to optimize the error of the synthetic population
         archetype_to_analyze = citizen_archetypes
@@ -84,7 +84,7 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
         # Utilities_assignment
         df_families, df_citizens = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups)
 
-        print(f"    Saving data ...")
+        print(f"        Saving data ...")
         df_distribution.to_excel(f'{study_area_path}/df_distribution.xlsx', index=False)
         df_families.to_excel(f'{study_area_path}/df_families.xlsx', index=False)
         df_citizens.to_excel(f'{study_area_path}/df_citizens.xlsx', index=False)
@@ -483,14 +483,10 @@ def load_filter_sort_reset(filepath):
     Returns:
        df: Readed dfs
     """
+    df = pd.read_excel(filepath)
+    df = df[df['state'] != 'inactive']
+    return df
 
-    try:
-        df = pd.read_excel(filepath)
-        df = df[df['state'] != 'inactive']
-        return df
-    except Exception as e:
-        print(f"{filepath.name} not found or error loading: {e}")
-        return None
 
 def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     """
@@ -520,17 +516,15 @@ def Geodata_initialization(study_area, data_path):
         osm_elements_df = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
     except Exception as e:
         print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
-        print(f'    Since the maps may have changed in part, all maps will be downloaded:')
-        print(f'    {networks}')
         try:
             print(f'        Downloading services data from {study_area} ...')
             print(f'        Saving data ...')
             SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
-            print(f'            [DONE] ')
         except Exception as e:
             print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
             print(f"    Please fix the problem and restart the program.")
             sys.exit()
+        print(f'        Processing data ...')
         services_groups = services_groups_creation(SG_relationship)
         # Lista para acumular los resultados
         all_osm_data = []
@@ -551,7 +545,8 @@ def Geodata_initialization(study_area, data_path):
         for net_type in networks:           
             networks_map[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
     except Exception as e:
-        print(f'    [WARNING] Data is missing, it needs to be downloaded.')
+        print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
+        print(f'    Since the maps may have changed in part, all maps will be downloaded: {networks}')
         for net_type in networks: 
             print(f'        Downloading data for {net_type} network from {study_area} ...')
             try:
@@ -562,7 +557,6 @@ def Geodata_initialization(study_area, data_path):
                 print(f'        [ERROR] Failed to download {net_type} network.')
                 print(f'        {e}')
                 sys.exit()
-        print(f'    [DONE]')
     
     ####CUIDADOO!!! HAY QUE AÑADIR LOS DATOS DE LOS BUSES ELECTRICOS A LOS QUE ASIGNAMOS LOS DISTINTOS POIs
 
