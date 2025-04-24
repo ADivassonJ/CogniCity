@@ -326,7 +326,16 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
     df_citizens['family'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'name'))
     # Asignar hogar a cada ciudadano
     df_citizens['home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'home'))
-
+    
+    # Filtramos los valores posibles de 'name' donde 'group' es 'home'
+    work_ids = services_groups[services_groups['service_group'] == 'work']['osm_id'].tolist()
+    for idx in range(len(df_citizens)):
+        work_id = random.choice(work_ids)
+        df_citizens.at[idx, 'WoS'] = work_id
+        df_citizens.at[idx, 'WoS_type'] = services_groups.loc[
+            services_groups['osm_id'] == work_id, 'building_type'
+        ].values[0]  # Esto obtiene el nombre correspondiente
+    
     print(df_families)
     print(df_citizens)
     input()
