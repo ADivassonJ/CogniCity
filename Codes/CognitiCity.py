@@ -25,11 +25,11 @@ def main():
     
     print('#'*20, ' System initialization ','#'*20)
     # Archetype documentation initialization
-    citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes = Archetype_documentation_initialization(main_path, archetypes_path)
+    citizen_archetypes, family_archetypes, s_archetypes, stats_synpop = Archetype_documentation_initialization(main_path, archetypes_path)
     # Geodata initialization
     SG_relationship, networks_map = Geodata_initialization(study_area, data_path)
     # Synthetic population initialization
-    df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, cond_archetypes, data_path, SG_relationship, study_area)
+    df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, SG_relationship, study_area)
     print('#'*20, ' Initialization finalized ','#'*20)
 
     pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes)

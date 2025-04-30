@@ -7,8 +7,6 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
-
-
 def Archetype_documentation_initialization(main_path, archetypes_path):
     """
     Summary:
@@ -21,7 +19,7 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
        citizen_archetypes (DataFrame): df with all citizens' archetype data
        family_archetypes (DataFrame): df with all families' archetype data
        s_archetypes (DataFrame): ### WORK IN PROGRESS ###
-       cond_archetypes (DataFrame): df with all archetypes' statistical values
+       stats_synpop (DataFrame): df with all archetypes' statistical values
     """
     # Read archetypes data from files
     try:
@@ -33,26 +31,26 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
         print(f"    [ERROR] File regarding archetypes are not found in the intended folder ({archetypes_path}).")
         print(f"    Please fix the problem and restart the program.")
         sys.exit()
-    ## Evaluate cond_archetypes (file where statistics values of some characteristis are defined)
+    ## Evaluate stats_synpop (file where statistics values of some characteristis are defined)
     try:
         # If the file exists, verify that all needed data is there
         print(f'Loading statistical data ...')
-        cond_archetypes = pd.read_excel(archetypes_path / 'cond_archetypes.xlsx')
-        if cond_archetypes.isnull().sum().sum() != 0:
+        stats_synpop = pd.read_excel(archetypes_path / 'stats_synpop.xlsx')
+        if stats_synpop.isnull().sum().sum() != 0:
             # If any data is missing, ask the user to fill it
-            print(f'    [ERROR] {archetypes_path}/cond_archetypes has one or more values empty.')
+            print(f'    [ERROR] {archetypes_path}/stats_synpop has one or more values empty.')
             print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
             sys.exit()
         # If everyhting is OK, go on
-        return citizen_archetypes, family_archetypes, s_archetypes, cond_archetypes
+        return citizen_archetypes, family_archetypes, s_archetypes, stats_synpop
     except Exception:
         # If the file DOES NOT exist, create the file and ask the user to fill the missing data
-        create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetypes)
-        print(f'    [ERROR] {archetypes_path}/cond_archetypes has no information.')
+        create_stats_synpop(archetypes_path, citizen_archetypes, family_archetypes)
+        print(f'    [ERROR] {archetypes_path}/stats_synpop has no information.')
         print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
 
-def Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, cond_archetypes, data_path, services_groups, study_area):
+def Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, services_groups, study_area):
     study_area_path = data_path / study_area
     try:
         print(f"Loading synthetic population data ...") 
@@ -70,7 +68,7 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
         # Citizen_inventory_creation
         df_distribution, total_presence = Citizen_inventory_creation(archetype_to_analyze, population)
         # Citizen_distribution_in_families
-        df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes)
+        df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, stats_synpop, citizen_archetypes, family_archetypes)
         # Utilities_assignment
         df_families, df_citizens = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups)
 
@@ -139,7 +137,7 @@ def Geodata_initialization(study_area, data_path):
 
 
 
-def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, cond_archetypes, citizen_archetypes, family_archetypes, ind_arch = 'f_arch_0'):
+def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, stats_synpop, citizen_archetypes, family_archetypes, ind_arch = 'f_arch_0'):
     """
     Summary:
        Creates df for all families and citizens population, where their characteristics are described
@@ -147,7 +145,7 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
        archetype_to_fill (DataFrame): df with the archetypes data of the archetypes that can be applied
        df_distribution (DataFrame): df with info of citizens archetypes and each's population
        total_presence (int): Citizens total presence from archetype data
-       cond_archetypes (DataFrame): df with all archetypes' statistical values
+       stats_synpop (DataFrame): df with all archetypes' statistical values
        ind_arch (str, optional): Archetype name on which individuals (families with just one citizen) 
       exists. If individial homes are an archetype different from 'f_arch_0', especify here under variable 'ind_arch'.
     Returns:
@@ -204,13 +202,13 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
         # consumes from the available sample.
         merged_df = process_arch_to_fill(archetype_to_fill, arch_to_fill, df_distribution)
         
-        # For the case of the individual family, the usage of cond_archetypes is a bit different than in the rest
+        # For the case of the individual family, the usage of stats_synpop is a bit different than in the rest
         if arch_to_fill == ind_arch:
             # merged_result is created to work with this new paradigma
             merged_result = (
                 merged_df[merged_df['participants'].str.contains(r'\*', na=False)]
                 .merge(
-                    cond_archetypes[cond_archetypes['item_1'] == ind_arch],
+                    stats_synpop[stats_synpop['item_1'] == ind_arch],
                     left_on='name',
                     right_on='item_2',
                     how='inner'
@@ -234,7 +232,7 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': citizen_description}
             df_part_citizens.loc[len(df_part_citizens)] = new_row
             
-        # For the case of the colective families, the usage of cond_archetypes is conventional
+        # For the case of the colective families, the usage of stats_synpop is conventional
         else:
             # merged_df is analyzed row by row
             for idx in merged_df.index:
@@ -243,9 +241,9 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
                 if pd.notna(row['participants']):
                     ## Statistic value application
                     valor = row['participants']
-                    # If value is '*' then 'cond_archetypes' is consulted to get statistical values
+                    # If value is '*' then 'stats_synpop' is consulted to get statistical values
                     if isinstance(valor, str) and valor.strip() == '*':
-                        row_2 = cond_archetypes[(cond_archetypes['item_1'] == arch_to_fill) & (cond_archetypes['item_2'] == row['name'])]
+                        row_2 = stats_synpop[(stats_synpop['item_1'] == arch_to_fill) & (stats_synpop['item_2'] == row['name'])]
                         # Assing an statistical value (stochastically)
                         stat_value = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
                         # If assigned value is out of min and max assign min or max
@@ -289,8 +287,8 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
                             cols_with_star = [col for col in fila.columns if fila.iloc[0][col] == '*']
                             # Issue family archetype name is saved
                             name_value = fila.iloc[0]['name']
-                            # cond_archetypes gets filtered so we only work this the needed data
-                            filtered_df = cond_archetypes[(cond_archetypes['item_1'] == name_value) & (cond_archetypes['item_2'].isin(cols_with_star))][['item_2', 'min']]
+                            # stats_synpop gets filtered so we only work this the needed data
+                            filtered_df = stats_synpop[(stats_synpop['item_1'] == name_value) & (stats_synpop['item_2'].isin(cols_with_star))][['item_2', 'min']]
                             # All values with '*' of this family are evaluated
                             for idy in filtered_df.index:
                                 # If the issue comes from a '*' which assigned value is higher than 'min' for that value, AND that min suits into the population
@@ -333,15 +331,27 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
     return df_distribution, df_citizens, df_families  
 
 def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups):
-    # Filtramos los valores posibles de 'name' donde 'group' es 'home'
+    # Filtramos los valores posibles de 'osm_id' donde 'service_group' es 'home'
     home_ids = services_groups[services_groups['service_group'] == 'home']['osm_id'].tolist()
-    # Asignamos un valor aleatorio de home_names a cada fila en df_families
+
+    # Inicializamos una copia barajada de home_ids
+    shuffled_home_ids = random.sample(home_ids, len(home_ids))
+    counter = 0  # contador para avanzar en la lista barajada
+
+    # Asignamos un valor de shuffled_home_ids a cada fila en df_families
     for idx in range(len(df_families)):
-        home_id = random.choice(home_ids)
+        # Si hemos usado todos los home_ids, barajamos de nuevo
+        if counter >= len(shuffled_home_ids):
+            shuffled_home_ids = random.sample(home_ids, len(home_ids))
+            counter = 0
+
+        home_id = shuffled_home_ids[counter]
         df_families.at[idx, 'home'] = home_id
         df_families.at[idx, 'home_type'] = services_groups.loc[
             services_groups['osm_id'] == home_id, 'building_type'
-        ].values[0]  # Esto obtiene el nombre correspondiente
+        ].values[0]
+        
+        counter += 1  # avanzamos al siguiente
     
     # Asignar familia a cada ciudadano
     df_citizens['family'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'name'))
@@ -353,9 +363,10 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
     for idx in range(len(df_citizens)):
         work_id = random.choice(work_ids)
         df_citizens.at[idx, 'WoS'] = work_id
-        df_citizens.at[idx, 'WoS_type'] = services_groups.loc[
+        df_citizens.at[idx, 'WoS_subgroup'] = services_groups.loc[
             services_groups['osm_id'] == work_id, 'building_type'
         ].values[0]  # Esto obtiene el nombre correspondiente
+        df_citizens.at[idx, 'WoS_type'] = work_id
 
     return df_families, df_citizens
 
@@ -436,18 +447,18 @@ def services_groups_creation(df):
     
     return group_dicts
 
-def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
+def add_matches_to_stats_synpop(stats_synpop, df, name_column='name'):
     """
     Summary:
-       Search for any '*' in the DataFrame 'df' and add the row and column namen into 'cond_archetypes', so all statistical
-      dependant situations are mapped on 'cond_archetypes'.
+       Search for any '*' in the DataFrame 'df' and add the row and column namen into 'stats_synpop', so all statistical
+      dependant situations are mapped on 'stats_synpop'.
     Args:
-       cond_archetypes (DataFrame): df with some archetypes' statistical values
+       stats_synpop (DataFrame): df with some archetypes' statistical values
        df (DataFrame): DataFrame to analyse
        name_column (str, optional): describes how the column on which names of the archetypes are saved. In case of 
       any difference with the standar value, add the new str here.
     Returns:
-       cond_archetypes (DataFrame): updated df with more archetypes' statistical values
+       stats_synpop (DataFrame): updated df with more archetypes' statistical values
     """
     for col in df.columns:
         # Saltar la columna 'name' ya que no es relevante para la búsqueda del '*'
@@ -462,11 +473,11 @@ def add_matches_to_cond_archetypes(cond_archetypes, df, name_column='name'):
             if '*' in value_str:
                 # Obtener el valor de 'name' y la columna actual, manejando posibles valores NaN
                 name_value = df.loc[index, name_column] if pd.notna(df.loc[index, name_column]) else "Unknown"
-                # Añadir al DataFrame cond_archetypes
-                cond_archetypes.loc[len(cond_archetypes)] = [name_value, col, None, None, None, None]
-    return cond_archetypes
+                # Añadir al DataFrame stats_synpop
+                stats_synpop.loc[len(stats_synpop)] = [name_value, col, None, None, None, None]
+    return stats_synpop
 
-def create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetypes): # Most probably, we should adapt this for getting all df needed, not just the specific two
+def create_stats_synpop(archetypes_path, citizen_archetypes, family_archetypes): # Most probably, we should adapt this for getting all df needed, not just the specific two
     """
     Summary:
        It detects all the statistical dependence values and makes a table with two columns (item_1 and item_2) that
@@ -478,10 +489,10 @@ def create_cond_archetypes(archetypes_path, citizen_archetypes, family_archetype
         family_archetypes (DataFrame): df with all families' archetype data
     """
     
-    cond_archetypes = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma', 'min', 'max'])
-    cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, citizen_archetypes)
-    cond_archetypes = add_matches_to_cond_archetypes(cond_archetypes, family_archetypes)
-    cond_archetypes.to_excel(archetypes_path/'cond_archetypes.xlsx', index=False)
+    stats_synpop = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma', 'min', 'max'])
+    stats_synpop = add_matches_to_stats_synpop(stats_synpop, citizen_archetypes)
+    stats_synpop = add_matches_to_stats_synpop(stats_synpop, family_archetypes)
+    stats_synpop.to_excel(archetypes_path/'stats_synpop.xlsx', index=False)
 
 def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch):
     """
@@ -593,11 +604,11 @@ def get_osm_elements(area_name, poss_ref):
         
         # Añadir los datos con la estructura personalizada
         filtered_data.append({
-            'building_type':building_type_name,
+            'building_type': building_type_name,
             'osm_id': osmid_reformed,
             'geometry': row['geometry'],
-            'lat': row['geometry'].centroid.y if row['geometry'] is not None else None,
-            'lon': row['geometry'].centroid.x if row['geometry'] is not None else None,
+            'lat': row['geometry'].centroid.y if row['geometry'] and not row['geometry'].is_empty else None,
+            'lon': row['geometry'].centroid.x if row['geometry'] and not row['geometry'].is_empty else None,
         })
 
     # Convertir a DataFrame final
