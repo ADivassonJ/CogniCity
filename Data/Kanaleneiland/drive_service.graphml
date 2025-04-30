@@ -1669,7 +1669,7 @@
     <edge id="0" source="45078564" target="3305107369">
       <data key="d8">[7053360, 7053461]</data>
       <data key="d9">Van Rensselaerlaan</data>
-      <data key="d10">['unclassified', 'residential']</data>
+      <data key="d10">['residential', 'unclassified']</data>
       <data key="d11">50</data>
       <data key="d12">False</data>
       <data key="d13">83.002</data>
@@ -3683,7 +3683,7 @@
     <edge id="0" source="1308361251" target="1308361723">
       <data key="d8">[115929475, 115929452, 115929374]</data>
       <data key="d10">service</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">134.52100000000002</data>
       <data key="d18">no</data>
@@ -3737,7 +3737,7 @@
       <data key="d8">[115929235, 115929470]</data>
       <data key="d9">Hannolaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">48.165</data>
       <data key="d14">LINESTRING (5.0977095 52.0657748, 5.0976196 52.0657434, 5.0975851 52.0657314, 5.097097 52.0655607)</data>
@@ -3764,7 +3764,7 @@
       <data key="d8">[115929651, 115929662]</data>
       <data key="d9">Amerikalaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">31.515</data>
       <data key="d14">LINESTRING (5.0948624 52.0718225, 5.0949742 52.071862, 5.0950267 52.0718805, 5.0952622 52.0719637)</data>
@@ -3790,7 +3790,7 @@
       <data key="d8">[115929361, 115929250]</data>
       <data key="d9">Afrikalaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">164.189</data>
       <data key="d14">LINESTRING (5.0962298 52.0703368, 5.0961181 52.0702957, 5.0959616 52.0702406, 5.0955366 52.0700909, 5.0948244 52.0698367, 5.0945651 52.069745, 5.0941515 52.0695964)</data>
@@ -3808,7 +3808,7 @@
       <data key="d8">[115929754, 115929683]</data>
       <data key="d9">Afrikalaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">78.595</data>
       <data key="d14">LINESTRING (5.0962298 52.0703368, 5.0963906 52.0703917, 5.0968529 52.0705545, 5.0972288 52.0706868)</data>
@@ -3852,7 +3852,7 @@
       <data key="d8">[115929714, 115929667]</data>
       <data key="d9">Marco Pololaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">59.608000000000004</data>
       <data key="d14">LINESTRING (5.0971798 52.0693256, 5.0972967 52.0691997, 5.0975484 52.0689285, 5.0975978 52.0688753, 5.097612 52.06886)</data>
@@ -4312,7 +4312,7 @@
       <data key="d8">[115929744, 115929545]</data>
       <data key="d9">Jan Cornelisz Maylaan</data>
       <data key="d10">unclassified</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">50.577</data>
       <data key="d14">LINESTRING (5.0955348 52.071098, 5.0954378 52.0710641, 5.0953947 52.071049, 5.09526 52.0710011, 5.0948918 52.0708729)</data>
@@ -4476,8 +4476,8 @@
     <edge id="0" source="1308362108" target="1308362629">
       <data key="d8">[115929662, 115929238]</data>
       <data key="d9">Amerikalaan</data>
-      <data key="d10">['unclassified', 'residential']</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d10">['residential', 'unclassified']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">68.82</data>
       <data key="d14">LINESTRING (5.0979485 52.0728895, 5.0978845 52.0728676, 5.0978317 52.0728501, 5.0974449 52.0727234, 5.0974331 52.0727195, 5.0970658 52.0725918)</data>
@@ -5014,7 +5014,7 @@
     <edge id="0" source="1308362629" target="1308362108">
       <data key="d8">[115929238, 115929662]</data>
       <data key="d9">Amerikalaan</data>
-      <data key="d10">['unclassified', 'residential']</data>
+      <data key="d10">['residential', 'unclassified']</data>
       <data key="d11">['30', '50']</data>
       <data key="d12">False</data>
       <data key="d13">68.82</data>
@@ -5078,7 +5078,7 @@
       <data key="d8">[115929285, 115929269]</data>
       <data key="d9">Aziëlaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">96.449</data>
       <data key="d14">LINESTRING (5.0990905 52.0642955, 5.0989964 52.0642625, 5.0989636 52.064251, 5.0986771 52.0641504, 5.0978651 52.0638656)</data>
@@ -5087,7 +5087,7 @@
       <data key="d8">[115929760, 115929285]</data>
       <data key="d9">Aziëlaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">164.159</data>
       <data key="d14">LINESTRING (5.0990905 52.0642955, 5.0991659 52.064322, 5.0992026 52.0643349, 5.0997355 52.0645219, 5.0997758 52.064536, 5.1003596 52.064732, 5.1008304 52.064907, 5.1011032 52.0650028, 5.1011754 52.0650277)</data>
@@ -5281,7 +5281,7 @@
       <data key="d8">[115929405, 115929502]</data>
       <data key="d9">Torreslaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">137.236</data>
       <data key="d14">LINESTRING (5.0983943 52.0650413, 5.0984593 52.0650638, 5.0984825 52.0650719, 5.0989454 52.0652331, 5.0992731 52.0653471, 5.0990248 52.0656142, 5.0987781 52.0658797)</data>
@@ -5806,7 +5806,7 @@
       <data key="d8">[115929612, 115929270]</data>
       <data key="d9">Cooklaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">69.154</data>
       <data key="d14">LINESTRING (5.0978996 52.0655713, 5.0979709 52.0655963, 5.0979933 52.0656042, 5.0987781 52.0658797)</data>
@@ -5895,7 +5895,7 @@
       <data key="d8">[115929520, 843406865, 115929314]</data>
       <data key="d9">Vasco da Gamalaan</data>
       <data key="d10">unclassified</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">156.369</data>
       <data key="d14">LINESTRING (5.0971936 52.0663274, 5.0972786 52.0663578, 5.0973148 52.0663707, 5.098168 52.0666754, 5.0991716 52.0670338)</data>
@@ -5904,7 +5904,7 @@
       <data key="d8">[843406867, 550935348]</data>
       <data key="d9">Columbuslaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">118.618</data>
       <data key="d14">LINESTRING (5.0971936 52.0663274, 5.0970719 52.0664578, 5.0969514 52.0665869, 5.0963836 52.0671951, 5.0963301 52.0672527)</data>
@@ -6099,7 +6099,7 @@
       <data key="d11">15</data>
       <data key="d17">alley</data>
       <data key="d13">152.258</data>
-      <data key="d18">['destination', 'no']</data>
+      <data key="d18">['no', 'destination']</data>
       <data key="d14">LINESTRING (5.0987036 52.0610926, 5.0987198 52.0611746, 5.0986799 52.0614159, 5.0986521 52.0616221, 5.0984048 52.0618676, 5.0981614 52.061978, 5.0978775 52.0621153, 5.0976817 52.0621876)</data>
     </edge>
     <edge id="0" source="3301632177" target="3301632174">
@@ -6249,7 +6249,7 @@
       <data key="d8">[7053360, 7053461]</data>
       <data key="d12">False</data>
       <data key="d9">Van Rensselaerlaan</data>
-      <data key="d10">['unclassified', 'residential']</data>
+      <data key="d10">['residential', 'unclassified']</data>
       <data key="d11">50</data>
       <data key="d13">83.00200000000001</data>
       <data key="d14">LINESTRING (5.1007188 52.0615386, 5.1007466 52.0616261, 5.1008148 52.0618382, 5.100829 52.0618821, 5.1009209 52.062176, 5.1009242 52.0621853, 5.1009352 52.0622165, 5.1009394 52.0622363, 5.1009404 52.0622558, 5.1009384 52.0622719)</data>
@@ -6691,7 +6691,7 @@
       <data key="d8">[7061313, 845188063]</data>
       <data key="d9">Van Heuven Goedhartlaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">75.006</data>
       <data key="d15">3</data>
@@ -6700,7 +6700,7 @@
     <edge id="0" source="7650644828" target="6345192605">
       <data key="d8">[697587208, 7058423]</data>
       <data key="d12">True</data>
-      <data key="d15">['4', '2']</data>
+      <data key="d15">['2', '4']</data>
       <data key="d9">Beneluxlaan</data>
       <data key="d10">secondary</data>
       <data key="d11">50</data>
@@ -6728,8 +6728,8 @@
     <edge id="0" source="7660828174" target="7660926605">
       <data key="d8">[828241098, 155257150]</data>
       <data key="d9">Van Heuven Goedhartplein</data>
-      <data key="d10">['service', 'residential']</data>
-      <data key="d11">['15', '50']</data>
+      <data key="d10">['residential', 'service']</data>
+      <data key="d11">['50', '15']</data>
       <data key="d12">False</data>
       <data key="d13">165.03899999999996</data>
       <data key="d15">1</data>
@@ -6742,7 +6742,7 @@
       <data key="d12">False</data>
       <data key="d15">1</data>
       <data key="d9">Van Heuven Goedhartplein</data>
-      <data key="d10">['service', 'residential']</data>
+      <data key="d10">['residential', 'service']</data>
       <data key="d11">['50', '15']</data>
       <data key="d17">driveway</data>
       <data key="d18">yes</data>
@@ -7268,7 +7268,7 @@
       <data key="d13">34.947</data>
       <data key="d14">LINESTRING (5.103439 52.0637761, 5.1036653 52.0637474, 5.1039424 52.0637221)</data>
     </edge>
-    <data key="d0">2025-04-24 11:48:48</data>
+    <data key="d0">2025-04-30 12:48:35</data>
     <data key="d1">OSMnx 1.1.2</data>
     <data key="d2">epsg:4326</data>
     <data key="d3">True</data>

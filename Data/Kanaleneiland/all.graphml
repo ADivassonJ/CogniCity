@@ -8537,7 +8537,7 @@
       <data key="d8">[288100700, 1340889749]</data>
       <data key="d12">False</data>
       <data key="d9">Hammarskjöldhof</data>
-      <data key="d10">['pedestrian', 'footway']</data>
+      <data key="d10">['footway', 'pedestrian']</data>
       <data key="d13">41.193000000000005</data>
       <data key="d14">LINESTRING (5.0953032 52.0744412, 5.0956438 52.0745619, 5.0958162 52.074623, 5.0958252 52.0746264)</data>
     </edge>
@@ -8585,7 +8585,7 @@
     <edge id="0" source="45129392" target="408503423">
       <data key="d8">[7061401, 34857779]</data>
       <data key="d9">Nansenlaan</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d11">30</data>
       <data key="d12">False</data>
       <data key="d13">88.457</data>
@@ -8610,7 +8610,7 @@
     <edge id="0" source="45130209" target="10044686457">
       <data key="d8">[27057089, 7061358]</data>
       <data key="d9">Monnetlaan</data>
-      <data key="d10">['service', 'residential']</data>
+      <data key="d10">['residential', 'service']</data>
       <data key="d11">30</data>
       <data key="d12">False</data>
       <data key="d13">148.654</data>
@@ -8770,7 +8770,7 @@
     <edge id="0" source="45132651" target="315732873">
       <data key="d8">[28717184, 7061538]</data>
       <data key="d9">De Gasperilaan</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d11">30</data>
       <data key="d12">False</data>
       <data key="d13">36.117000000000004</data>
@@ -8796,7 +8796,7 @@
     <edge id="0" source="45133174" target="10164012461">
       <data key="d8">[7061538, 1110894055]</data>
       <data key="d9">De Gasperilaan</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d11">30</data>
       <data key="d12">False</data>
       <data key="d13">26.822000000000003</data>
@@ -9476,7 +9476,7 @@
     <edge id="0" source="45146943" target="7725370366">
       <data key="d8">[7061354, 827478362]</data>
       <data key="d9">['Pearsonhof', 'Pearsonlaan']</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d11">30</data>
       <data key="d12">False</data>
       <data key="d13">23.803</data>
@@ -9681,7 +9681,7 @@
     <edge id="0" source="45150200" target="10183181782">
       <data key="d8">[1113008910, 1113008911]</data>
       <data key="d9">Pearsonlaan</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
@@ -9750,7 +9750,7 @@
     <edge id="0" source="45155173" target="2661999916">
       <data key="d8">[519058975, 519058980, 260680055]</data>
       <data key="d12">True</data>
-      <data key="d15">['4', '3', '2']</data>
+      <data key="d15">['3', '2', '4']</data>
       <data key="d9">Dominee Martin Luther Kinglaan</data>
       <data key="d10">primary</data>
       <data key="d11">50</data>
@@ -9783,7 +9783,7 @@
     <edge id="0" source="242837383" target="3305107369">
       <data key="d8">[7053360, 7053461]</data>
       <data key="d9">Van Rensselaerlaan</data>
-      <data key="d10">['unclassified', 'residential']</data>
+      <data key="d10">['residential', 'unclassified']</data>
       <data key="d11">50</data>
       <data key="d12">False</data>
       <data key="d13">76.818</data>
@@ -10257,7 +10257,7 @@
     </edge>
     <edge id="0" source="247116130" target="247116156">
       <data key="d8">[22941067, 288100700, 288805847]</data>
-      <data key="d10">['footway', 'pedestrian']</data>
+      <data key="d10">['pedestrian', 'footway']</data>
       <data key="d12">False</data>
       <data key="d13">51.878</data>
       <data key="d9">Hammarskjöldhof</data>
@@ -10328,7 +10328,7 @@
       <data key="d8">[22941067, 288100700, 288805847]</data>
       <data key="d12">False</data>
       <data key="d9">Hammarskjöldhof</data>
-      <data key="d10">['pedestrian', 'footway']</data>
+      <data key="d10">['footway', 'pedestrian']</data>
       <data key="d13">51.87799999999999</data>
       <data key="d14">LINESTRING (5.094206 52.0740522, 5.0941417 52.0740294, 5.094122 52.0740481, 5.0941085 52.0740634, 5.0936699 52.0739158, 5.0937132 52.0738713, 5.0936814 52.0738611)</data>
     </edge>
@@ -12604,7 +12604,7 @@
     </edge>
     <edge id="0" source="315732873" target="45132651">
       <data key="d8">[28717184, 7061538]</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d12">False</data>
       <data key="d13">36.117000000000004</data>
       <data key="d9">De Gasperilaan</data>
@@ -12754,7 +12754,7 @@
     </edge>
     <edge id="0" source="315732903" target="10182543719">
       <data key="d8">[28551349, 28717191]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
       <data key="d13">33.336999999999996</data>
@@ -12776,7 +12776,7 @@
     </edge>
     <edge id="0" source="315732906" target="315732906">
       <data key="d8">[28717192, 28551348]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
       <data key="d13">49.689</data>
@@ -12845,7 +12845,7 @@
     </edge>
     <edge id="0" source="408503408" target="408503434">
       <data key="d8">[1114917512, 34857775]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
       <data key="d13">34.513999999999996</data>
@@ -12932,7 +12932,7 @@
     </edge>
     <edge id="0" source="408503423" target="45129392">
       <data key="d8">[7061401, 34857779]</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d12">False</data>
       <data key="d13">88.457</data>
       <data key="d9">Nansenlaan</data>
@@ -13332,7 +13332,7 @@
     </edge>
     <edge id="0" source="408503484" target="408503484">
       <data key="d8">[34857797, 34857798]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">51.55500000000001</data>
@@ -13623,7 +13623,7 @@
     </edge>
     <edge id="0" source="408774768" target="408773866">
       <data key="d8">[34868994, 34868932]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
       <data key="d13">101.955</data>
@@ -14012,7 +14012,7 @@
     </edge>
     <edge id="0" source="1308361217" target="1308362061">
       <data key="d8">[115929448, 115929490]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
@@ -14104,7 +14104,7 @@
     </edge>
     <edge id="0" source="1308361227" target="1308361364">
       <data key="d8">[115929484, 115929527]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
@@ -14246,7 +14246,7 @@
     <edge id="0" source="1308361251" target="1308361723">
       <data key="d8">[115929475, 115929452, 115929374]</data>
       <data key="d10">service</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">134.52100000000002</data>
       <data key="d18">no</data>
@@ -14391,7 +14391,7 @@
       <data key="d8">[115929235, 115929470]</data>
       <data key="d9">Hannolaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">48.165</data>
       <data key="d14">LINESTRING (5.0977095 52.0657748, 5.0976196 52.0657434, 5.0975851 52.0657314, 5.097097 52.0655607)</data>
@@ -14433,7 +14433,7 @@
       <data key="d8">[115929651, 115929662]</data>
       <data key="d9">Amerikalaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">31.515</data>
       <data key="d14">LINESTRING (5.0948624 52.0718225, 5.0949742 52.071862, 5.0950267 52.0718805, 5.0952622 52.0719637)</data>
@@ -14818,7 +14818,7 @@
       <data key="d8">[115929361, 115929250]</data>
       <data key="d9">Afrikalaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">21.225</data>
       <data key="d14">LINESTRING (5.0962298 52.0703368, 5.0961181 52.0702957, 5.0959616 52.0702406)</data>
@@ -14827,7 +14827,7 @@
       <data key="d8">[115929754, 115929683]</data>
       <data key="d9">Afrikalaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">48.989000000000004</data>
       <data key="d14">LINESTRING (5.0962298 52.0703368, 5.0963906 52.0703917, 5.0968529 52.0705545)</data>
@@ -15289,7 +15289,7 @@
     </edge>
     <edge id="0" source="1308361380" target="1308362613">
       <data key="d8">[115929291, 115929743]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
@@ -15591,7 +15591,7 @@
     </edge>
     <edge id="0" source="1308361426" target="10152161631">
       <data key="d8">[115929624, 1109715292]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
@@ -17658,7 +17658,7 @@
       <data key="d8">[115929744, 115929545]</data>
       <data key="d9">Jan Cornelisz Maylaan</data>
       <data key="d10">unclassified</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">21.654</data>
       <data key="d14">LINESTRING (5.0955348 52.071098, 5.0954378 52.0710641, 5.0953947 52.071049, 5.09526 52.0710011)</data>
@@ -18689,7 +18689,7 @@
     </edge>
     <edge id="0" source="1308362200" target="1308362057">
       <data key="d8">[115929752, 115929481]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
@@ -19203,7 +19203,7 @@
     </edge>
     <edge id="0" source="1308362365" target="1308362786">
       <data key="d8">[115929320, 115929729]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
@@ -20445,8 +20445,8 @@
     <edge id="0" source="1308362610" target="10158122078">
       <data key="d8">[115929662, 115929238]</data>
       <data key="d9">Amerikalaan</data>
-      <data key="d10">['unclassified', 'residential']</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d10">['residential', 'unclassified']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">34.056</data>
       <data key="d14">LINESTRING (5.0978845 52.0728676, 5.0978317 52.0728501, 5.0974449 52.0727234)</data>
@@ -20607,7 +20607,7 @@
     </edge>
     <edge id="0" source="1308362628" target="1308361338">
       <data key="d8">[115929282, 115929710]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
@@ -21034,7 +21034,7 @@
       <data key="d8">[115929285, 115929269]</data>
       <data key="d9">Aziëlaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">32.542</data>
       <data key="d14">LINESTRING (5.0990905 52.0642955, 5.0989964 52.0642625, 5.0989636 52.064251, 5.0986771 52.0641504)</data>
@@ -21043,7 +21043,7 @@
       <data key="d8">[115929760, 115929285]</data>
       <data key="d9">Aziëlaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">50.772999999999996</data>
       <data key="d14">LINESTRING (5.0990905 52.0642955, 5.0991659 52.064322, 5.0992026 52.0643349, 5.0997355 52.0645219)</data>
@@ -21325,7 +21325,7 @@
     </edge>
     <edge id="0" source="1308362721" target="1308362677">
       <data key="d8">[115929644, 115929702]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
@@ -21716,7 +21716,7 @@
       <data key="d8">[115929405, 115929502]</data>
       <data key="d9">Torreslaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">43.29</data>
       <data key="d14">LINESTRING (5.0983943 52.0650413, 5.0984593 52.0650638, 5.0984825 52.0650719, 5.0989454 52.0652331)</data>
@@ -21739,7 +21739,7 @@
       <data key="d8">[115929714, 115929667]</data>
       <data key="d9">Marco Pololaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">43.489000000000004</data>
       <data key="d14">LINESTRING (5.0972967 52.0691997, 5.0975484 52.0689285, 5.0975978 52.0688753, 5.097612 52.06886)</data>
@@ -21798,7 +21798,7 @@
     </edge>
     <edge id="0" source="1308362786" target="12242007966">
       <data key="d8">[115929648, 115929281, 115929682, 115929557]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">alley</data>
       <data key="d18">permissive</data>
       <data key="d12">False</data>
@@ -22454,7 +22454,7 @@
     </edge>
     <edge id="0" source="1308362854" target="1308361413">
       <data key="d8">[115929433, 115929737]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
@@ -22857,7 +22857,7 @@
     </edge>
     <edge id="0" source="1308362902" target="1308362821">
       <data key="d8">[1110395068, 115929533]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
@@ -23748,7 +23748,7 @@
       <data key="d8">[115929612, 115929270]</data>
       <data key="d9">Cooklaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">69.154</data>
       <data key="d14">LINESTRING (5.0978996 52.0655713, 5.0979709 52.0655963, 5.0979933 52.0656042, 5.0987781 52.0658797)</data>
@@ -24177,7 +24177,7 @@
       <data key="d8">[115929520, 115929314]</data>
       <data key="d9">Vasco da Gamalaan</data>
       <data key="d10">unclassified</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">77.031</data>
       <data key="d14">LINESTRING (5.0971936 52.0663274, 5.0972786 52.0663578, 5.0973148 52.0663707, 5.098168 52.0666754)</data>
@@ -24186,7 +24186,7 @@
       <data key="d8">[843406867, 550935348]</data>
       <data key="d9">Columbuslaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">118.618</data>
       <data key="d14">LINESTRING (5.0971936 52.0663274, 5.0970719 52.0664578, 5.0969514 52.0665869, 5.0963836 52.0671951, 5.0963301 52.0672527)</data>
@@ -24450,7 +24450,7 @@
     </edge>
     <edge id="0" source="1308363186" target="1308362966">
       <data key="d8">[115929688, 115929282]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
@@ -24717,7 +24717,7 @@
     </edge>
     <edge id="0" source="1308363269" target="8490059440">
       <data key="d8">[913969496, 913969495]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
@@ -24867,7 +24867,7 @@
     </edge>
     <edge id="0" source="1308363291" target="1308362607">
       <data key="d8">[115929448, 115929519]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
@@ -24900,7 +24900,7 @@
     </edge>
     <edge id="0" source="1308363292" target="1308362232">
       <data key="d8">[115929528, 115929449]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
@@ -25635,7 +25635,7 @@
       <data key="d11">15</data>
       <data key="d16">alley</data>
       <data key="d13">152.258</data>
-      <data key="d18">['destination', 'no']</data>
+      <data key="d18">['no', 'destination']</data>
       <data key="d14">LINESTRING (5.0987036 52.0610926, 5.0987198 52.0611746, 5.0986799 52.0614159, 5.0986521 52.0616221, 5.0984048 52.0618676, 5.0981614 52.061978, 5.0978775 52.0621153, 5.0976817 52.0621876)</data>
     </edge>
     <edge id="0" source="3301632177" target="3301632174">
@@ -25783,7 +25783,7 @@
       <data key="d8">[7053360, 7053461]</data>
       <data key="d12">False</data>
       <data key="d9">Van Rensselaerlaan</data>
-      <data key="d10">['unclassified', 'residential']</data>
+      <data key="d10">['residential', 'unclassified']</data>
       <data key="d11">50</data>
       <data key="d13">76.81800000000001</data>
       <data key="d14">LINESTRING (5.1007188 52.0615386, 5.1007466 52.0616261, 5.1008148 52.0618382, 5.100829 52.0618821, 5.1009209 52.062176, 5.1009242 52.0621853, 5.1009352 52.0622165)</data>
@@ -26261,7 +26261,7 @@
     <edge id="0" source="3771075021" target="3771075024">
       <data key="d8">[373684016, 373684014, 373684015]</data>
       <data key="d9">Amerikalaan</data>
-      <data key="d10">['steps', 'residential']</data>
+      <data key="d10">['residential', 'steps']</data>
       <data key="d11">['30', '50']</data>
       <data key="d17">3.5</data>
       <data key="d12">False</data>
@@ -26295,8 +26295,8 @@
     <edge id="0" source="3771075024" target="3771075021">
       <data key="d8">[373684016, 373684014, 373684015]</data>
       <data key="d9">Amerikalaan</data>
-      <data key="d10">['steps', 'residential']</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d10">['residential', 'steps']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">120.764</data>
       <data key="d17">3.5</data>
@@ -26438,7 +26438,7 @@
     <edge id="0" source="4316421785" target="10196644468">
       <data key="d8">[1114849052, 432686477]</data>
       <data key="d9">Trumanhof</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d11">30</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
@@ -27974,7 +27974,7 @@
       <data key="d12">False</data>
       <data key="d15">1</data>
       <data key="d9">Van Heuven Goedhartplein</data>
-      <data key="d10">['service', 'residential']</data>
+      <data key="d10">['residential', 'service']</data>
       <data key="d11">['50', '15']</data>
       <data key="d16">driveway</data>
       <data key="d18">yes</data>
@@ -28241,7 +28241,7 @@
       <data key="d8">[7061313, 845188063]</data>
       <data key="d9">Van Heuven Goedhartlaan</data>
       <data key="d10">residential</data>
-      <data key="d11">['30', '50']</data>
+      <data key="d11">['50', '30']</data>
       <data key="d12">False</data>
       <data key="d13">64.295</data>
       <data key="d15">3</data>
@@ -28297,7 +28297,7 @@
     </edge>
     <edge id="0" source="7725370355" target="10183181784">
       <data key="d8">[1113008912, 827478364]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">23.953</data>
@@ -28338,7 +28338,7 @@
     </edge>
     <edge id="0" source="7725370363" target="10183181787">
       <data key="d8">[1113008913, 827478359]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">23.67</data>
@@ -28353,7 +28353,7 @@
     <edge id="0" source="7725370366" target="45146943">
       <data key="d8">[827478362, 7061354]</data>
       <data key="d9">['Pearsonhof', 'Pearsonlaan']</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d12">False</data>
       <data key="d13">23.802999999999997</data>
       <data key="d11">30</data>
@@ -28385,7 +28385,7 @@
     </edge>
     <edge id="0" source="7725370373" target="10183181789">
       <data key="d8">[827478361, 1113008914]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">23.791</data>
@@ -29142,7 +29142,7 @@
     </edge>
     <edge id="0" source="7772319514" target="9428452051">
       <data key="d8">[843406873, 22747299]</data>
-      <data key="d9">['Rooseveltboulevard-Zuid', 'Rooseveltboulevard-Noord']</data>
+      <data key="d9">['Rooseveltboulevard-Noord', 'Rooseveltboulevard-Zuid']</data>
       <data key="d10">pedestrian</data>
       <data key="d12">False</data>
       <data key="d13">148.644</data>
@@ -29190,8 +29190,8 @@
     <edge id="0" source="7772938597" target="7660926607">
       <data key="d8">[828241098, 155257150]</data>
       <data key="d9">Van Heuven Goedhartplein</data>
-      <data key="d10">['service', 'residential']</data>
-      <data key="d11">['15', '50']</data>
+      <data key="d10">['residential', 'service']</data>
+      <data key="d11">['50', '15']</data>
       <data key="d12">False</data>
       <data key="d13">81.82600000000001</data>
       <data key="d15">1</data>
@@ -29423,7 +29423,7 @@
     <edge id="0" source="7907062391" target="7908325907">
       <data key="d8">[1115980608, 7061401]</data>
       <data key="d9">Nansenlaan</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d11">30</data>
       <data key="d12">False</data>
       <data key="d13">21.588</data>
@@ -29471,7 +29471,7 @@
     <edge id="0" source="7908325907" target="7907062391">
       <data key="d8">[1115980608, 7061401]</data>
       <data key="d9">Nansenlaan</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d12">False</data>
       <data key="d13">21.588</data>
       <data key="d11">30</data>
@@ -30108,7 +30108,7 @@
     </edge>
     <edge id="0" source="8776444044" target="3677551038">
       <data key="d8">[958845699, 948140879]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d18">customers</data>
       <data key="d12">False</data>
@@ -30331,7 +30331,7 @@
     </edge>
     <edge id="0" source="9428452051" target="7772319514">
       <data key="d8">[843406873, 22747299]</data>
-      <data key="d9">['Rooseveltboulevard-Zuid', 'Rooseveltboulevard-Noord']</data>
+      <data key="d9">['Rooseveltboulevard-Noord', 'Rooseveltboulevard-Zuid']</data>
       <data key="d10">pedestrian</data>
       <data key="d12">False</data>
       <data key="d13">148.644</data>
@@ -32279,7 +32279,7 @@
     </edge>
     <edge id="0" source="10044686457" target="45130209">
       <data key="d8">[27057089, 7061358]</data>
-      <data key="d10">['service', 'residential']</data>
+      <data key="d10">['residential', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">148.654</data>
@@ -33128,7 +33128,7 @@
     <edge id="0" source="10155778945" target="10155778935">
       <data key="d8">[1110138528, 1110138526]</data>
       <data key="d9">Stanleylaan</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">26.532</data>
@@ -33241,7 +33241,7 @@
     <edge id="0" source="10155778977" target="10155778964">
       <data key="d8">[1110138532, 1110138535]</data>
       <data key="d9">Stanleylaan</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">26.567999999999998</data>
@@ -33811,7 +33811,7 @@
     <edge id="0" source="10158122077" target="10158122091">
       <data key="d8">[1110415585, 1110415601]</data>
       <data key="d9">Amerikalaan</data>
-      <data key="d10">['service', 'cycleway']</data>
+      <data key="d10">['cycleway', 'service']</data>
       <data key="d12">False</data>
       <data key="d13">45.535</data>
       <data key="d16">parking_aisle</data>
@@ -33828,7 +33828,7 @@
     <edge id="0" source="10158122078" target="1308362610">
       <data key="d8">[115929238, 115929662]</data>
       <data key="d9">Amerikalaan</data>
-      <data key="d10">['unclassified', 'residential']</data>
+      <data key="d10">['residential', 'unclassified']</data>
       <data key="d11">['30', '50']</data>
       <data key="d12">False</data>
       <data key="d13">34.056</data>
@@ -33937,7 +33937,7 @@
     <edge id="0" source="10158122091" target="10158122077">
       <data key="d8">[1110415601, 1110415585]</data>
       <data key="d9">Amerikalaan</data>
-      <data key="d10">['service', 'cycleway']</data>
+      <data key="d10">['cycleway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">45.535000000000004</data>
@@ -34387,7 +34387,7 @@
     </edge>
     <edge id="0" source="10164012461" target="45133174">
       <data key="d8">[7061538, 1110894055]</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d12">False</data>
       <data key="d13">26.822000000000003</data>
       <data key="d9">De Gasperilaan</data>
@@ -34735,7 +34735,7 @@
     <edge id="0" source="10181346335" target="10181346333">
       <data key="d8">[1112773074, 1112773075]</data>
       <data key="d9">Adenauerlaan</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">21.904</data>
@@ -34752,7 +34752,7 @@
     <edge id="0" source="10181346337" target="10181346332">
       <data key="d8">[1112773073, 1112773076]</data>
       <data key="d9">Adenauerlaan</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">21.480999999999998</data>
@@ -35577,7 +35577,7 @@
     <edge id="0" source="10183189482" target="10183189479">
       <data key="d8">[1113010426, 1113010420]</data>
       <data key="d9">Spaaklaan</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">21.85</data>
@@ -35595,7 +35595,7 @@
     <edge id="0" source="10183189484" target="10183189478">
       <data key="d8">[1113010427, 1113010421]</data>
       <data key="d9">Spaaklaan</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">21.535</data>
@@ -35613,7 +35613,7 @@
     <edge id="0" source="10183189486" target="10183189477">
       <data key="d8">[1113010428, 1113010422]</data>
       <data key="d9">Spaaklaan</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">21.34</data>
@@ -35631,7 +35631,7 @@
     <edge id="0" source="10183189488" target="10183189476">
       <data key="d8">[1113010429, 1113010423]</data>
       <data key="d9">Spaaklaan</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d16">parking_aisle</data>
       <data key="d12">False</data>
       <data key="d13">21.233999999999998</data>
@@ -35667,7 +35667,7 @@
     </edge>
     <edge id="0" source="10196644468" target="4316421785">
       <data key="d8">[1114849052, 432686477]</data>
-      <data key="d10">['footway', 'residential']</data>
+      <data key="d10">['residential', 'footway']</data>
       <data key="d12">False</data>
       <data key="d13">90.39800000000001</data>
       <data key="d9">Trumanhof</data>
@@ -35699,8 +35699,8 @@
     </edge>
     <edge id="0" source="10196644469" target="10196795711">
       <data key="d8">[828241098, 893347499, 34869982]</data>
-      <data key="d9">['Trumanplein', 'Van Heuven Goedhartplein']</data>
-      <data key="d10">['service', 'footway', 'residential']</data>
+      <data key="d9">['Van Heuven Goedhartplein', 'Trumanplein']</data>
+      <data key="d10">['residential', 'footway', 'service']</data>
       <data key="d11">15</data>
       <data key="d12">False</data>
       <data key="d13">135.6</data>
@@ -35820,8 +35820,8 @@
     </edge>
     <edge id="0" source="10196795711" target="10196644469">
       <data key="d8">[828241098, 893347499, 34869982]</data>
-      <data key="d9">['Trumanplein', 'Van Heuven Goedhartplein']</data>
-      <data key="d10">['service', 'footway', 'residential']</data>
+      <data key="d9">['Van Heuven Goedhartplein', 'Trumanplein']</data>
+      <data key="d10">['residential', 'service', 'footway']</data>
       <data key="d11">15</data>
       <data key="d12">False</data>
       <data key="d13">135.59999999999997</data>
@@ -36999,7 +36999,7 @@
     </edge>
     <edge id="0" source="12242007966" target="1308362786">
       <data key="d8">[115929648, 115929281, 115929682, 115929557]</data>
-      <data key="d10">['service', 'footway']</data>
+      <data key="d10">['footway', 'service']</data>
       <data key="d11">30</data>
       <data key="d16">alley</data>
       <data key="d12">False</data>
@@ -37604,7 +37604,7 @@
     </edge>
     <edge id="0" source="12403543566" target="45128756">
       <data key="d8">[288100700, 1340889749]</data>
-      <data key="d10">['footway', 'pedestrian']</data>
+      <data key="d10">['pedestrian', 'footway']</data>
       <data key="d12">False</data>
       <data key="d13">41.193</data>
       <data key="d9">Hammarskjöldhof</data>
@@ -37824,7 +37824,7 @@
       <data key="d13">16.898</data>
       <data key="d14">LINESTRING (5.0944616 52.0673459, 5.0943035 52.0672866, 5.0942686 52.0673181)</data>
     </edge>
-    <data key="d0">2025-04-24 11:48:39</data>
+    <data key="d0">2025-04-30 12:48:27</data>
     <data key="d1">OSMnx 1.1.2</data>
     <data key="d2">epsg:4326</data>
     <data key="d3">True</data>
