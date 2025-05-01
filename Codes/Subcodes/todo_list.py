@@ -34,8 +34,7 @@ def StoW_matrix_creation(family_df, SG_relationship_unique):
     if list_type_0.empty:
         return None
     if list_type_not_0.empty:
-        print(f'Familia {family_df["family"].iloc[0]} no tiene responsables!!!!')
-        print(family_df)
+#        print(f'Familia {family_df["family"].iloc[0]} no tiene responsables!!!!')
         return None
 
     # Crear combinaciones y calcular distancias
@@ -79,7 +78,7 @@ def main_td(df_citizens, SG_relationship):
     for family_name in df_citizens['family'].unique():
         family_df = df_citizens[df_citizens['family'] == family_name]
         df_family_result = assign_responsable(family_df, SG_relationship_unique)
-        
+        print(df_family_result)
         if df_family_result is not None:
             results = pd.concat([results, df_family_result], ignore_index=True)
         else:
@@ -98,6 +97,7 @@ def main_td(df_citizens, SG_relationship):
                 route = [family_member['WoS']] + related_wos
                 routes.append({'agent': family_member['name'], 'route': route})
         routes_df = pd.DataFrame(routes)
+        print(routes_df)
     # Unir todos los resultados
     if not results.empty:
         final_df = results
