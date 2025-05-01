@@ -227,7 +227,7 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
             # The non selected archetypes are added as 0 while the selected one as 1
             merged_df.loc[:, 'participants'] = np.where(merged_df['name'] == random_choice, 1, 0)
             # The data for the new citizen is created   
-            citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
+            citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == random_choice, 'description'].values[0]
             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': citizen_description}
             df_part_citizens.loc[len(df_part_citizens)] = new_row
             
@@ -282,8 +282,6 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
                                     for _ in range(int(merged_df.at[idx, 'participants'])):
                                         # Citizens are created
                                         citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
-                                        if citizen_archetypes['name'] != 'c_arch_4' & citizen_description == 'youth':
-                                            print('no se que acaba de pasar')
                                         new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': citizen_description}
                                         df_part_citizens.loc[len(df_part_citizens)] = new_row
                                 # If the issue comes from a '*' which assigned value is higher than 'min' for that value, BUT that min DOES NOT suit into the 
