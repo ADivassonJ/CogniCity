@@ -70,13 +70,12 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
         # Citizen_distribution_in_families
         df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, stats_synpop, citizen_archetypes, family_archetypes)
         # Utilities_assignment
-        df_families, df_citizens = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups)
+        df_families, df_citizens = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop)
 
         print(f"        Saving data ...")
         df_distribution.to_excel(f'{study_area_path}/df_distribution.xlsx', index=False)
         df_families.to_excel(f'{study_area_path}/df_families.xlsx', index=False)
         df_citizens.to_excel(f'{study_area_path}/df_citizens.xlsx', index=False)
-        print(f"        [DONE] Data saved in {study_area_path}.")
 
     return df_citizens, df_families
 
@@ -240,25 +239,10 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
                 # If that row's value for participans is NaN (we dont have any archetypes of that type to distribute) we jump to next loop's act
                 if pd.notna(row['participants']):
                     ## Statistic value application
-                    valor = row['participants']
+                    value = row['participants']
                     # If value is '*' then 'stats_synpop' is consulted to get statistical values
-                    if isinstance(valor, str) and valor.strip() == '*':
-                        row_2 = stats_synpop[(stats_synpop['item_1'] == arch_to_fill) & (stats_synpop['item_2'] == row['name'])]
-                        # Assing an statistical value (stochastically)
-                        stat_value = round(np.random.normal(row_2['mu'], row_2['sigma'])[0])
-                        # If assigned value is out of min and max assign min or max
-                        if stat_value < int(row_2['min']):
-                            stat_value = int(row_2['min'])
-                        if stat_value > int(row_2['max']):
-                            stat_value = int(row_2['max'])
-                        # Sustitutes '*' by the value on 'stat_value'
-                        merged_df.at[idx, 'participants'] = stat_value
-                    else:
-                        # If it is a number (just in case) in gets swaped to int if its possible
-                        try:
-                            merged_df.at[idx, 'participants'] = int(valor)
-                        except ValueError:
-                            pass
+                    stats_value = get_stats_value(value, stats_synpop, arch_to_fill, row['name'])                 
+                    merged_df.at[idx, 'participants'] = stats_value
                     ## Fitness evaluation    
                     # If the presented famly suits on the actual population availability ...                    
                     if merged_df.at[idx, 'participants'] <= row['population']:
@@ -330,7 +314,29 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
 
     return df_distribution, df_citizens, df_families  
 
-def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups):
+def get_stats_value(value, stats_doc, item_1, item_2):
+    if str(value).strip() == '*':
+        row = stats_doc[
+            (stats_doc['item_1'] == item_1) & 
+            (stats_doc['item_2'] == item_2)
+        ]
+        if row.empty:
+            raise ValueError(f"No stats found for ({item_1}, {item_2}) in stats_doc")
+        mu = row.iloc[0]['mu']
+        sigma = row.iloc[0]['sigma']
+        min_val = row.iloc[0]['min']
+        max_val = row.iloc[0]['max']
+
+        stats_value = round(np.random.normal(mu, sigma))
+        stats_value = max(min(stats_value, int(max_val)), int(min_val))
+
+        return stats_value
+
+    return int(value)
+
+
+
+def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop):
     # Filtramos los valores posibles de 'osm_id' donde 'service_group' es 'home'
     home_ids = services_groups[services_groups['service_group'] == 'home']['osm_id'].tolist()
 
@@ -366,7 +372,9 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
         df_citizens.at[idx, 'WoS_subgroup'] = services_groups.loc[
             services_groups['osm_id'] == work_id, 'building_type'
         ].values[0]  # Esto obtiene el nombre correspondiente
-        df_citizens.at[idx, 'WoS_type'] = work_id
+        value = citizen_archetypes.loc[citizen_archetypes['name'] == df_citizens.at[idx, 'archetype'], 'WoS_type'].values[0]
+        stats_value = get_stats_value(value, stats_synpop, df_citizens.at[idx, 'archetype'], 'WoS_type')
+        df_citizens.at[idx, 'WoS_type'] = stats_value
 
     return df_families, df_citizens
 
