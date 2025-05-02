@@ -70,13 +70,14 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
     return citizen_archetypes, family_archetypes, s_archetypes, stats_synpop, transport_archetypes, stats_trans
         
         
-def Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, services_groups, study_area):
+def Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, services_groups, study_area, transport_archetypes, stats_trans):
     study_area_path = data_path / study_area
     try:
         print(f"Loading synthetic population data ...") 
         df_distribution = pd.read_excel(f'{study_area_path}/df_distribution.xlsx')
         df_families = pd.read_excel(f'{study_area_path}/df_families.xlsx')
-        df_citizens = pd.read_excel(f'{study_area_path}/df_citizens.xlsx')     
+        df_citizens = pd.read_excel(f'{study_area_path}/df_citizens.xlsx')
+        df_priv_vehicle = pd.read_excel(f'{study_area_path}/df_priv_vehicle.xlsx')
     except Exception as e:     
         print(f'    [WARNING] Data is missing.') 
         print(f'        Creating synthetic population (it might take a while) ...')
@@ -90,12 +91,13 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
         # Citizen_distribution_in_families
         df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, stats_synpop, citizen_archetypes, family_archetypes)
         # Utilities_assignment
-        df_families, df_citizens = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop)
+        df_families, df_citizens, df_priv_vehicle = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop, transport_archetypes, stats_trans)
 
         print(f"        Saving data ...")
         df_distribution.to_excel(f'{study_area_path}/df_distribution.xlsx', index=False)
         df_families.to_excel(f'{study_area_path}/df_families.xlsx', index=False)
         df_citizens.to_excel(f'{study_area_path}/df_citizens.xlsx', index=False)
+        df_priv_vehicle.to_excel(f'{study_area_path}/df_priv_vehicle.xlsx', index=False)
 
     return df_citizens, df_families
 
@@ -342,21 +344,30 @@ def get_stats_value(value, stats_doc, item_1, item_2):
         ]
         if row.empty:
             raise ValueError(f"No stats found for ({item_1}, {item_2}) in stats_doc")
-        mu = row.iloc[0]['mu']
-        sigma = row.iloc[0]['sigma']
-        min_val = row.iloc[0]['min']
-        max_val = row.iloc[0]['max']
-
-        stats_value = round(np.random.normal(mu, sigma))
-        stats_value = max(min(stats_value, int(max_val)), int(min_val))
+        
+        stats_value = computate_stats(row)
 
         return stats_value
 
     return int(value)
 
+def computate_stats(row):
+    mu = float(row['mu'])
+    sigma = float(row['sigma'])
+    min_val = int(row['min'])
+    max_val = int(row['max'])
 
+    stats_value = round(np.random.normal(mu, sigma))
+    stats_value = max(min(stats_value, max_val), min_val)
 
-def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop):
+    return stats_value
+
+def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop, transport_archetypes, stats_trans):
+    
+    variables = [col.split('_')[0] for col in transport_archetypes.columns if col.endswith('_mu')]
+    # Suponiendo que variables ya está definida en algún lado
+    df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family'] + variables)
+
     # Filtramos los valores posibles de 'osm_id' donde 'service_group' es 'home'
     home_ids = services_groups[services_groups['service_group'] == 'home']['osm_id'].tolist()
 
@@ -365,22 +376,40 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
     counter = 0  # contador para avanzar en la lista barajada
 
     # Asignamos un valor de shuffled_home_ids a cada fila en df_families
-    for idx in range(len(df_families)):
+    for _, row_df_f in df_families.iterrows():
         # Si hemos usado todos los home_ids, barajamos de nuevo
         if counter >= len(shuffled_home_ids):
             shuffled_home_ids = random.sample(home_ids, len(home_ids))
             counter = 0
 
         home_id = shuffled_home_ids[counter]
-        df_families.at[idx, 'home'] = home_id
-        df_families.at[idx, 'home_type'] = services_groups.loc[
+        row_df_f['home'] = home_id
+        row_df_f['home_type'] = services_groups.loc[
             services_groups['osm_id'] == home_id, 'building_type'
         ].values[0]
         
+        filtered_st_trans = stats_trans[stats_trans['item_1'] == row_df_f['archetype']]
+        
         counter += 1  # avanzamos al siguiente
+        
+        for _, row_fs in filtered_st_trans.iterrows():
+            stats_value = computate_stats(row_fs)
+            for new_vehicle in range(stats_value):
+                stats_variables = get_vehicle_stats(row_fs['item_2'], transport_archetypes, variables)
+                new_vehicle_row = {
+                    'name': f'priv_vehicle_{len(df_priv_vehicle)}',
+                    'archetype': row_fs['item_2'],
+                    'family': row_df_f['name']}
+                new_vehicle_row.update(stats_variables)
+                df_priv_vehicle.loc[len(df_priv_vehicle)] = new_vehicle_row
+        
+        
     
     # Asignar familia a cada ciudadano
     df_citizens['family'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'name'))
+    
+    print(df_families)
+    input()
     # Asignar hogar a cada ciudadano
     df_citizens['home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'home'))
     
@@ -396,7 +425,20 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
         stats_value = get_stats_value(value, stats_synpop, df_citizens.at[idx, 'archetype'], 'WoS_type')
         df_citizens.at[idx, 'WoS_type'] = stats_value
 
-    return df_families, df_citizens
+    return df_families, df_citizens, df_priv_vehicle
+
+def get_vehicle_stats(archetype, transport_archetypes, variables):
+    results = {}  # Usa un diccionario en lugar de lista
+
+    row = transport_archetypes[transport_archetypes['name'] == archetype]
+
+    for variable in variables:
+        mu = float(row[f'{variable}_mu'])
+        sigma = float(row[f'{variable}_sigma']) 
+
+        results[variable] = np.random.normal(mu, sigma)
+    
+    return results
 
 def Citizen_inventory_creation(df, population):
     """
@@ -732,7 +774,7 @@ def main():
     # Geodata initialization
     SG_relationship, networks_map = Geodata_initialization(study_area, data_path)
     # Synthetic population initialization
-    df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, SG_relationship, study_area)
+    df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, SG_relationship, study_area, transport_archetypes, stats_trans)
     print('#'*20, ' Initialization finalized ','#'*20)
     
 
