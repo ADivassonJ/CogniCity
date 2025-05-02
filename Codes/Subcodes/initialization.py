@@ -77,7 +77,7 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
         df_distribution = pd.read_excel(f'{study_area_path}/df_distribution.xlsx')
         df_families = pd.read_excel(f'{study_area_path}/df_families.xlsx')
         df_citizens = pd.read_excel(f'{study_area_path}/df_citizens.xlsx')
-        df_priv_vehicle = pd.read_excel(f'{study_area_path}/df_priv_vehicle.xlsx')
+        df_priv_vehicles = pd.read_excel(f'{study_area_path}/df_priv_vehicles.xlsx')
     except Exception as e:     
         print(f'    [WARNING] Data is missing.') 
         print(f'        Creating synthetic population (it might take a while) ...')
@@ -91,13 +91,13 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
         # Citizen_distribution_in_families
         df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, stats_synpop, citizen_archetypes, family_archetypes)
         # Utilities_assignment
-        df_families, df_citizens, df_priv_vehicle = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop, transport_archetypes, stats_trans)
+        df_families, df_citizens, df_priv_vehicles = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop, transport_archetypes, stats_trans)
 
         print(f"        Saving data ...")
         df_distribution.to_excel(f'{study_area_path}/df_distribution.xlsx', index=False)
         df_families.to_excel(f'{study_area_path}/df_families.xlsx', index=False)
         df_citizens.to_excel(f'{study_area_path}/df_citizens.xlsx', index=False)
-        df_priv_vehicle.to_excel(f'{study_area_path}/df_priv_vehicle.xlsx', index=False)
+        df_priv_vehicles.to_excel(f'{study_area_path}/df_priv_vehicles.xlsx', index=False)
 
     return df_citizens, df_families
 
@@ -429,10 +429,7 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
     return df_families, df_citizens, df_priv_vehicle
 
 def get_vehicle_stats(archetype, transport_archetypes, variables):
-    results = {}
-
-    max_SoC = 100
-    min_SoC = 60    
+    results = {}   
     
     # Filtrar la fila correspondiente al arquetipo
     row = transport_archetypes[transport_archetypes['name'] == archetype]

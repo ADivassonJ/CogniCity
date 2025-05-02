@@ -5,13 +5,18 @@ import osmnx as ox
 import networkx as nx
 from geopy.distance import geodesic
 
-# Cargar datos
-study_area = 'Kanaleneiland'
-main_path = Path(__file__).resolve().parent.parent.parent
-data_path = main_path / 'Data'
-study_area_path = data_path / study_area
-df_citizens = pd.read_excel(f'{study_area_path}/df_citizens.xlsx')
-SG_relationship = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
+def load_filter_sort_reset(filepath):
+    """
+    Summary: 
+       Load an Excel file, filter the rows where 'stat' is 'inactive' and return the DataFrame.
+    Args:
+       filepath (Path): path to the file that wants to be readed
+    Returns:
+       df: Readed dfs
+    """
+    df = pd.read_excel(filepath)
+    df = df[df['state'] != 'inactive']
+    return df
 
 # Función de distancia haversine
 def haversine(lat1, lon1, lat2, lon2):
@@ -73,6 +78,29 @@ def assign_responsable(family_df, SG_relationship_unique):
 
 # Función principal
 def main_td():
+    # Cargar datos
+    study_area = 'Kanaleneiland'
+    main_path = Path(__file__).resolve().parent.parent.parent
+    subcodes_path = main_path / 'Subcodes'
+    archetypes_path = main_path / 'Archetypes'
+    data_path = main_path / 'Data'
+    results_path = main_path / 'Results'
+
+    study_area_path = data_path / study_area
+    df_citizens = pd.read_excel(f'{study_area_path}/df_citizens.xlsx')
+    df_priv_vehicles = pd.read_excel(f'{study_area_path}/df_priv_vehicles.xlsx')
+
+    citizen_archetypes = load_filter_sort_reset(archetypes_path / 'citizen_archetypes.xlsx')
+    family_archetypes = load_filter_sort_reset(archetypes_path / 'family_archetypes.xlsx')
+    s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
+    transport_archetypes = load_filter_sort_reset(archetypes_path / 'transport_archetypes.xlsx')
+    
+    networks = ['drive', 'walk']
+    networks_map = {}   
+    for net_type in networks:           
+        networks_map[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
+    
+    SG_relationship = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
     SG_relationship_unique = SG_relationship.drop_duplicates(subset='osm_id')
 
     results = pd.DataFrame(columns=['agent', 'route'])
@@ -88,14 +116,14 @@ def main_td():
             
         for _, family_member in family_df.iterrows():
             id_type_not_0_list = df_family_result['id_type_not_0'].tolist() if df_family_result is not None else []
-
+            # familiares que cuentan con alguna persona dependiente
             if family_member['name'] in id_type_not_0_list:
-                related_id = df_family_result[df_family_result['id_type_not_0'] == family_member['name']]['id_type_0'].iloc[0]
+                related_ids = df_family_result[df_family_result['id_type_not_0'] == family_member['name']]['id_type_0'].tolist()
                 # Buscamos los WoS relacionados al id_type_0
-                related_wos = df_citizens[df_citizens['name'] == related_id]['WoS'].tolist()
+                related_wos = df_citizens[df_citizens['name'].isin(related_ids)]['WoS'].tolist()
                 route = [family_member['home']] + related_wos + [family_member['WoS']]
                 # aqui el agente mira que transporte mode tomar
-                choice_modeling()
+                choice_modeling(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, family_member['name'])
 
     # Unir todos los resultados
     if not results.empty:
@@ -107,8 +135,8 @@ def main_td():
     return final_df
 
 
-def choice_modeling(citizen):
-    acutime_matrix = acutime_matrix_creation(citizen)
+def choice_modeling(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, citizen):
+    acutime_matrix = acutime_matrix_creation(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, citizen)
     willinness_matrix = willinness_calculation(acutime_matrix)
 
     #seleccionar de forma estadistica cual elegir, en base a willinness_matrix que sera como:
@@ -121,24 +149,24 @@ def choice_modeling(citizen):
 def acutime_matrix_creation(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, citizen):
     
     acutime_matrix = pd.DataFrame(columns=['archetype', 't_walk', 't_travel', 't_wait', 'cost', 'benefict', 'CO2'])
-    transport_archetypes = transport_archetypes['name'].tolist()
+    archetypes = transport_archetypes['name'].tolist()
     
-    for archetype in transport_archetypes:
+    for archetype in archetypes:
         value = transport_archetypes.loc[transport_archetypes['name'] == archetype, 'P_1']
 
         if not value.empty and value.iloc[0] == 'x':
             #### sumar los intermedios a route
-            route_methods = []
+            route_methods = ['walk']*(len(route)-1)
             
-        route_methods = []    # si tienes tres POIs, tendrias dos methods,, si pillas coche, seria walk entre poi home y poi P_1, 
-        #                       drive entre P_1 y P_2, walk entre P_2 y WoS
-            
+        route_methods = ['walk']*(len(route)-1)   # si tienes tres POIs, tendrias dos methods,, si pillas coche, seria walk entre poi home y poi P_1, 
+                                    # drive entre P_1 y P_2, walk entre P_2 y WoS
+        
         for idx in range(len(route)):
             if idx+1 == len(route):
                 break
             # Coordenadas de origen y destino (lat, lon)
-            lat1, lon1 = SG_relationship.loc[SG_relationship['osm_id'] == route[idx], {'lat', 'lon'}]
-            lat2, lon2 = SG_relationship.loc[SG_relationship['osm_id'] == route[idx+1], {'lat', 'lon'}]
+            lat1, lon1 = SG_relationship.loc[SG_relationship['osm_id'] == route[idx], ['lat', 'lon']].values[0]
+            lat2, lon2 = SG_relationship.loc[SG_relationship['osm_id'] == route[idx+1], ['lat', 'lon']].values[0]
 
             graph = networks_map[f"{route_methods[idx]}_map"]
                 
@@ -153,9 +181,10 @@ def acutime_matrix_creation(df_priv_vehicles, df_citizens, route, SG_relationshi
             route_length = nx.path_weight(graph, route, weight='length')
             
             print(route_length)
+            input()
     
     
 
 # Ejecución
 if __name__ == '__main__':
-    main_td(df_citizens, SG_relationship)
+    main_td()
