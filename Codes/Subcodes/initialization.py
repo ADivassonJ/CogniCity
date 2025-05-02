@@ -6,6 +6,8 @@ ox.settings.timeout = 500
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+from pathlib import Path
+import itertools
 
 def Archetype_documentation_initialization(main_path, archetypes_path):
     """
@@ -27,6 +29,7 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
         citizen_archetypes = load_filter_sort_reset(archetypes_path / 'citizen_archetypes.xlsx')
         family_archetypes = load_filter_sort_reset(archetypes_path / 'family_archetypes.xlsx')
         s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
+        transport_archetypes = load_filter_sort_reset(archetypes_path / 'transport_archetypes.xlsx')
     except Exception as e:
         print(f"    [ERROR] File regarding archetypes are not found in the intended folder ({archetypes_path}).")
         print(f"    Please fix the problem and restart the program.")
@@ -41,15 +44,32 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
             print(f'    [ERROR] {archetypes_path}/stats_synpop has one or more values empty.')
             print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
             sys.exit()
-        # If everyhting is OK, go on
-        return citizen_archetypes, family_archetypes, s_archetypes, stats_synpop
     except Exception:
         # If the file DOES NOT exist, create the file and ask the user to fill the missing data
         create_stats_synpop(archetypes_path, citizen_archetypes, family_archetypes)
         print(f'    [ERROR] {archetypes_path}/stats_synpop has no information.')
         print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
         sys.exit()
-
+    try:
+        # If the file exists, verify that all needed data is there
+        print(f'Loading statistical data ...')
+        stats_trans = pd.read_excel(archetypes_path / 'stats_trans.xlsx')
+        if stats_trans.isnull().sum().sum() != 0:
+            # If any data is missing, ask the user to fill it
+            print(f'    [ERROR] {archetypes_path}/stats_trans has one or more values empty.')
+            print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
+            sys.exit()
+    except Exception:
+        # If the file DOES NOT exist, create the file and ask the user to fill the missing data
+        create_stats_trans(archetypes_path, transport_archetypes, family_archetypes)
+        print(f'    [ERROR] {archetypes_path}/stats_trans has no information.')
+        print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
+        sys.exit()
+        
+    # If everyhting is OK, go on
+    return citizen_archetypes, family_archetypes, s_archetypes, stats_synpop, transport_archetypes, stats_trans
+        
+        
 def Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, services_groups, study_area):
     study_area_path = data_path / study_area
     try:
@@ -499,6 +519,28 @@ def create_stats_synpop(archetypes_path, citizen_archetypes, family_archetypes):
     stats_synpop = add_matches_to_stats_synpop(stats_synpop, citizen_archetypes)
     stats_synpop = add_matches_to_stats_synpop(stats_synpop, family_archetypes)
     stats_synpop.to_excel(archetypes_path/'stats_synpop.xlsx', index=False)
+    
+def create_stats_trans(archetypes_path, transport_archetypes, family_archetypes):
+    # Obtener listas de 'name' de ambos DataFrames
+    transport_names = transport_archetypes['name'].dropna().unique()
+    family_names = family_archetypes['name'].dropna().unique()
+
+    # Crear combinaciones entre todos los elementos (producto cartesiano)
+    combinations = list(itertools.product(family_names, transport_names))
+
+    # Crear DataFrame con las combinaciones
+    stats_trans = pd.DataFrame(combinations, columns=['item_1', 'item_2'])
+    stats_trans = stats_trans[~stats_trans['item_2'].isin(['walk', 'public'])] #estos no se requiere de asignacion a las familias
+    
+    # Agregar columnas vacías para los valores estadísticos
+    stats_trans['mu'] = ''
+    stats_trans['sigma'] = ''
+    stats_trans['min'] = ''
+    stats_trans['max'] = ''
+
+    stats_trans.to_excel(archetypes_path/'stats_trans.xlsx', index=False)
+
+    return stats_trans
 
 def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch):
     """
@@ -669,4 +711,31 @@ def obtener_dataframe_direcciones(city, pos_ref):
     
     return gdf_refug_data
 
+def main():
+    # Input
+    population = 450
+    study_area = 'Kanaleneiland'
     
+    ## Code initialization
+    # Paths initialization
+    main_path = Path(__file__).resolve().parent.parent.parent
+    subcodes_path = main_path / 'Subcodes'
+    archetypes_path = main_path / 'Archetypes'
+    data_path = main_path / 'Data'
+    results_path = main_path / 'Results'
+    os.makedirs(data_path, exist_ok=True)
+    os.makedirs(results_path, exist_ok=True)
+    
+    print('#'*20, ' System initialization ','#'*20)
+    # Archetype documentation initialization
+    citizen_archetypes, family_archetypes, s_archetypes, stats_synpop, transport_archetypes, stats_trans = Archetype_documentation_initialization(main_path, archetypes_path)
+    # Geodata initialization
+    SG_relationship, networks_map = Geodata_initialization(study_area, data_path)
+    # Synthetic population initialization
+    df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, SG_relationship, study_area)
+    print('#'*20, ' Initialization finalized ','#'*20)
+    
+
+# Ejecución
+if __name__ == '__main__':
+    main()
