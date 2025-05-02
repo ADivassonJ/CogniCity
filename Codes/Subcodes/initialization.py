@@ -104,7 +104,8 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
 def Geodata_initialization(study_area, data_path):
     study_area_path = data_path / study_area
     os.makedirs(study_area_path, exist_ok=True)
-    networks = ['all', 'bike', 'drive', 'drive_service', 'walk']
+    #networks = ['all', 'bike', 'drive', 'drive_service', 'walk']
+    networks = ['drive', 'walk']
     try:
         print(f'Loading POIs data ...')
         osm_elements_df = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
@@ -366,7 +367,7 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
     
     variables = [col.split('_')[0] for col in transport_archetypes.columns if col.endswith('_mu')]
     # Suponiendo que variables ya está definida en algún lado
-    df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family'] + variables)
+    df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family', 'ubication'] + variables)
 
     # Filtramos los valores posibles de 'osm_id' donde 'service_group' es 'home'
     home_ids = services_groups[services_groups['service_group'] == 'home']['osm_id'].tolist()
@@ -376,18 +377,20 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
     counter = 0  # contador para avanzar en la lista barajada
 
     # Asignamos un valor de shuffled_home_ids a cada fila en df_families
-    for _, row_df_f in df_families.iterrows():
-        # Si hemos usado todos los home_ids, barajamos de nuevo
+    for idx_df_f, row_df_f in df_families.iterrows():
         if counter >= len(shuffled_home_ids):
             shuffled_home_ids = random.sample(home_ids, len(home_ids))
             counter = 0
 
         home_id = shuffled_home_ids[counter]
-        row_df_f['home'] = home_id
-        row_df_f['home_type'] = services_groups.loc[
+
+        df_families.at[idx_df_f, 'home'] = home_id
+        df_families.at[idx_df_f, 'home_type'] = services_groups.loc[
             services_groups['osm_id'] == home_id, 'building_type'
         ].values[0]
-        
+
+        counter += 1
+
         filtered_st_trans = stats_trans[stats_trans['item_1'] == row_df_f['archetype']]
         
         counter += 1  # avanzamos al siguiente
@@ -396,20 +399,18 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
             stats_value = computate_stats(row_fs)
             for new_vehicle in range(stats_value):
                 stats_variables = get_vehicle_stats(row_fs['item_2'], transport_archetypes, variables)
+                
                 new_vehicle_row = {
                     'name': f'priv_vehicle_{len(df_priv_vehicle)}',
                     'archetype': row_fs['item_2'],
-                    'family': row_df_f['name']}
+                    'family': row_df_f['name'],
+                    'ubication': home_id} #CUIDADO CON ESTO; ES UNA SIMPLIFICACION; DEBERIA SER UN PARKING SPOT
                 new_vehicle_row.update(stats_variables)
-                df_priv_vehicle.loc[len(df_priv_vehicle)] = new_vehicle_row
-        
-        
+                df_priv_vehicle.loc[len(df_priv_vehicle)] = new_vehicle_row        
     
     # Asignar familia a cada ciudadano
     df_citizens['family'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'name'))
     
-    print(df_families)
-    input()
     # Asignar hogar a cada ciudadano
     df_citizens['home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'home'))
     
@@ -428,16 +429,35 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
     return df_families, df_citizens, df_priv_vehicle
 
 def get_vehicle_stats(archetype, transport_archetypes, variables):
-    results = {}  # Usa un diccionario en lugar de lista
+    results = {}
 
+    max_SoC = 100
+    min_SoC = 60    
+    
+    # Filtrar la fila correspondiente al arquetipo
     row = transport_archetypes[transport_archetypes['name'] == archetype]
+
+    if row.empty:
+        raise ValueError(f"Archetype '{archetype}' not found in transport_archetypes")
+
+    row = row.iloc[0]  # Extrae la primera (y única esperada) fila como Series
 
     for variable in variables:
         mu = float(row[f'{variable}_mu'])
-        sigma = float(row[f'{variable}_sigma']) 
+        sigma = float(row[f'{variable}_sigma'])
+        try:
+            max_var = float(row[f'{variable}_max'])
+        except Exception as e:
+            max_var = float('inf')
+        try:
+            min_var = float(row[f'{variable}_min'])
+        except Exception as e:
+            min_var = float(0)
 
-        results[variable] = np.random.normal(mu, sigma)
-    
+        var_result = np.random.normal(mu, sigma)
+        var_result = max(min(var_result, max_var), min_var)
+        results[variable] = var_result
+
     return results
 
 def Citizen_inventory_creation(df, population):
