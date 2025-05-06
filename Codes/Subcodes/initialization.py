@@ -425,6 +425,24 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
         value = citizen_archetypes.loc[citizen_archetypes['name'] == df_citizens.at[idx, 'archetype'], 'WoS_type'].values[0]
         stats_value = get_stats_value(value, stats_synpop, df_citizens.at[idx, 'archetype'], 'WoS_type')
         df_citizens.at[idx, 'WoS_type'] = stats_value
+        
+        # esto es una guarrada
+        walk_speed = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['walk_speed'])
+        df_citizens.at[idx, 'walk_speed'] = walk_speed['walk_speed']
+        
+        Dutties_type = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['Dutties_type'])
+        df_citizens.at[idx, 'Dutties_type'] = round(Dutties_type['Dutties_type'])
+        
+        Dutties_amount = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['Dutties_amount'])
+        df_citizens.at[idx, 'Dutties_amount'] = round(Dutties_amount['Dutties_amount'])
+        
+        Dutties_time = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['Dutties_time'])
+        df_citizens.at[idx, 'Dutties_time'] = round(Dutties_time['Dutties_time'])
+        
+        
+        
+        Entertainment_type = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['Entertainment_type'])
+        df_citizens.at[idx, 'Entertainment_type'] = round(Entertainment_type['Entertainment_type'])
 
     return df_families, df_citizens, df_priv_vehicle
 
