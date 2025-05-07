@@ -69,7 +69,6 @@ def Archetype_documentation_initialization(main_path, archetypes_path):
     # If everyhting is OK, go on
     return citizen_archetypes, family_archetypes, s_archetypes, stats_synpop, transport_archetypes, stats_trans
         
-        
 def Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, services_groups, study_area, transport_archetypes, stats_trans):
     study_area_path = data_path / study_area
     try:
@@ -364,8 +363,7 @@ def computate_stats(row):
     return stats_value
 
 def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop, transport_archetypes, stats_trans):
-    
-    variables = [col.split('_')[0] for col in transport_archetypes.columns if col.endswith('_mu')]
+    variables = [col.rsplit('_', 1)[0] for col in transport_archetypes.columns if col.endswith('_mu')]
     # Suponiendo que variables ya está definida en algún lado
     df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family', 'ubication'] + variables)
 
@@ -423,26 +421,15 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
             services_groups['osm_id'] == work_id, 'building_type'
         ].values[0]  # Esto obtiene el nombre correspondiente
         value = citizen_archetypes.loc[citizen_archetypes['name'] == df_citizens.at[idx, 'archetype'], 'WoS_type'].values[0]
+        
         stats_value = get_stats_value(value, stats_synpop, df_citizens.at[idx, 'archetype'], 'WoS_type')
         df_citizens.at[idx, 'WoS_type'] = stats_value
         
-        # esto es una guarrada
-        walk_speed = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['walk_speed'])
-        df_citizens.at[idx, 'walk_speed'] = walk_speed['walk_speed']
+        citizen_variable_to_calculate = [col.rsplit('_', 1)[0] for col in citizen_archetypes.columns if col.endswith('_mu')]
+        citizen_variable_to_asign = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, citizen_variable_to_calculate)
         
-        Dutties_type = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['Dutties_type'])
-        df_citizens.at[idx, 'Dutties_type'] = round(Dutties_type['Dutties_type'])
-        
-        Dutties_amount = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['Dutties_amount'])
-        df_citizens.at[idx, 'Dutties_amount'] = round(Dutties_amount['Dutties_amount'])
-        
-        Dutties_time = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['Dutties_time'])
-        df_citizens.at[idx, 'Dutties_time'] = round(Dutties_time['Dutties_time'])
-        
-        
-        
-        Entertainment_type = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, ['Entertainment_type'])
-        df_citizens.at[idx, 'Entertainment_type'] = round(Entertainment_type['Entertainment_type'])
+        for citizen_variable in citizen_variable_to_calculate:
+            df_citizens.at[idx, citizen_variable] = citizen_variable_to_asign[citizen_variable]
 
     return df_families, df_citizens, df_priv_vehicle
 
@@ -812,7 +799,5 @@ def main():
     df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, SG_relationship, study_area, transport_archetypes, stats_trans)
     print('#'*20, ' Initialization finalized ','#'*20)
     
-
-# Ejecución
 if __name__ == '__main__':
     main()
