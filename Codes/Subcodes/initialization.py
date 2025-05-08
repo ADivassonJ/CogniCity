@@ -8,6 +8,8 @@ import pandas as pd
 import geopandas as gpd
 from pathlib import Path
 import itertools
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 def Archetype_documentation_initialization(main_path, archetypes_path):
     """
@@ -100,63 +102,100 @@ def Synthetic_population_initialization(citizen_archetypes, family_archetypes, p
 
     return df_citizens, df_families
 
-def Geodata_initialization(study_area, data_path):
+def Geodata_initialization(study_area, data_path, transport_archetypes):
     study_area_path = data_path / study_area
     os.makedirs(study_area_path, exist_ok=True)
-    #networks = ['all', 'bike', 'drive', 'drive_service', 'walk']
-    networks = ['drive', 'walk']
+
+    # Obtener redes activas desde transport_archetypes
+    networks = get_active_networks(transport_archetypes)
+
+    # Paso 1: Cargar o descargar POIs
+    osm_elements_df = load_or_download_pois(study_area, study_area_path, data_path)
+
+    # Paso 2: Cargar o descargar redes
+    networks_map = load_or_download_networks(study_area, study_area_path, networks)
+
+    # TO_DO: Añadir datos de buses eléctricos aquí
+
+    return osm_elements_df, networks_map
+
+def get_active_networks(transport_archetypes_df):
+    active_maps = transport_archetypes_df.loc[
+        transport_archetypes_df['state'] == 'active', 'map'
+    ].dropna().unique().tolist()
+    
+    # Asegurar que 'walk' esté incluido
+    if 'walk' not in active_maps:
+        active_maps.append('walk')
+    
+    return active_maps
+
+def load_or_download_pois(study_area, study_area_path, data_path):
     try:
         print(f'Loading POIs data ...')
-        osm_elements_df = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
-    except Exception as e:
+        return pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
+    except Exception:
         print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
-        try:
-            print(f'        Downloading services data from {study_area} ...')
-            print(f'        Saving data ...')
-            SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
-        except Exception as e:
-            print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
-            print(f"    Please fix the problem and restart the program.")
-            sys.exit()
-        print(f'        Processing data ...')
-        services_groups = services_groups_creation(SG_relationship)
-        # Lista para acumular los resultados
-        all_osm_data = []
-        ##### Esto hay que paralelizarlooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
-        for group_name, group_ref in services_groups.items():
-            # group_ref es el diccionario que se pasa como poss_ref
-            df_group = get_osm_elements(study_area, group_ref)
-            # Añadir columna indicando a qué grupo pertenece
-            df_group['service_group'] = group_name.replace('_list', '')
-            all_osm_data.append(df_group)
-        # Unir todos los DataFrames en uno solo
-        osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
-        osm_elements_df.to_excel(f'{study_area_path}/SG_relationship.xlsx', index=False)
-    
-    networks_map = {}   
+        return download_pois(study_area, study_area_path, data_path)
+
+def download_pois(study_area, study_area_path, data_path):
     try:
-        print(f'Loading maps ...')
-        for net_type in networks:           
-            networks_map[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
-    except Exception as e:
-        print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
-        print(f'    Since the maps may have changed in part, all maps will be downloaded: {networks}')
-        for net_type in networks: 
-            print(f'        Downloading data for {net_type} network from {study_area} ...')
+        print(f'        Downloading services data from {study_area} ...')
+        SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
+    except Exception:
+        print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
+        raise FileNotFoundError("Required file missing.")
+
+    print(f'        Processing data ...')
+    services_groups = services_groups_creation(SG_relationship)
+
+    all_osm_data = []
+
+    # Paralelización
+    with ThreadPoolExecutor() as executor:
+        futures = {
+            executor.submit(get_osm_elements, study_area, group_ref): group_name
+            for group_name, group_ref in services_groups.items()
+        }
+        for future in as_completed(futures):
+            group_name = futures[future]
             try:
+                df_group = future.result()
+                df_group['service_group'] = group_name.replace('_list', '')
+                all_osm_data.append(df_group)
+            except Exception as e:
+                print(f"    [ERROR] Failed to get data for {group_name}: {e}")
+
+    osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
+    osm_elements_df.to_excel(f'{study_area_path}/SG_relationship.xlsx', index=False)
+    return osm_elements_df
+
+def load_or_download_networks(study_area, study_area_path, networks):
+    networks_map = {}
+    missing_networks = []
+    print(f'Loading maps ...')
+
+    for net_type in networks:
+        try:
+            graph = ox.load_graphml(study_area_path / f"{net_type}.graphml")
+            networks_map[f"{net_type}_map"] = graph
+        except Exception:
+            print(f'    [WARNING] {net_type} map is missing.')
+            missing_networks.append(net_type)
+
+    if missing_networks:
+        print(f'    Downloading missing maps: {missing_networks}')
+        for net_type in missing_networks:
+            try:
+                print(f'        Downloading {net_type} network from {study_area} ...')
                 graph = ox.graph_from_place(study_area, network_type=net_type)
                 ox.save_graphml(graph, study_area_path / f"{net_type}.graphml")
                 networks_map[f"{net_type}_map"] = graph
             except Exception as e:
-                print(f'        [ERROR] Failed to download {net_type} network.')
-                print(f'        {e}')
-                sys.exit()
-    
-    ####CUIDADOO!!! HAY QUE AÑADIR LOS DATOS DE LOS BUSES ELECTRICOS A LOS QUE ASIGNAMOS LOS DISTINTOS POIs
+                print(f'        [ERROR] Failed to download {net_type} network: {e}')
+                raise e
 
-    return osm_elements_df, networks_map
-
-
+    return networks_map
 
 def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, stats_synpop, citizen_archetypes, family_archetypes, ind_arch = 'f_arch_0'):
     """
@@ -429,7 +468,11 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
         citizen_variable_to_asign = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, citizen_variable_to_calculate)
         
         for citizen_variable in citizen_variable_to_calculate:
-            df_citizens.at[idx, citizen_variable] = citizen_variable_to_asign[citizen_variable]
+            value = citizen_variable_to_asign[citizen_variable]
+            if citizen_variable.endswith('_type') or citizen_variable.endswith('_amount'):
+                value = int(round(value))
+            df_citizens.at[idx, citizen_variable] = value
+
 
     return df_families, df_citizens, df_priv_vehicle
 
@@ -794,7 +837,7 @@ def main():
     # Archetype documentation initialization
     citizen_archetypes, family_archetypes, s_archetypes, stats_synpop, transport_archetypes, stats_trans = Archetype_documentation_initialization(main_path, archetypes_path)
     # Geodata initialization
-    SG_relationship, networks_map = Geodata_initialization(study_area, data_path)
+    SG_relationship, networks_map = Geodata_initialization(study_area, data_path, transport_archetypes)
     # Synthetic population initialization
     df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, SG_relationship, study_area, transport_archetypes, stats_trans)
     print('#'*20, ' Initialization finalized ','#'*20)
