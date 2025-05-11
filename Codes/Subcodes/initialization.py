@@ -10,110 +10,107 @@ from pathlib import Path
 import itertools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from pathlib import Path
 
-def Archetype_documentation_initialization(main_path, archetypes_path):
+def Archetype_documentation_initialization(paths):
     """
     Summary:
-       Loads all the df related to archetype description. Also creates/loads (depending on the state of the files) the df with
-      all archetypes' statistical values.
+       Loads all the dataframes related to archetype description. Also creates/loads (depending on the state of the files)
+       the dataframes with all archetypes' statistical values.
     Args:
-       main_path (Path): Main path where the code and all data is saved
-       archetypes_path (Path): Path to archetypes
+       paths (dict): Dictionary containing paths like 'archetypes'
     Returns:
-       citizen_archetypes (DataFrame): df with all citizens' archetype data
-       family_archetypes (DataFrame): df with all families' archetype data
-       s_archetypes (DataFrame): ### WORK IN PROGRESS ###
-       stats_synpop (DataFrame): df with all archetypes' statistical values
+       pop_archetypes (dict): Dictionary with pop archetypes DataFrames
+       stats_synpop (DataFrame)
+       stats_trans (DataFrame)
     """
-    # Read archetypes data from files
     try:
         print(f'Loading archetypes data ...')
-        citizen_archetypes = load_filter_sort_reset(archetypes_path / 'citizen_archetypes.xlsx')
-        family_archetypes = load_filter_sort_reset(archetypes_path / 'family_archetypes.xlsx')
-        s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
-        transport_archetypes = load_filter_sort_reset(archetypes_path / 'transport_archetypes.xlsx')
+        archetypes_folder = Path(paths['archetypes'])
+        files = [f for f in archetypes_folder.iterdir() if f.is_file() and f.name.startswith('pop_archetypes_') and f.suffix == '.xlsx']
+
+        pop_archetypes = {
+            f.stem.replace('pop_archetypes_', ''): load_filter_sort_reset(f)
+            for f in files
+        }
     except Exception as e:
-        print(f"    [ERROR] File regarding archetypes are not found in the intended folder ({archetypes_path}).")
-        print(f"    Please fix the problem and restart the program.")
-        sys.exit()
-    ## Evaluate stats_synpop (file where statistics values of some characteristis are defined)
+        raise FileNotFoundError(f"[ERROR] Archetype files are not found in {paths['archetypes']}. Please fix and restart.") from e
+
+    # Validar y cargar stats_synpop
+    stats_synpop = load_or_create_stats(
+        paths['archetypes'],
+        'stats_synpop.xlsx',
+        create_stats_synpop,
+        [pop_archetypes.get('citizens'), pop_archetypes.get('families')]
+    )
+
+    # Validar y cargar stats_trans
+    stats_trans = load_or_create_stats(
+        paths['archetypes'],
+        'stats_trans.xlsx',
+        create_stats_trans,
+        [pop_archetypes.get('transport'), pop_archetypes.get('families')]
+    )
+
+    return pop_archetypes, stats_synpop, stats_trans
+
+
+def load_or_create_stats(archetypes_path, filename, creation_func, creation_args):
+    filepath = archetypes_path / filename
     try:
-        # If the file exists, verify that all needed data is there
-        print(f'Loading statistical data ...')
-        stats_synpop = pd.read_excel(archetypes_path / 'stats_synpop.xlsx')
-        if stats_synpop.isnull().sum().sum() != 0:
-            # If any data is missing, ask the user to fill it
-            print(f'    [ERROR] {archetypes_path}/stats_synpop has one or more values empty.')
-            print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
-            sys.exit()
+        print(f'Loading statistical data from {filename} ...')
+        df_stats = pd.read_excel(filepath)
+        if df_stats.isnull().sum().sum() != 0:
+            raise ValueError(f"{filename} has missing values.")
     except Exception:
-        # If the file DOES NOT exist, create the file and ask the user to fill the missing data
-        create_stats_synpop(archetypes_path, citizen_archetypes, family_archetypes)
-        print(f'    [ERROR] {archetypes_path}/stats_synpop has no information.')
-        print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
-        sys.exit()
-    try:
-        # If the file exists, verify that all needed data is there
-        print(f'Loading statistical data ...')
-        stats_trans = pd.read_excel(archetypes_path / 'stats_trans.xlsx')
-        if stats_trans.isnull().sum().sum() != 0:
-            # If any data is missing, ask the user to fill it
-            print(f'    [ERROR] {archetypes_path}/stats_trans has one or more values empty.')
-            print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
-            sys.exit()
-    except Exception:
-        # If the file DOES NOT exist, create the file and ask the user to fill the missing data
-        create_stats_trans(archetypes_path, transport_archetypes, family_archetypes)
-        print(f'    [ERROR] {archetypes_path}/stats_trans has no information.')
-        print(f'    Please include all μ, σ, max and min for each detected scenario and run the code again.')
-        sys.exit()
+        # Si falla, crear archivo vacío y lanzar error para que el usuario lo rellene
+        creation_func(archetypes_path, *creation_args)
+        raise ValueError(f"[ERROR] {filepath} is missing or incomplete. Please fill μ, σ, max, min values and rerun.")
+
+    return df_stats
         
-    # If everyhting is OK, go on
-    return citizen_archetypes, family_archetypes, s_archetypes, stats_synpop, transport_archetypes, stats_trans
-        
-def Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, services_groups, study_area, transport_archetypes, stats_trans):
-    study_area_path = data_path / study_area
+def Synthetic_population_initialization(pop_archetypes, population, stats_synpop, paths, SG_relationship, study_area, stats_trans):
+    
+    agent_populations = {}
+    system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
+    
     try:
         print(f"Loading synthetic population data ...") 
-        df_distribution = pd.read_excel(f'{study_area_path}/df_distribution.xlsx')
-        df_families = pd.read_excel(f'{study_area_path}/df_families.xlsx')
-        df_citizens = pd.read_excel(f'{study_area_path}/df_citizens.xlsx')
-        df_priv_vehicles = pd.read_excel(f'{study_area_path}/df_priv_vehicles.xlsx')
+        
+        for type_population in system_management['archetypes']:
+            agent_populations[type_population] = pd.read_excel(f"{paths['study_area']}/pop_{type_population}.xlsx")
+            
     except Exception as e:     
         print(f'    [WARNING] Data is missing.') 
         print(f'        Creating synthetic population (it might take a while) ...')
         ## Synthetic population generation
         # Section added just in case in the future we want to optimize the error of the synthetic population
-        archetype_to_analyze = citizen_archetypes
-        archetype_to_fill = family_archetypes
+        archetype_to_analyze = pop_archetypes['citizen']
+        archetype_to_fill = pop_archetypes['family']
         
         # Citizen_inventory_creation
-        df_distribution, total_presence = Citizen_inventory_creation(archetype_to_analyze, population)
+        agent_populations['distribution'], total_presence = Citizen_inventory_creation(archetype_to_analyze, population)
         # Citizen_distribution_in_families
-        df_distribution, df_citizens, df_families = Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, stats_synpop, citizen_archetypes, family_archetypes)
+        agent_populations['distribution'], agent_populations['citizen'], agent_populations['family'] = Citizen_distribution_in_families(archetype_to_fill, agent_populations['distribution'], total_presence, stats_synpop, pop_archetypes)
         # Utilities_assignment
-        df_families, df_citizens, df_priv_vehicles = Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop, transport_archetypes, stats_trans)
+        agent_populations['family'], agent_populations['citizen'], agent_populations['transport'] = Utilities_assignment(agent_populations['citizen'], agent_populations['family'], pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans)
 
         print(f"        Saving data ...")
-        df_distribution.to_excel(f'{study_area_path}/df_distribution.xlsx', index=False)
-        df_families.to_excel(f'{study_area_path}/df_families.xlsx', index=False)
-        df_citizens.to_excel(f'{study_area_path}/df_citizens.xlsx', index=False)
-        df_priv_vehicles.to_excel(f'{study_area_path}/df_priv_vehicles.xlsx', index=False)
 
-    return df_citizens, df_families
+        for type_population in system_management['archetypes']:
+            agent_populations[type_population].to_excel(f"{paths['population']}/pop_{type_population}.xlsx", index=False)
+            
+    return agent_populations
 
-def Geodata_initialization(study_area, data_path, transport_archetypes):
-    study_area_path = data_path / study_area
-    os.makedirs(study_area_path, exist_ok=True)
-
+def Geodata_initialization(study_area, paths, pop_archetypes):
     # Obtener redes activas desde transport_archetypes
-    networks = get_active_networks(transport_archetypes)
+    networks = get_active_networks(pop_archetypes['transport'])
 
     # Paso 1: Cargar o descargar POIs
-    osm_elements_df = load_or_download_pois(study_area, study_area_path, data_path)
+    osm_elements_df = load_or_download_pois(study_area, paths['maps'], paths['data'])
 
     # Paso 2: Cargar o descargar redes
-    networks_map = load_or_download_networks(study_area, study_area_path, networks)
+    networks_map = load_or_download_networks(study_area, paths['maps'], networks)
 
     # TO_DO: Añadir datos de buses eléctricos aquí
 
@@ -151,7 +148,7 @@ def download_pois(study_area, study_area_path, data_path):
 
     all_osm_data = []
 
-    # Paralelización
+    # Paralelization
     with ThreadPoolExecutor() as executor:
         futures = {
             executor.submit(get_osm_elements, study_area, group_ref): group_name
@@ -197,7 +194,7 @@ def load_or_download_networks(study_area, study_area_path, networks):
 
     return networks_map
 
-def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, stats_synpop, citizen_archetypes, family_archetypes, ind_arch = 'f_arch_0'):
+def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_presence, stats_synpop, pop_archetypes, ind_arch = 'f_arch_0'):
     """
     Summary:
        Creates df for all families and citizens population, where their characteristics are described
@@ -288,7 +285,7 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
             # The non selected archetypes are added as 0 while the selected one as 1
             merged_df.loc[:, 'participants'] = np.where(merged_df['name'] == random_choice, 1, 0)
             # The data for the new citizen is created   
-            citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == random_choice, 'description'].values[0]
+            citizen_description = pop_archetypes['citizen'].loc[pop_archetypes['citizen']['name'] == random_choice, 'description'].values[0]
             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': random_choice, 'description': citizen_description}
             df_part_citizens.loc[len(df_part_citizens)] = new_row
             
@@ -309,7 +306,7 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
                     if merged_df.at[idx, 'participants'] <= row['population']:
                         # Citizens are created
                         for _ in range(int(merged_df.at[idx, 'participants'])):
-                            citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
+                            citizen_description = pop_archetypes['citizen'].loc[pop_archetypes['citizen']['name'] == row['name'], 'description'].values[0]
                             new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': citizen_description}
                             df_part_citizens.loc[len(df_part_citizens)] = new_row
                     # If the presented famly DOES NOT suit on the actual population availability ...     
@@ -342,7 +339,7 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
                                     merged_df.loc[merged_df['name'] == filtered_df.at[idy, 'item_2'], 'participants'] = filtered_df.at[idy, 'min']
                                     for _ in range(int(merged_df.at[idx, 'participants'])):
                                         # Citizens are created
-                                        citizen_description = citizen_archetypes.loc[citizen_archetypes['name'] == row['name'], 'description'].values[0]
+                                        citizen_description = pop_archetypes['citizen'].loc[pop_archetypes['citizen']['name'] == row['name'], 'description'].values[0]
                                         new_row = {'name': f'citizen_{len(df_part_citizens)+len(df_citizens)}', 'archetype': row['name'], 'description': citizen_description}
                                         df_part_citizens.loc[len(df_part_citizens)] = new_row
                                 # If the issue comes from a '*' which assigned value is higher than 'min' for that value, BUT that min DOES NOT suit into the 
@@ -364,7 +361,7 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
         # Add new citizens to df_citizens
         df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)
         # Create new family
-        family_description = family_archetypes.loc[family_archetypes['name'] == arch_to_fill, 'description'].values[0]
+        family_description = pop_archetypes['family'].loc[pop_archetypes['family']['name'] == arch_to_fill, 'description'].values[0]
         new_row_2 = {'name': f'family_{len(df_families)}', 'archetype': arch_to_fill, 'description': family_description, 'members': df_part_citizens['name'].tolist()}
         df_families.loc[len(df_families)] = new_row_2
         # df_part_citizens is done with its job, so it get reinitiated
@@ -401,13 +398,13 @@ def computate_stats(row):
 
     return stats_value
 
-def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_archetypes, data_path, services_groups, stats_synpop, transport_archetypes, stats_trans):
-    variables = [col.rsplit('_', 1)[0] for col in transport_archetypes.columns if col.endswith('_mu')]
+def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans):
+    variables = [col.rsplit('_', 1)[0] for col in pop_archetypes['transport'].columns if col.endswith('_mu')]
     # Suponiendo que variables ya está definida en algún lado
     df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family', 'ubication'] + variables)
 
     # Filtramos los valores posibles de 'osm_id' donde 'service_group' es 'home'
-    home_ids = services_groups[services_groups['service_group'] == 'home']['osm_id'].tolist()
+    home_ids = SG_relationship[SG_relationship['service_group'] == 'home']['osm_id'].tolist()
 
     # Inicializamos una copia barajada de home_ids
     shuffled_home_ids = random.sample(home_ids, len(home_ids))
@@ -422,8 +419,8 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
         home_id = shuffled_home_ids[counter]
 
         df_families.at[idx_df_f, 'home'] = home_id
-        df_families.at[idx_df_f, 'home_type'] = services_groups.loc[
-            services_groups['osm_id'] == home_id, 'building_type'
+        df_families.at[idx_df_f, 'home_type'] = SG_relationship.loc[
+            SG_relationship['osm_id'] == home_id, 'building_type'
         ].values[0]
 
         counter += 1
@@ -435,7 +432,7 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
         for _, row_fs in filtered_st_trans.iterrows():
             stats_value = computate_stats(row_fs)
             for new_vehicle in range(stats_value):
-                stats_variables = get_vehicle_stats(row_fs['item_2'], transport_archetypes, variables)
+                stats_variables = get_vehicle_stats(row_fs['item_2'], pop_archetypes['transport'], variables)
                 
                 new_vehicle_row = {
                     'name': f'priv_vehicle_{len(df_priv_vehicle)}',
@@ -452,20 +449,20 @@ def Utilities_assignment(df_citizens, df_families, citizen_archetypes, family_ar
     df_citizens['home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'home'))
     
     # Filtramos los valores posibles de 'name' donde 'group' es 'home'
-    work_ids = services_groups[services_groups['service_group'] == 'work']['osm_id'].tolist()
+    work_ids = SG_relationship[SG_relationship['service_group'] == 'work']['osm_id'].tolist()
     for idx in range(len(df_citizens)):
         work_id = random.choice(work_ids)
         df_citizens.at[idx, 'WoS'] = work_id
-        df_citizens.at[idx, 'WoS_subgroup'] = services_groups.loc[
-            services_groups['osm_id'] == work_id, 'building_type'
+        df_citizens.at[idx, 'WoS_subgroup'] = SG_relationship.loc[
+            SG_relationship['osm_id'] == work_id, 'building_type'
         ].values[0]  # Esto obtiene el nombre correspondiente
-        value = citizen_archetypes.loc[citizen_archetypes['name'] == df_citizens.at[idx, 'archetype'], 'WoS_type'].values[0]
+        value = pop_archetypes['citizen'].loc[pop_archetypes['citizen']['name'] == df_citizens.at[idx, 'archetype'], 'WoS_type'].values[0]
         
         stats_value = get_stats_value(value, stats_synpop, df_citizens.at[idx, 'archetype'], 'WoS_type')
         df_citizens.at[idx, 'WoS_type'] = stats_value
         
-        citizen_variable_to_calculate = [col.rsplit('_', 1)[0] for col in citizen_archetypes.columns if col.endswith('_mu')]
-        citizen_variable_to_asign = get_vehicle_stats(df_citizens['archetype'][idx], citizen_archetypes, citizen_variable_to_calculate)
+        citizen_variable_to_calculate = [col.rsplit('_', 1)[0] for col in pop_archetypes['citizen'].columns if col.endswith('_mu')]
+        citizen_variable_to_asign = get_vehicle_stats(df_citizens['archetype'][idx], pop_archetypes['citizen'], citizen_variable_to_calculate)
         
         for citizen_variable in citizen_variable_to_calculate:
             value = citizen_variable_to_asign[citizen_variable]
@@ -825,21 +822,51 @@ def main():
     
     ## Code initialization
     # Paths initialization
-    main_path = Path(__file__).resolve().parent.parent.parent
-    subcodes_path = main_path / 'Subcodes'
-    archetypes_path = main_path / 'Archetypes'
-    data_path = main_path / 'Data'
-    results_path = main_path / 'Results'
-    os.makedirs(data_path, exist_ok=True)
-    os.makedirs(results_path, exist_ok=True)
+    paths = {}
+    
+    paths['main'] = Path(__file__).resolve().parent.parent.parent
+    
+    paths['subcodes'] = paths['main'] / 'Subcodes'
+    paths['data'] = paths['main'] / 'Data'
+    paths['system'] = paths['main'] / 'System'
+    
+    try:
+        pd.read_excel(paths['system'] / 'system_management.xlsx')
+    except Exception:
+        print(f"[Error] system_management.xlsx has not been detected on the following file:")
+        print(f"{paths['system']}")
+        print(f"Please solve the mentioned issue and reestart the model.")
+        sys.exit()
+        
+    paths['results'] = paths['main'] / 'Results'
+    paths['study_area'] = paths['data'] / study_area
+    paths['archetypes'] = paths['study_area'] / 'Archetypes'
+    paths['population'] = paths['study_area'] / 'Population'
+    paths['maps'] = paths['study_area'] / 'Maps'
+    
+    os.makedirs(paths['results'], exist_ok=True)
+    os.makedirs(paths['study_area'], exist_ok=True)
+    os.makedirs(paths['archetypes'], exist_ok=True)
+    os.makedirs(paths['population'], exist_ok=True)
+    os.makedirs(paths['maps'], exist_ok=True)
+    
+    '''
+    file_1  file_2      pre
+    main    results     no
+    data    study_area  no
+        ...         ...
+    
+    
+    '''
+    
     
     print('#'*20, ' System initialization ','#'*20)
     # Archetype documentation initialization
-    citizen_archetypes, family_archetypes, s_archetypes, stats_synpop, transport_archetypes, stats_trans = Archetype_documentation_initialization(main_path, archetypes_path)
+    pop_archetypes, stats_synpop, stats_trans = Archetype_documentation_initialization(paths)
     # Geodata initialization
-    SG_relationship, networks_map = Geodata_initialization(study_area, data_path, transport_archetypes)
+    SG_relationship, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
     # Synthetic population initialization
-    df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, SG_relationship, study_area, transport_archetypes, stats_trans)
+    agent_populations = Synthetic_population_initialization(pop_archetypes, population, stats_synpop, paths, SG_relationship, study_area, stats_trans)
     print('#'*20, ' Initialization finalized ','#'*20)
     
 if __name__ == '__main__':
