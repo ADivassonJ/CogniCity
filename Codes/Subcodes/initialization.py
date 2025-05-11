@@ -77,12 +77,13 @@ def Synthetic_population_initialization(pop_archetypes, population, stats_synpop
     try:
         print(f"Loading synthetic population data ...") 
         
-        for type_population in system_management['archetypes']:
-            agent_populations[type_population] = pd.read_excel(f"{paths['study_area']}/pop_{type_population}.xlsx")
+        for type_population in system_management['archetypes'].dropna():
+            agent_populations[type_population] = pd.read_excel(f"{paths['population']}/pop_{type_population}.xlsx")
             
     except Exception as e:     
         print(f'    [WARNING] Data is missing.') 
         print(f'        Creating synthetic population (it might take a while) ...')
+
         ## Synthetic population generation
         # Section added just in case in the future we want to optimize the error of the synthetic population
         archetype_to_analyze = pop_archetypes['citizen']
@@ -97,7 +98,7 @@ def Synthetic_population_initialization(pop_archetypes, population, stats_synpop
 
         print(f"        Saving data ...")
 
-        for type_population in system_management['archetypes']:
+        for type_population in system_management['archetypes'].dropna():
             agent_populations[type_population].to_excel(f"{paths['population']}/pop_{type_population}.xlsx", index=False)
             
     return agent_populations
@@ -825,40 +826,27 @@ def main():
     paths = {}
     
     paths['main'] = Path(__file__).resolve().parent.parent.parent
+    paths['system'] = paths['main'] / 'system'
     
-    paths['subcodes'] = paths['main'] / 'Subcodes'
-    paths['data'] = paths['main'] / 'Data'
-    paths['system'] = paths['main'] / 'System'
-    
-    try:
-        pd.read_excel(paths['system'] / 'system_management.xlsx')
-    except Exception:
-        print(f"[Error] system_management.xlsx has not been detected on the following file:")
-        print(f"{paths['system']}")
-        print(f"Please solve the mentioned issue and reestart the model.")
-        sys.exit()
+    system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
+    file_management = system_management[['file_1', 'file_2', 'pre']]
+
+    # Paso 2: Bucle sobre filas del mini DF
+    for index, row in file_management.iterrows():
         
-    paths['results'] = paths['main'] / 'Results'
-    paths['study_area'] = paths['data'] / study_area
-    paths['archetypes'] = paths['study_area'] / 'Archetypes'
-    paths['population'] = paths['study_area'] / 'Population'
-    paths['maps'] = paths['study_area'] / 'Maps'
-    
-    os.makedirs(paths['results'], exist_ok=True)
-    os.makedirs(paths['study_area'], exist_ok=True)
-    os.makedirs(paths['archetypes'], exist_ok=True)
-    os.makedirs(paths['population'], exist_ok=True)
-    os.makedirs(paths['maps'], exist_ok=True)
-    
-    '''
-    file_1  file_2      pre
-    main    results     no
-    data    study_area  no
-        ...         ...
-    
-    
-    '''
-    
+        file_1 = paths[study_area] if row['file_1'] == 'study_area' else paths[row['file_1']]
+        file_2 = study_area if row['file_2'] == 'study_area' else row['file_2']
+        
+        paths[file_2] = file_1 / file_2
+        
+        if not paths[file_2].exists():
+            if row['pre'] == 'y':
+                print(f"[Error] Critical file not detected:")
+                print(f"{paths[file_2]}")
+                print(f"Please solve the mentioned issue and reestart the model.")
+                sys.exit()
+            else:
+                os.makedirs(paths[file_2], exist_ok=True)
     
     print('#'*20, ' System initialization ','#'*20)
     # Archetype documentation initialization
