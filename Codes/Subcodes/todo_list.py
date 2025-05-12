@@ -1,3 +1,5 @@
+import os
+import sys
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -76,65 +78,6 @@ def assign_responsable(family_df, SG_relationship_unique):
     df_min_distances = StoW_matrix.loc[idx_min].reset_index(drop=True)
 
     return df_min_distances
-
-# Función principal
-def main_td():
-    # Cargar datos
-    study_area = 'Kanaleneiland'
-    main_path = Path(__file__).resolve().parent.parent.parent
-    subcodes_path = main_path / 'Subcodes'
-    archetypes_path = main_path / 'Archetypes'
-    data_path = main_path / 'Data'
-    results_path = main_path / 'Results'
-
-    study_area_path = data_path / study_area
-    df_citizens = pd.read_excel(f'{study_area_path}/df_citizens.xlsx')
-    df_priv_vehicles = pd.read_excel(f'{study_area_path}/df_priv_vehicles.xlsx')
-
-    citizen_archetypes = load_filter_sort_reset(archetypes_path / 'citizen_archetypes.xlsx')
-    family_archetypes = load_filter_sort_reset(archetypes_path / 'family_archetypes.xlsx')
-    s_archetypes = load_filter_sort_reset(archetypes_path / 's_archetypes.xlsx')
-    transport_archetypes = load_filter_sort_reset(archetypes_path / 'transport_archetypes.xlsx')
-    
-    networks = ['drive', 'walk']
-    networks_map = {}   
-    for net_type in networks:           
-        networks_map[net_type + "_map"] = ox.load_graphml(study_area_path / (net_type + '.graphml'))
-    
-    SG_relationship = pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
-    SG_relationship_unique = SG_relationship.drop_duplicates(subset='osm_id')
-
-    results = pd.DataFrame(columns=['agent', 'route'])
-
-    # Recorrer cada familia
-    for family_name in df_citizens['family'].unique():
-        family_df = df_citizens[df_citizens['family'] == family_name]
-        df_family_result = assign_responsable(family_df, SG_relationship_unique)
-        if df_family_result is not None:
-            results = pd.concat([results, df_family_result], ignore_index=True)
-        else:
-            continue
-            
-        for _, family_member in family_df.iterrows():
-            id_type_not_0_list = df_family_result['id_type_not_0'].tolist() if df_family_result is not None else []
-            # familiares que cuentan con alguna persona dependiente
-            if family_member['name'] in id_type_not_0_list:
-                related_ids = df_family_result[df_family_result['id_type_not_0'] == family_member['name']]['id_type_0'].tolist()
-                # Buscamos los WoS relacionados al id_type_0
-                related_wos = df_citizens[df_citizens['name'].isin(related_ids)]['WoS'].tolist()
-                route = [family_member['home']] + related_wos + [family_member['WoS']]
-                # aqui el agente mira que transporte mode tomar
-                choice_modeling(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, family_member['name'], df_family_result)
-
-    # Unir todos los resultados
-    if not results.empty:
-        final_df = results
-    else:
-        print('No se encontró ningún dependiente con responsable.')
-        final_df = None
-    
-    return final_df
-
 
 def choice_modeling(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, citizen, df_family_result):
     acutime_matrix = acutime_matrix_creation(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, citizen, df_family_result)
@@ -234,7 +177,87 @@ def dependant_min_speed(df_citizens, df_family_result, citizen):
       walk_speeds.append(to_add)
     
     return min(walk_speeds)[0]          
+           
+# Función principal
+def main_td():
+    # Input
+    population = 450
+    study_area = 'Kanaleneiland'
+    
+    ## Code initialization
+    # Paths initialization
+    paths = {}
+    
+    paths['main'] = Path(__file__).resolve().parent.parent.parent
+    paths['system'] = paths['main'] / 'system'
+    
+    system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
+    file_management = system_management[['file_1', 'file_2', 'pre']]
+
+    # Paso 2: Bucle sobre filas del mini DF
+    for index, row in file_management.iterrows():
+        
+        file_1 = paths[study_area] if row['file_1'] == 'study_area' else paths[row['file_1']]
+        file_2 = study_area if row['file_2'] == 'study_area' else row['file_2']
+        
+        paths[file_2] = file_1 / file_2
+        
+        if not paths[file_2].exists():
+            if row['pre'] == 'y':
+                print(f"[Error] Critical file not detected:")
+                print(f"{paths[file_2]}")
+                print(f"Please solve the mentioned issue and reestart the model.")
+                sys.exit()
+            else:
+                os.makedirs(paths[file_2], exist_ok=True)
+    
+    
+    df_citizens = pd.read_excel(f"{paths['population']}/pop_citizen.xlsx")
+    df_priv_vehicles = pd.read_excel(f"{paths['population']}/pop_transport.xlsx")
+
+    citizen_archetypes = load_filter_sort_reset(paths['archetypes'] / 'pop_archetypes_citizen.xlsx')
+    family_archetypes = load_filter_sort_reset(paths['archetypes'] / 'pop_archetypes_family.xlsx')
+    transport_archetypes = load_filter_sort_reset(paths['archetypes'] / 'pop_archetypes_transport.xlsx')
+    
+    networks = ['drive', 'walk']
+    networks_map = {}   
+    for net_type in networks:           
+        networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
+    
+    SG_relationship = pd.read_excel(f"{paths['maps']}/SG_relationship.xlsx")
+    SG_relationship_unique = SG_relationship.drop_duplicates(subset='osm_id')
+
+    results = pd.DataFrame(columns=['agent', 'route'])
+
+    # Recorrer cada familia
+    for family_name in df_citizens['family'].unique():
+        family_df = df_citizens[df_citizens['family'] == family_name]
+        df_family_result = assign_responsable(family_df, SG_relationship_unique)
+        if df_family_result is not None:
+            results = pd.concat([results, df_family_result], ignore_index=True)
+        else:
+            continue
             
+        for _, family_member in family_df.iterrows():
+            id_type_not_0_list = df_family_result['id_type_not_0'].tolist() if df_family_result is not None else []
+            # familiares que cuentan con alguna persona dependiente
+            if family_member['name'] in id_type_not_0_list:
+                related_ids = df_family_result[df_family_result['id_type_not_0'] == family_member['name']]['id_type_0'].tolist()
+                # Buscamos los WoS relacionados al id_type_0
+                related_wos = df_citizens[df_citizens['name'].isin(related_ids)]['WoS'].tolist()
+                route = [family_member['home']] + related_wos + [family_member['WoS']]
+                # aqui el agente mira que transporte mode tomar
+                choice_modeling(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, family_member['name'], df_family_result)
+
+    # Unir todos los resultados
+    if not results.empty:
+        final_df = results
+    else:
+        print('No se encontró ningún dependiente con responsable.')
+        final_df = None
+    
+    return final_df           
+ 
 # Ejecución
 if __name__ == '__main__':
     main_td()
