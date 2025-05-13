@@ -81,7 +81,7 @@ def assign_responsable(family_df, SG_relationship_unique):
 
 def choice_modeling(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, citizen, df_family_result):
     acutime_matrix = acutime_matrix_creation(df_priv_vehicles, df_citizens, route, SG_relationship, transport_archetypes, networks_map, citizen, df_family_result)
-    willinness_matrix = willinness_calculation(acutime_matrix)
+    #willinness_matrix = willinness_calculation(acutime_matrix)
 
     #seleccionar de forma estadistica cual elegir, en base a willinness_matrix que sera como:
     # archetype    wilinness
@@ -113,7 +113,7 @@ def acutime_matrix_creation(df_priv_vehicles, df_citizens, route, SG_relationshi
             #### sumar los intermedios a route
             route_methods = ['walk']*(len(route)-1)
             
-        route_methods = ['walk', 'drive', 'walk']   # si tienes tres POIs, tendrias dos methods,, si pillas coche, seria walk entre poi home y poi P_1, 
+        route_methods = ['walk', 'drive', 'walk', 'drive','drive','drive']   # si tienes tres POIs, tendrias dos methods,, si pillas coche, seria walk entre poi home y poi P_1, 
                                                     # drive entre P_1 y P_2, walk entre P_2 y WoS
         
         distances = defaultdict(float)
@@ -229,6 +229,8 @@ def main_td():
 
     results = pd.DataFrame(columns=['agent', 'route'])
 
+
+    ##############################################################################3
     # Recorrer cada familia
     for family_name in df_citizens['family'].unique():
         family_df = df_citizens[df_citizens['family'] == family_name]
@@ -256,7 +258,7 @@ def main_td():
         print('No se encontró ningún dependiente con responsable.')
         final_df = None
     
-    return final_df           
+    return final_df    
  
 # Ejecución
 if __name__ == '__main__':
