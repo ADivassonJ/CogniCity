@@ -380,7 +380,7 @@ def get_stats_value(value, stats_doc, item_1, item_2):
             (stats_doc['item_2'] == item_2)
         ]
         if row.empty:
-            raise ValueError(f"No stats found for ({item_1}, {item_2}) in stats_doc")
+            raise ValueError(f"No stats found for ({item_1}, {item_2}) in the correspondent doc. n\ Most probably is because the archetypes have been updated but the stats doc has not been updated.") # Si pasa esto es porque se an actualizado los arquetipos pero no se a actualizado el doc de stats
         
         stats_value = computate_stats(row)
 
@@ -398,6 +398,12 @@ def computate_stats(row):
     stats_value = max(min(stats_value, max_val), min_val)
 
     return stats_value
+
+def get_wos_action(archetype, pop_archetypes, stats_synpop):
+    value = pop_archetypes['citizen'].loc[
+        pop_archetypes['citizen']['name'] == archetype, 'WoS_action'
+    ].values[0]
+    return get_stats_value(value, stats_synpop, archetype, 'WoS_action')
 
 def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans):
     variables = [col.rsplit('_', 1)[0] for col in pop_archetypes['transport'].columns if col.endswith('_mu')]
@@ -448,17 +454,23 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
     
     # Asignar hogar a cada ciudadano
     df_citizens['home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'home'))
+
+    df_citizens['WoS_action'] = df_citizens['archetype'].apply(lambda archetype: get_wos_action(archetype, pop_archetypes, stats_synpop))
     
-    # Filtramos los valores posibles de 'name' donde 'group' es 'home'
-    work_ids = SG_relationship[SG_relationship['service_group'] == 'work']['osm_id'].tolist()
+    work_ids = SG_relationship[SG_relationship['service_group'] == 'work']['osm_id'].tolist()  
+    study_ids = SG_relationship[SG_relationship['service_group'] == 'study']['osm_id'].tolist()  
+    
     for idx in range(len(df_citizens)):
-        work_id = random.choice(work_ids)
-        df_citizens.at[idx, 'WoS'] = work_id
+        if df_citizens['WoS_action'][idx] == 1:
+            WoS_id = random.choice(work_ids)
+        else:
+            WoS_id = random.choice(study_ids)
+        df_citizens.at[idx, 'WoS'] = WoS_id
         df_citizens.at[idx, 'WoS_subgroup'] = SG_relationship.loc[
-            SG_relationship['osm_id'] == work_id, 'building_type'
+            SG_relationship['osm_id'] == WoS_id, 'building_type'
         ].values[0]  # Esto obtiene el nombre correspondiente
-        value = pop_archetypes['citizen'].loc[pop_archetypes['citizen']['name'] == df_citizens.at[idx, 'archetype'], 'WoS_type'].values[0]
         
+        value = pop_archetypes['citizen'].loc[pop_archetypes['citizen']['name'] == df_citizens.at[idx, 'archetype'], 'WoS_type'].values[0]
         stats_value = get_stats_value(value, stats_synpop, df_citizens.at[idx, 'archetype'], 'WoS_type')
         df_citizens.at[idx, 'WoS_type'] = stats_value
         
