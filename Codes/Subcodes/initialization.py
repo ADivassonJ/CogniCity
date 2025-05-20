@@ -424,17 +424,16 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
             counter = 0
 
         home_id = shuffled_home_ids[counter]
-
+        counter += 1
+        
         df_families.at[idx_df_f, 'home'] = home_id
         df_families.at[idx_df_f, 'home_type'] = SG_relationship.loc[
             SG_relationship['osm_id'] == home_id, 'building_type'
         ].values[0]
 
-        counter += 1
-
         filtered_st_trans = stats_trans[stats_trans['item_1'] == row_df_f['archetype']]
         
-        counter += 1  # avanzamos al siguiente
+        
         
         for _, row_fs in filtered_st_trans.iterrows():
             stats_value = computate_stats(row_fs)
