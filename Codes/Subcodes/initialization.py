@@ -454,14 +454,21 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
     
     # Asignar hogar a cada ciudadano
     df_citizens['home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'home'))
-
-    df_citizens['WoS_action'] = df_citizens['archetype'].apply(lambda archetype: get_wos_action(archetype, pop_archetypes, stats_synpop))
     
     work_ids = SG_relationship[SG_relationship['service_group'] == 'work']['osm_id'].tolist()  
     study_ids = SG_relationship[SG_relationship['service_group'] == 'study']['osm_id'].tolist()  
     
     for idx in range(len(df_citizens)):
-        if df_citizens['WoS_action'][idx] == 1:
+        list_citizen_variables = [col.rsplit('_', 1)[0] for col in pop_archetypes['citizen'].columns if col.endswith('_mu')]
+        list_citizen_values = get_vehicle_stats(df_citizens['archetype'][idx], pop_archetypes['citizen'], list_citizen_variables)
+        
+        for citizen_variable in list_citizen_variables:
+            value = list_citizen_values[citizen_variable]
+            if citizen_variable.endswith('_type') or citizen_variable.endswith('_amount'):
+                value = int(round(value))
+            df_citizens.at[idx, citizen_variable] = value
+
+        if df_citizens['WoS_action_type'][idx] == 1:
             WoS_id = random.choice(work_ids)
         else:
             WoS_id = random.choice(study_ids)
@@ -469,20 +476,6 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
         df_citizens.at[idx, 'WoS_subgroup'] = SG_relationship.loc[
             SG_relationship['osm_id'] == WoS_id, 'building_type'
         ].values[0]  # Esto obtiene el nombre correspondiente
-        
-        value = pop_archetypes['citizen'].loc[pop_archetypes['citizen']['name'] == df_citizens.at[idx, 'archetype'], 'WoS_type'].values[0]
-        stats_value = get_stats_value(value, stats_synpop, df_citizens.at[idx, 'archetype'], 'WoS_type')
-        df_citizens.at[idx, 'WoS_type'] = stats_value
-        
-        citizen_variable_to_calculate = [col.rsplit('_', 1)[0] for col in pop_archetypes['citizen'].columns if col.endswith('_mu')]
-        citizen_variable_to_asign = get_vehicle_stats(df_citizens['archetype'][idx], pop_archetypes['citizen'], citizen_variable_to_calculate)
-        
-        for citizen_variable in citizen_variable_to_calculate:
-            value = citizen_variable_to_asign[citizen_variable]
-            if citizen_variable.endswith('_type') or citizen_variable.endswith('_amount'):
-                value = int(round(value))
-            df_citizens.at[idx, citizen_variable] = value
-
 
     return df_families, df_citizens, df_priv_vehicle
 
