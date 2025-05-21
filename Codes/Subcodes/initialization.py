@@ -11,7 +11,12 @@ from pathlib import Path
 import itertools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from pathlib import Path
+############# Due to py 3.7. some things are 'rusty'
+import warnings
+from shapely.errors import ShapelyDeprecationWarning
+warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
+#############
+
 
 def Archetype_documentation_initialization(paths):
     """

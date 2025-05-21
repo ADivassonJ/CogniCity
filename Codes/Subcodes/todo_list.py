@@ -1,5 +1,7 @@
 import os
 import sys
+import random
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -32,14 +34,14 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 # Función que crea la matriz de distancias de cada familia
-def StoW_matrix_creation(family_df, SG_relationship_unique):
+def StoW_matrix_creation(family_df, SG_relationship_unique, todolistaction):
     # Separar los dos grupos
-    list_type_0 = family_df[family_df['WoS_type'] == 0]
-    list_type_not_0 = family_df[family_df['WoS_type'] != 0]
+    list_type_0 = family_df[family_df[f'{todolistaction}_type'] == 0]
+    list_type_not_0 = family_df[family_df[f'{todolistaction}_type'] != 0]
 
     # Hacer merge para traer lat y lon
-    list_type_0 = list_type_0.merge(SG_relationship_unique[['osm_id', 'lat', 'lon']], left_on='WoS', right_on='osm_id', how='left')
-    list_type_not_0 = list_type_not_0.merge(SG_relationship_unique[['osm_id', 'lat', 'lon']], left_on='WoS', right_on='osm_id', how='left')
+    list_type_0 = list_type_0.merge(SG_relationship_unique[['osm_id', 'lat', 'lon']], left_on=todolistaction, right_on='osm_id', how='left')
+    list_type_not_0 = list_type_not_0.merge(SG_relationship_unique[['osm_id', 'lat', 'lon']], left_on=todolistaction, right_on='osm_id', how='left')
 
     # Si alguno está vacío, devolvemos None
     if list_type_0.empty:
@@ -66,8 +68,10 @@ def StoW_matrix_creation(family_df, SG_relationship_unique):
     return StoW_matrix
 
 # Función que asigna el responsable más cercano a cada dependiente en una familia
-def assign_responsable(family_df, SG_relationship_unique):
-    StoW_matrix = StoW_matrix_creation(family_df, SG_relationship_unique)
+def assign_responsable(family_df, SG_relationship_unique, todolist_family):
+    
+    
+    StoW_matrix = StoW_matrix_creation(family_df, SG_relationship_unique, todolist_family)
 
     # Si no hay datos (familia vacía), saltamos
     if StoW_matrix is None or StoW_matrix.empty:
@@ -225,15 +229,160 @@ def main_td():
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
     
     SG_relationship = pd.read_excel(f"{paths['maps']}/SG_relationship.xlsx")
+    
+    ##############################################################################
+    
+    
     SG_relationship_unique = SG_relationship.drop_duplicates(subset='osm_id')
-
     results = pd.DataFrame(columns=['agent', 'route'])
-
-
-    ##############################################################################3
+    
     # Recorrer cada familia
     for family_name in df_citizens['family'].unique():
         family_df = df_citizens[df_citizens['family'] == family_name]
+        
+        todolist_family = pd.DataFrame(columns=['agent', 'todo', 'osm_id', 'todo_type', 'opening', 'closing', 'fixed?', 'time2spend', 'in', 'out', 'conmu_time'])
+        
+        for idx_f_df, row_f_df in family_df.iterrows():
+### WoS
+            osm_id = row_f_df['WoS']
+            fixed = row_f_df['WoS_action_type'] != 1
+            
+            if fixed:
+                fixed_word = 'Service'
+            else:
+                fixed_word = 'WoS'	
+                
+            opening = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, f'{fixed_word}_opening'].values[0]
+            closing = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, f'{fixed_word}_closing'].values[0]
+            time2spend = int(row_f_df['WoS_time'])
+            in_h = opening
+            out_h = opening + time2spend
+            
+            rew_row ={
+                'agent': row_f_df['name'],
+                'todo': 'WoS', 
+                'osm_id': osm_id, 
+                'todo_type': row_f_df['WoS_type'], 
+                'opening': opening, 
+                'closing': closing, 
+                'fixed?': fixed, 
+                'time2spend': time2spend, 
+                'in': in_h, 
+                'out': out_h,
+                'conmu_time': int(row_f_df['conmu_time'])
+            }
+            
+            todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)           
+            
+            
+# Dutties          
+            for _ in range(row_f_df['Dutties_amount']):
+                # aqui habrá que meter más tema estadistico aun
+                dutties_ids_options = SG_relationship[SG_relationship['service_group'] == 'entertainment']['osm_id'].tolist()
+                
+                osm_id = random.choice(dutties_ids_options)
+                fixed = False
+                
+                fixed_word = 'Service'	
+                    
+                opening = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, f'{fixed_word}_opening'].values[0]
+                closing = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, f'{fixed_word}_closing'].values[0]
+                time2spend = int(row_f_df['Dutties_time']) # aqui habrá que meter más tema estadistico aun y ver por tipo y tal
+                
+                #mirar donde estaba antes
+                filtered = todolist_family[todolist_family['agent'] == row_f_df['name']]
+                
+                if not filtered.empty:
+                    in_h = max(filtered['out']) + filtered['conmu_time'].iloc[0]
+                else: # si resulta que hoy no trabajaba
+                    in_h = opening
+                
+                out_h = opening + time2spend
+                
+                rew_row ={
+                    'agent': row_f_df['name'],
+                    'todo': 'Dutties', 
+                    'osm_id': osm_id, 
+                    'todo_type': row_f_df['Dutties_type'], 
+                    'opening': opening, 
+                    'closing': closing, 
+                    'fixed?': fixed, 
+                    'time2spend': time2spend, 
+                    'in': in_h, 
+                    'out': out_h,
+                    'conmu_time': int(row_f_df['conmu_time'])
+                }
+                
+            todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
+            
+### entertainment
+            # aqui habrá que meter más tema estadistico aun
+            entertainment_ids_options = SG_relationship[SG_relationship['service_group'] == 'entertainment']['osm_id'].tolist()
+                
+            osm_id = random.choice(entertainment_ids_options)
+            
+            fixed = False
+            fixed_word = 'Service'	
+                    
+            opening = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, f'{fixed_word}_opening'].values[0]
+            closing = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, f'{fixed_word}_closing'].values[0]
+            
+            time2spend = 0 # aqui habrá que meter más tema estadistico aun y ver por tipo y tal
+                
+            #mirar donde estaba antes
+            filtered = todolist_family[todolist_family['agent'] == row_f_df['name']]
+                
+            if not filtered.empty:
+                in_h = max(filtered['out']) + filtered['conmu_time'].iloc[0]
+            else: # si resulta que hoy no trabajaba
+                in_h = opening
+                
+            out_h = closing
+            
+            rew_row ={
+                'agent': row_f_df['name'],
+                'todo': 'Entertainment', 
+                'osm_id': osm_id, 
+                'todo_type': row_f_df['Entertainment_type'], 
+                'opening': opening, 
+                'closing': closing, 
+                'fixed?': fixed, 
+                'time2spend': time2spend, 
+                'in': in_h, 
+                'out': out_h,
+                'conmu_time': int(row_f_df['conmu_time'])
+            }
+            
+            todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)   
+            
+        input(todolist_family)
+            
+            
+        
+        
+        df_family_result = assign_responsable(family_df, SG_relationship_unique, todolist_family)
+        
+        input(df_family_result)
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
         df_family_result = assign_responsable(family_df, SG_relationship_unique)
         if df_family_result is not None:
             results = pd.concat([results, df_family_result], ignore_index=True)
