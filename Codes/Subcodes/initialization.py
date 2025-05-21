@@ -55,7 +55,6 @@ def Archetype_documentation_initialization(paths):
 
     return pop_archetypes, stats_synpop, stats_trans
 
-
 def load_or_create_stats(archetypes_path, filename, creation_func, creation_args):
     filepath = archetypes_path / filename
     try:
@@ -434,8 +433,6 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
 
         filtered_st_trans = stats_trans[stats_trans['item_1'] == row_df_f['archetype']]
         
-        
-        
         for _, row_fs in filtered_st_trans.iterrows():
             stats_value = computate_stats(row_fs)
             for new_vehicle in range(stats_value):
@@ -459,9 +456,9 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
     study_ids = SG_relationship[SG_relationship['service_group'] == 'study']['osm_id'].tolist()  
     
     for idx in range(len(df_citizens)):
+        
         list_citizen_variables = [col.rsplit('_', 1)[0] for col in pop_archetypes['citizen'].columns if col.endswith('_mu')]
         list_citizen_values = get_vehicle_stats(df_citizens['archetype'][idx], pop_archetypes['citizen'], list_citizen_variables)
-        
         for citizen_variable in list_citizen_variables:
             value = list_citizen_values[citizen_variable]
             if citizen_variable.endswith('_type') or citizen_variable.endswith('_amount'):
