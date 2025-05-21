@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import random
 import osmnx as ox
 ox.settings.timeout = 500
@@ -108,7 +109,7 @@ def Geodata_initialization(study_area, paths, pop_archetypes):
     networks = get_active_networks(pop_archetypes['transport'])
 
     # Paso 1: Cargar o descargar POIs
-    osm_elements_df = load_or_download_pois(study_area, paths['maps'], paths['data'])
+    osm_elements_df = load_or_download_pois(study_area, paths[study_area], paths['maps'])
 
     # Paso 2: Cargar o descargar redes
     networks_map = load_or_download_networks(study_area, paths['maps'], networks)
@@ -128,25 +129,25 @@ def get_active_networks(transport_archetypes_df):
     
     return active_maps
 
-def load_or_download_pois(study_area, study_area_path, data_path):
+def load_or_download_pois(study_area, study_area_path, map_path):
     try:
         print(f'Loading POIs data ...')
-        return pd.read_excel(f'{study_area_path}/SG_relationship.xlsx')
+        return pd.read_excel(f'{map_path}/SG_relationship.xlsx')
     except Exception:
         print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
-        return download_pois(study_area, study_area_path, data_path)
+        return download_pois(study_area, study_area_path, map_path)
 
-def download_pois(study_area, study_area_path, data_path):
+def download_pois(study_area, study_area_path, map_path):
     try:
         print(f'        Downloading services data from {study_area} ...')
-        SG_relationship = pd.read_excel(f'{data_path}/Services-Group relationship.xlsx')
+        SG_relationship = pd.read_excel(f'{study_area_path}/Services-Group relationship.xlsx')
     except Exception:
-        print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({data_path}).")
+        print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({study_area_path}).")
         raise FileNotFoundError("Required file missing.")
 
     print(f'        Processing data ...')
     services_groups = services_groups_creation(SG_relationship)
-
+    
     all_osm_data = []
 
     # Paralelization
@@ -165,7 +166,7 @@ def download_pois(study_area, study_area_path, data_path):
                 print(f"    [ERROR] Failed to get data for {group_name}: {e}")
 
     osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
-    osm_elements_df.to_excel(f'{study_area_path}/SG_relationship.xlsx', index=False)
+    osm_elements_df.to_excel(f'{map_path}/SG_relationship.xlsx', index=False)
     return osm_elements_df
 
 def load_or_download_networks(study_area, study_area_path, networks):
@@ -833,22 +834,31 @@ def main():
     paths['system'] = paths['main'] / 'system'
     
     system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
+    
     file_management = system_management[['file_1', 'file_2', 'pre']]
-
     # Paso 2: Bucle sobre filas del mini DF
     for index, row in file_management.iterrows():
-        
         file_1 = paths[study_area] if row['file_1'] == 'study_area' else paths[row['file_1']]
         file_2 = study_area if row['file_2'] == 'study_area' else row['file_2']
-        
         paths[file_2] = file_1 / file_2
-        
         if not paths[file_2].exists():
             if row['pre'] == 'y':
                 print(f"[Error] Critical file not detected:")
                 print(f"{paths[file_2]}")
                 print(f"Please solve the mentioned issue and reestart the model.")
                 sys.exit()
+            elif row['pre'] == 'p':
+                user_is_stupid = True
+                while user_is_stupid:    
+                    response = input(f"Data for the case study '{study_area}' was not found.\nDo you want to copy data from standar scenario or do you want to create your own? [Y/N]\n")
+                    if response == 'Y':
+                        user_is_stupid = False
+                        shutil.copytree(paths['base_scenario'], paths[file_2])
+                    elif response == 'N':
+                        user_is_stupid = False
+                        os.makedirs(paths[file_2], exist_ok=True)
+                    else:
+                        print(f"Your response was not valid, please respond Y (yes) or N (no).")
             else:
                 os.makedirs(paths[file_2], exist_ok=True)
     
