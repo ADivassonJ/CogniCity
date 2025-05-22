@@ -1,6 +1,7 @@
 import os
 import sys
 import random
+import itertools
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -241,6 +242,7 @@ def main_td():
         family_df = df_citizens[df_citizens['family'] == family_name]
         
         todolist_family = pd.DataFrame(columns=['agent', 'todo', 'osm_id', 'todo_type', 'opening', 'closing', 'fixed?', 'time2spend', 'in', 'out', 'conmu_time'])
+        responsability_matrix = pd.DataFrame(columns=['helper', 'dependent', 'geo_dist', 'time_dist', 'soc_dist', 'score'])
         
         for idx_f_df, row_f_df in family_df.iterrows():
 ### WoS
@@ -297,7 +299,7 @@ def main_td():
                 else: # si resulta que hoy no trabajaba
                     in_h = opening
                 
-                out_h = opening + time2spend
+                out_h = in_h + time2spend
                 
                 rew_row ={
                     'agent': row_f_df['name'],
@@ -354,10 +356,53 @@ def main_td():
             }
             
             todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)   
+        
+        # DataFrame con todo_type == 0 (independientes)
+        helpers = todolist_family[todolist_family["todo_type"] == 0].add_suffix('_h')
+        # DataFrame con todo_type > 0 (dependientes)
+        dependents = todolist_family[todolist_family["todo_type"] > 0].add_suffix('_d')
+        
+        # Producto cartesiano (todas las combinaciones posibles)
+        df_combinado = helpers.merge(dependents, how='cross')
+        
+        for idx_df_conb, row_df_conb in df_combinado.iterrows():
+            lat_h, lon_h = SG_relationship_unique.loc[SG_relationship_unique['osm_id'] == row_df_conb['osm_id_h'], ['lat', 'lon']].values[0]
+            lat_d, lon_d = SG_relationship_unique.loc[SG_relationship_unique['osm_id'] == row_df_conb['osm_id_d'], ['lat', 'lon']].values[0]
             
-        input(todolist_family)
+            geo_dist = haversine(lat_h, lon_h, lat_d, lon_d)
+            time_dist = row_df_conb['in_d'] - row_df_conb['in_h']
+            soc_dist = 1 # Aqui habrá que poner algo estadistico o algo
+            score = geo_dist + abs(time_dist) + soc_dist
             
+            new_row = {
+                'helper': row_df_conb['agent_h'],
+                'osm_id_h': row_df_conb['osm_id_h'],
+                'dependent': row_df_conb['agent_d'],
+                'osm_id_d': row_df_conb['osm_id_d'],
+                'geo_dist': geo_dist,
+                'time_dist': time_dist,
+                'soc_dist': soc_dist,
+                'score': score
+            }
+
+            responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)  
+        
+        input(responsability_matrix)
+        
+        top_scores_df = responsability_matrix.loc[
+            responsability_matrix.groupby(['dependent', 'osm_id_d'])['score'].idxmin()
+        ].reset_index(drop=True)
+
+        input(top_scores_df)
             
+        
+        
+        
+        
+        
+        
+        
+        
         
         
         df_family_result = assign_responsable(family_df, SG_relationship_unique, todolist_family)
