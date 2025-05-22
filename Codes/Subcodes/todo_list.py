@@ -232,7 +232,7 @@ def main_td():
     SG_relationship = pd.read_excel(f"{paths['maps']}/SG_relationship.xlsx")
     
     ##############################################################################
-    
+    print(f'docs readed')
     
     SG_relationship_unique = SG_relationship.drop_duplicates(subset='osm_id')
     results = pd.DataFrame(columns=['agent', 'route'])
@@ -245,7 +245,7 @@ def main_td():
         responsability_matrix = pd.DataFrame(columns=['helper', 'dependent', 'geo_dist', 'time_dist', 'soc_dist', 'score'])
         
         for idx_f_df, row_f_df in family_df.iterrows():
-### WoS
+            ### WoS
             osm_id = row_f_df['WoS']
             fixed = row_f_df['WoS_action_type'] != 1
             
@@ -277,7 +277,7 @@ def main_td():
             todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)           
             
             
-# Dutties          
+            # Dutties          
             for _ in range(row_f_df['Dutties_amount']):
                 # aqui habrá que meter más tema estadistico aun
                 dutties_ids_options = SG_relationship[SG_relationship['service_group'] == 'entertainment']['osm_id'].tolist()
@@ -315,9 +315,9 @@ def main_td():
                     'conmu_time': int(row_f_df['conmu_time'])
                 }
                 
-            todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
+                todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
             
-### entertainment
+            ### entertainment
             # aqui habrá que meter más tema estadistico aun
             entertainment_ids_options = SG_relationship[SG_relationship['service_group'] == 'entertainment']['osm_id'].tolist()
                 
@@ -357,10 +357,12 @@ def main_td():
             
             todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)   
         
+        # DataFrame con todo_type > 0 (dependientes con trips que requieren asistencia)
+        dependents = todolist_family[todolist_family["todo_type"] > 0].add_suffix('_d')
         # DataFrame con todo_type == 0 (independientes)
         helpers = todolist_family[todolist_family["todo_type"] == 0].add_suffix('_h')
-        # DataFrame con todo_type > 0 (dependientes)
-        dependents = todolist_family[todolist_family["todo_type"] > 0].add_suffix('_d')
+        # Eliminamos los independientes pero no capaces de ayudar (aquellos que en algun momento son dependientes)
+        helpers = helpers[~helpers['agent_h'].isin(dependents['agent_d'])]
         
         # Producto cartesiano (todas las combinaciones posibles)
         df_combinado = helpers.merge(dependents, how='cross')
@@ -387,13 +389,12 @@ def main_td():
 
             responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)  
         
-        input(responsability_matrix)
-        
-        top_scores_df = responsability_matrix.loc[
+        responsability_matrix = responsability_matrix.loc[
             responsability_matrix.groupby(['dependent', 'osm_id_d'])['score'].idxmin()
         ].reset_index(drop=True)
 
-        input(top_scores_df)
+        print(todolist_family)
+        input(responsability_matrix)
             
         
         
