@@ -10,6 +10,8 @@ import osmnx as ox
 import networkx as nx
 from geopy.distance import geodesic
 from collections import defaultdict
+import folium
+from folium.plugins import AntPath
 
 def load_filter_sort_reset(filepath):
     """
@@ -182,7 +184,57 @@ def dependant_min_speed(df_citizens, df_family_result, citizen):
       walk_speeds.append(to_add)
     
     return min(walk_speeds)[0]          
-           
+
+
+def plot_agent_route_on_map(todolist_df, sg_relationship_df, agent_name, save_path="recorrido.html"):
+    """
+    Genera un mapa folium con el recorrido de un agente, mostrando nombre del 'todo' en orden cronológico,
+    y flechas para indicar la dirección del recorrido.
+
+    Args:
+        todolist_df (pd.DataFrame): DataFrame con ['agent', 'todo', 'osm_id', 'in', 'out']
+        sg_relationship_df (pd.DataFrame): DataFrame con ['osm_id', 'lat', 'lon']
+        agent_name (str): Nombre del agente
+        save_path (str): Ruta de archivo HTML a guardar
+    """
+    # Filtrar tareas del agente
+    agent_tasks = todolist_df[todolist_df['agent'] == agent_name].copy()
+    if agent_tasks.empty:
+        raise ValueError(f"No se encontraron tareas para el agente '{agent_name}'")
+
+    # Ordenar cronológicamente
+    agent_tasks.sort_values(by='in', inplace=True)
+
+    # Unir con coordenadas
+    route = pd.merge(agent_tasks, sg_relationship_df, on='osm_id', how='left')
+    if route[['lat', 'lon']].isnull().any().any():
+        raise ValueError("Faltan coordenadas para algunas tareas del agente.")
+
+    # Centrar mapa en la primera ubicación
+    start_location = [route.iloc[0]['lat'], route.iloc[0]['lon']]
+    route_map = folium.Map(location=start_location, zoom_start=13)
+
+    # Agregar puntos con etiquetas
+    points = []
+    for _, row in route.iterrows():
+        label = row['todo']
+        folium.Marker(
+            location=[row['lat'], row['lon']],
+            popup=label,
+            tooltip=label,
+            icon=folium.Icon(color='blue', icon='info-sign')
+        ).add_to(route_map)
+        points.append([row['lat'], row['lon']])
+
+    # Agregar flechas de dirección
+    if len(points) >= 2:
+        AntPath(points, color='blue', weight=4, delay=1000).add_to(route_map)
+
+    # Guardar el mapa
+    route_map.save(save_path)
+    print(f"Mapa guardado en: {save_path}")
+
+
 # Función principal
 def main_td():
     # Input
@@ -275,8 +327,7 @@ def main_td():
             }
             
             todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)           
-            
-            
+                
             # Dutties          
             for _ in range(row_f_df['Dutties_amount']):
                 # aqui habrá que meter más tema estadistico aun
@@ -372,9 +423,9 @@ def main_td():
             lat_d, lon_d = SG_relationship_unique.loc[SG_relationship_unique['osm_id'] == row_df_conb['osm_id_d'], ['lat', 'lon']].values[0]
             
             geo_dist = haversine(lat_h, lon_h, lat_d, lon_d)
-            time_dist = row_df_conb['in_d'] - row_df_conb['in_h']
+            time_dist = row_df_conb['in_d'] - row_df_conb['in_h'] # si esto da negativo, el agente helper tiene más tiempo para gestionar al dependant
             soc_dist = 1 # Aqui habrá que poner algo estadistico o algo
-            score = geo_dist + abs(time_dist) + soc_dist
+            score = geo_dist + abs(time_dist)/100 + soc_dist
             
             new_row = {
                 'helper': row_df_conb['agent_h'],
@@ -395,6 +446,7 @@ def main_td():
 
         helping_agents = responsability_matrix['helper'].unique().tolist()
 
+        new_schedule = pd.DataFrame()
         for helping_agent in helping_agents:
             helper_schedule = todolist_family[todolist_family['agent'] == helping_agent]
             helper_responsability = responsability_matrix[responsability_matrix['helper'] == helping_agent]
@@ -404,44 +456,115 @@ def main_td():
             # Obtener el valor mínimo de la columna 'in'
             in_to_act = filtrado['in'].min()
             
+            # Eliminar filas de todolist_family que están también en schedule_to_act
+            todolist_family = todolist_family[~todolist_family.apply(tuple, axis=1).isin(helper_schedule.apply(tuple, axis=1))].reset_index(drop=True)
             # Filas donde 'out' es menor que 'in_to_act'
-            schedule_to_mantain = helper_schedule[helper_schedule['out'] < in_to_act]
+            schedule_to_mantain = helper_schedule[helper_schedule['out'] < in_to_act].reset_index(drop=True)
             # Filas donde 'out' es mayor o igual que 'in_to_act'
-            schedule_to_act = helper_schedule[helper_schedule['out'] >= in_to_act]
+            schedule_to_act = helper_schedule[helper_schedule['out'] >= in_to_act].reset_index(drop=True)
             
             for idx_s2a, row_s2a in schedule_to_act.iterrows():
-                row_to_act = helper_schedule[helper_schedule['osm_id'] == row_s2a['osm_id']]
-                rows_data = responsability_matrix.loc[responsability_matrix['osm_id_h'] == row_s2a['osm_id'],['dependent', 'osm_id_d']]
-                
-                # Asegurarte de que los nombres de columnas coincidan para el merge
-                rows_data_renamed = rows_data.rename(columns={'dependent': 'agent', 'osm_id_d': 'osm_id'})
+                if idx_s2a == 0:
+                    rows_data = responsability_matrix.loc[responsability_matrix['osm_id_h'] == row_s2a['osm_id']]
+                    # Asegurarte de que los nombres de columnas coincidan para el merge
+                    rows_data_renamed = rows_data.rename(columns={'dependent': 'agent', 'osm_id_d': 'osm_id'})
 
-                # Merge para encontrar coincidencias exactas entre los dos DataFrames
-                coincidentes = pd.merge(todolist_family, rows_data_renamed, on=['agent', 'osm_id'], how='inner')
-                
-                print(responsability_matrix)
-                print(row_to_act)
-                input(coincidentes)
-                
-
-                
-                
-                
-                 
+                    # Merge para encontrar coincidencias exactas entre los dos DataFrames
+                    rows_to_copy = pd.merge(todolist_family, rows_data_renamed, on=['agent', 'osm_id'], how='inner')
+                    rows_to_copy = rows_to_copy.sort_values(by='score', ascending=True)
+                    
+                    for _, row_r2c in rows_to_copy.iterrows():
+                        time2spend = 0 if row_r2c['todo_type'] == 1 else row_r2c['time2spend']
+                        agent_filter = schedule_to_mantain[schedule_to_mantain['agent'] == row_s2a['agent']]
+                        base_time = agent_filter['out'].iloc[-1] if not agent_filter.empty else 0
+                        conmu_time = max(row_s2a['conmu_time'], row_r2c['conmu_time'])
+                        in_time = (base_time + conmu_time) if not schedule_to_mantain.empty else row_r2c['opening']
+                        
+                        #helper
+                        new_row_schedule = {
+                            'agent': row_s2a['agent'],
+                            'todo': f"h_{row_r2c['agent']}_{row_r2c['todo']}", 
+                            'osm_id': row_r2c['osm_id'], 
+                            'todo_type': row_s2a['todo_type'], 
+                            'opening': row_r2c['opening'], 
+                            'closing': row_r2c['closing'], 
+                            'fixed?': row_r2c['fixed?'], 
+                            'time2spend': time2spend, 
+                            'in': in_time,
+                            'out': in_time + time2spend,
+                            'conmu_time': conmu_time
+                        }
+                        schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True)
+                        
+                        #dependent                        
+                        new_row_schedule = {
+                            'agent': row_r2c['agent'],
+                            'todo': f"d_{row_s2a['agent']}_{row_r2c['todo']}", 
+                            'osm_id': row_r2c['osm_id'], 
+                            'todo_type': 0, 
+                            'opening': row_r2c['opening'], 
+                            'closing': row_r2c['closing'], 
+                            'fixed?': row_r2c['fixed?'], 
+                            'time2spend': row_r2c['time2spend'], 
+                            'in': in_time,
+                            'out': in_time + row_r2c['time2spend'],
+                            'conmu_time': conmu_time
+                        }
+                        schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True)
+                    
+                    agent_filter = schedule_to_mantain[schedule_to_mantain['agent'] == row_s2a['agent']]
+                    base_time = agent_filter['out'].iloc[-1] if not agent_filter.empty else 0
+                    
+                    new_row_schedule = {
+                        'agent': row_s2a['agent'],
+                        'todo': row_s2a['todo'], 
+                        'osm_id': row_s2a['osm_id'], 
+                        'todo_type': row_s2a['todo_type'], 
+                        'opening': row_s2a['opening'], 
+                        'closing': row_s2a['closing'], 
+                        'fixed?': row_s2a['fixed?'], 
+                        'time2spend': row_s2a['time2spend'], 
+                        'in': base_time + row_s2a['conmu_time'], 
+                        'out': base_time + row_s2a['conmu_time'] + row_s2a['time2spend'],
+                        'conmu_time': row_s2a['conmu_time']
+                    }
+                    
+                    schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True) 
+                else:
+                    agent_filter = schedule_to_mantain[schedule_to_mantain['agent'] == row_s2a['agent']]
+                    base_time = agent_filter['out'].iloc[-1] if not agent_filter.empty else 0
+                    closing = row_s2a['closing']
+                    in_time = base_time + row_s2a['conmu_time'] #mira el ultimo contruido
+                    out_time = base_time + row_s2a['conmu_time'] + row_s2a['time2spend']
+                    
+                    if in_time < closing and out_time < closing:
+                        if row_s2a['todo'] == 'Entertainment':
+                            out_time = closing
+                        new_row_schedule = {
+                            'agent': row_s2a['agent'],
+                            'todo': row_s2a['todo'], 
+                            'osm_id': row_s2a['osm_id'], 
+                            'todo_type': row_s2a['todo_type'], 
+                            'opening': row_s2a['opening'], 
+                            'closing': closing, 
+                            'fixed?': row_s2a['fixed?'], 
+                            'time2spend': row_s2a['time2spend'], 
+                            'in': in_time,
+                            'out': out_time,
+                            'conmu_time': row_s2a['conmu_time']
+                        }
+                        schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True)
+                    else:
+                        print(f"{row_s2a['agent']} was not able to fullfill '{row_s2a['todo']}' at {schedule_to_mantain['out'].iloc[-1]}.")
             
-            print(responsability_matrix)
-            input(schedule_to_act)
-             
+            #plot_agent_route_on_map(schedule_to_mantain, SG_relationship, agent_name='citizen_1', save_path='recorrido_citizen_1.html')
             
             
+            new_schedule = pd.concat([new_schedule, schedule_to_mantain], ignore_index=True)
+            input(schedule_to_mantain)  
             
-            
-            
-            
-            print(schedule_to_mantain)
-            input(schedule_to_act)
-        
-        
+        print(new_schedule)      
+        input(f'x'*80)
         print(todolist_family)
         input(responsability_matrix)
         
