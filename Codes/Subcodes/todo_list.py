@@ -393,8 +393,59 @@ def main_td():
             responsability_matrix.groupby(['dependent', 'osm_id_d'])['score'].idxmin()
         ].reset_index(drop=True)
 
+        helping_agents = responsability_matrix['helper'].unique().tolist()
+
+        for helping_agent in helping_agents:
+            helper_schedule = todolist_family[todolist_family['agent'] == helping_agent]
+            helper_responsability = responsability_matrix[responsability_matrix['helper'] == helping_agent]
+            helper_afected_POIs = responsability_matrix.loc[responsability_matrix['helper'] == helping_agent, 'osm_id_h'].unique()
+            # Filtrar las filas donde osm_id está en la lista
+            filtrado = helper_schedule[helper_schedule['osm_id'].isin(helper_afected_POIs)]
+            # Obtener el valor mínimo de la columna 'in'
+            in_to_act = filtrado['in'].min()
+            
+            # Filas donde 'out' es menor que 'in_to_act'
+            schedule_to_mantain = helper_schedule[helper_schedule['out'] < in_to_act]
+            # Filas donde 'out' es mayor o igual que 'in_to_act'
+            schedule_to_act = helper_schedule[helper_schedule['out'] >= in_to_act]
+            
+            for idx_s2a, row_s2a in schedule_to_act.iterrows():
+                row_to_act = helper_schedule[helper_schedule['osm_id'] == row_s2a['osm_id']]
+                rows_data = responsability_matrix.loc[responsability_matrix['osm_id_h'] == row_s2a['osm_id'],['dependent', 'osm_id_d']]
+                
+                # Asegurarte de que los nombres de columnas coincidan para el merge
+                rows_data_renamed = rows_data.rename(columns={'dependent': 'agent', 'osm_id_d': 'osm_id'})
+
+                # Merge para encontrar coincidencias exactas entre los dos DataFrames
+                coincidentes = pd.merge(todolist_family, rows_data_renamed, on=['agent', 'osm_id'], how='inner')
+                
+                print(responsability_matrix)
+                print(row_to_act)
+                input(coincidentes)
+                
+
+                
+                
+                
+                 
+            
+            print(responsability_matrix)
+            input(schedule_to_act)
+             
+            
+            
+            
+            
+            
+            
+            print(schedule_to_mantain)
+            input(schedule_to_act)
+        
+        
         print(todolist_family)
         input(responsability_matrix)
+        
+        
             
         
         
