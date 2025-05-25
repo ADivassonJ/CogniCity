@@ -511,7 +511,15 @@ def main_td():
                             'conmu_time': conmu_time
                         }
                         schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True)
-                    
+                        
+                        row_r2c['agent']
+                        row_r2c['osm_id']
+                        
+                        todo2add = todolist_family[(todolist_family['agent'] == row_r2c['agent']) & (todolist_family['osm_id'] != row_r2c['osm_id'])]
+                        
+                        schedule_to_mantain = pd.concat([schedule_to_mantain, todo2add], ignore_index=True) # esto no permite modificar el horario de los dependientes 
+                        schedule_to_mantain = schedule_to_mantain.sort_values(by='in', ascending=True).reset_index(drop=True) 
+                        
                     agent_filter = schedule_to_mantain[schedule_to_mantain['agent'] == row_s2a['agent']]
                     base_time = agent_filter['out'].iloc[-1] if not agent_filter.empty else 0
                     
@@ -529,7 +537,8 @@ def main_td():
                         'conmu_time': row_s2a['conmu_time']
                     }
                     
-                    schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True) 
+                    schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True)
+                    schedule_to_mantain = schedule_to_mantain.sort_values(by='in', ascending=True).reset_index(drop=True)  
                 else:
                     agent_filter = schedule_to_mantain[schedule_to_mantain['agent'] == row_s2a['agent']]
                     base_time = agent_filter['out'].iloc[-1] if not agent_filter.empty else 0
@@ -559,11 +568,13 @@ def main_td():
             
             #plot_agent_route_on_map(schedule_to_mantain, SG_relationship, agent_name='citizen_1', save_path='recorrido_citizen_1.html')
             
-            
             new_schedule = pd.concat([new_schedule, schedule_to_mantain], ignore_index=True)
-            input(schedule_to_mantain)  
+            new_schedule = new_schedule.sort_values(by='in', ascending=True).reset_index(drop=True) 
             
-        print(new_schedule)      
+        print(new_schedule)   
+        
+        # y luego meter antes y despues casa, con resta o suma para ver cuando salen o llegan
+           
         input(f'x'*80)
         print(todolist_family)
         input(responsability_matrix)
