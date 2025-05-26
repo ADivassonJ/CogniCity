@@ -403,7 +403,27 @@ def todolist_family_initialization(SG_relationship, family_df):
             todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
         else:
             print(f"{row_f_df['name']} was not able to fullfill 'Entertainment' at {in_h}.")
-
+        
+        ###home in
+        # in_home
+        row_in_home = filtered[filtered['out'] == max(filtered['out'])]
+        in_home_time = row_in_home['out'].iloc[0] + row_in_home['conmu_time'].iloc[0]
+        rew_row ={
+            'agent': row_f_df['name'],
+            'todo': 'Home', 
+            'osm_id': row_f_df['home'], 
+            'todo_type': row_f_df['WoS_type'], 
+            'opening': 0, 
+            'closing': float('inf'), 
+            'fixed?': False, 
+            'time2spend': 0, 
+            'in': in_home_time, 
+            'out': float('inf'),
+            'conmu_time': int(row_f_df['conmu_time'])
+        }   
+        todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True) 
+        
+        
     if todolist_family['agent'].nunique() == 1:
         todolist_family['todo_type'] = 0
     
@@ -420,11 +440,38 @@ def todolist_family_creation(df_citizens, SG_relationship):
         todolist_family = todolist_family_initialization(SG_relationship, family_df)  
         if max(todolist_family['todo_type']) > 0:
             responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique)
-            todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)  
-        
+            todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
+            todolist_family = home_trips_adding(family_df, todolist_family)  
+
         input(todolist_family)
         # y luego meter antes y despues casa, con resta o suma para ver cuando salen o llegan
 
+def home_trips_adding(family_df, todolist_family):
+    
+    for _, row_agent in family_df.iterrows():
+        filtered = todolist_family[todolist_family['agent'] == row_agent['name']]
+        row_out_home = filtered[filtered['in'] == min(filtered['in'])]
+        out_home_time = row_out_home['in'].iloc[0] - row_out_home['conmu_time'].iloc[0]
+        
+        # out_home
+        rew_row ={
+            'agent': row_agent['name'],
+            'todo': 'Home', 
+            'osm_id': row_agent['home'], 
+            'todo_type': 0, 
+            'opening': 0, 
+            'closing': float('inf'), 
+            'fixed?': False, 
+            'time2spend': 0, 
+            'in': 0, 
+            'out': out_home_time,
+            'conmu_time': int(row_agent['conmu_time'])
+        }   
+        todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)    
+    todolist_family = todolist_family.sort_values(by='in', ascending=True).reset_index(drop=True) 
+    
+    return todolist_family
+    
 
 def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique):
     
@@ -468,6 +515,13 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
                         base_time = max(agent_filter['out']) if not agent_filter.empty else 0
                         conmu_time = max(row_s2a['conmu_time'], row_r2c['conmu_time'])
                         in_time = (base_time + conmu_time) if not schedule_to_mantain.empty else row_r2c['opening']
+                        
+                        if row_r2c['todo'] == 'Home':
+                            h_out_time = row_r2c['closing']
+                            d_out_time = row_r2c['closing']
+                        else: 
+                            h_out_time = in_time + time2spend
+                            d_out_time = in_time + row_r2c['time2spend']
                             
                         #helper
                         new_row_schedule = {
@@ -480,7 +534,7 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
                             'fixed?': row_r2c['fixed?'], 
                             'time2spend': time2spend, 
                             'in': in_time,
-                            'out': in_time + time2spend,
+                            'out': h_out_time,
                             'conmu_time': conmu_time
                         }
                         schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True)
@@ -496,38 +550,35 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
                             'fixed?': row_r2c['fixed?'], 
                             'time2spend': row_r2c['time2spend'], 
                             'in': in_time,
-                            'out': in_time + row_r2c['time2spend'],
+                            'out': d_out_time,
                             'conmu_time': conmu_time
                         }
                         schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True)
-                            
-                        row_r2c['agent']
-                        row_r2c['osm_id']
                             
                         todo2add = todolist_family[(todolist_family['agent'] == row_r2c['agent']) & (todolist_family['osm_id'] != row_r2c['osm_id'])]
                             
                         schedule_to_mantain = pd.concat([schedule_to_mantain, todo2add], ignore_index=True) # esto no permite modificar el horario de los dependientes 
                         schedule_to_mantain = schedule_to_mantain.sort_values(by='in', ascending=True).reset_index(drop=True) 
+                    
+                    if not row_r2c['todo'] == 'Home':        
+                        agent_filter = schedule_to_mantain[schedule_to_mantain['agent'] == row_s2a['agent']]
+                        base_time = max(agent_filter['out']) if not agent_filter.empty else 0   
+                        new_row_schedule = {
+                            'agent': row_s2a['agent'],
+                            'todo': row_s2a['todo'], 
+                            'osm_id': row_s2a['osm_id'], 
+                            'todo_type': row_s2a['todo_type'], 
+                            'opening': row_s2a['opening'], 
+                            'closing': row_s2a['closing'], 
+                            'fixed?': row_s2a['fixed?'], 
+                            'time2spend': row_s2a['time2spend'], 
+                            'in': base_time + row_s2a['conmu_time'], 
+                            'out': base_time + row_s2a['conmu_time'] + row_s2a['time2spend'],
+                            'conmu_time': row_s2a['conmu_time']
+                        }
                             
-                    agent_filter = schedule_to_mantain[schedule_to_mantain['agent'] == row_s2a['agent']]
-                    base_time = max(agent_filter['out']) if not agent_filter.empty else 0
-                        
-                    new_row_schedule = {
-                        'agent': row_s2a['agent'],
-                        'todo': row_s2a['todo'], 
-                        'osm_id': row_s2a['osm_id'], 
-                        'todo_type': row_s2a['todo_type'], 
-                        'opening': row_s2a['opening'], 
-                        'closing': row_s2a['closing'], 
-                        'fixed?': row_s2a['fixed?'], 
-                        'time2spend': row_s2a['time2spend'], 
-                        'in': base_time + row_s2a['conmu_time'], 
-                        'out': base_time + row_s2a['conmu_time'] + row_s2a['time2spend'],
-                        'conmu_time': row_s2a['conmu_time']
-                    }
-                        
-                    schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True)
-                    schedule_to_mantain = schedule_to_mantain.sort_values(by='in', ascending=True).reset_index(drop=True)  
+                        schedule_to_mantain = pd.concat([schedule_to_mantain, pd.DataFrame([new_row_schedule])], ignore_index=True)
+                        schedule_to_mantain = schedule_to_mantain.sort_values(by='in', ascending=True).reset_index(drop=True)  
                 else:
                     agent_filter = schedule_to_mantain[schedule_to_mantain['agent'] == row_s2a['agent']]
                     base_time = max(agent_filter['out']) if not agent_filter.empty else 0
