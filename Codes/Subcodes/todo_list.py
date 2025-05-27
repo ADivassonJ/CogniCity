@@ -335,8 +335,6 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
         
     new_todolist_family = new_todolist_family_creation(matrix2cover)
     
-    
-    
     todolist_family_adapted = todolist_family[~todolist_family.isin(matrix2cover.to_dict(orient='list')).all(axis=1)]
 
     up2adapt = todolist_family_adapted[todolist_family_adapted['in'] < min(matrix2cover['in'])] 
@@ -350,9 +348,11 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
         schedule2adapt = up2adapt[up2adapt['agent'] == agent].sort_values(by='in', ascending=False)
         schedule2consider = new_todolist_family[new_todolist_family['agent'] == agent]
         fist_in_time = min(schedule2consider['in'])
+        conmu_time = int(schedule2consider['conmu_time'].iloc[0])
         
-        for _, row_s2a in schedule2adapt.iterrows():
-            out_time = fist_in_time - int(row_s2a['conmu_time'])
+        for idx_s2a, row_s2a in schedule2adapt.iterrows():
+                
+            out_time = fist_in_time - conmu_time
             
             if out_time < row_s2a['opening']:
                 print(f"{row_s2a['agent']} no ha podido realizar {row_s2a['todo']}")
@@ -379,9 +379,10 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
                 'time2spend': row_s2a['time2spend'], 
                 'in': in_time, 
                 'out': out_time,
-                'conmu_time': int(row_s2a['conmu_time'])
+                'conmu_time': conmu_time
             }   
             new_todolist_family = pd.concat([new_todolist_family, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+            conmu_time = int(row_s2a['conmu_time'])
             
     print('hemos llegado')
     input(new_todolist_family)
