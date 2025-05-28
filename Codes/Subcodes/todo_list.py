@@ -335,6 +335,13 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
         
     new_todolist_family = new_todolist_family_creation(matrix2cover)
     
+    new_todolist_family = new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family)
+    
+    print('new_todolist_family:')
+    input(new_todolist_family)    
+
+    
+def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family):
     todolist_family_adapted = todolist_family[~todolist_family.isin(matrix2cover.to_dict(orient='list')).all(axis=1)]
 
     up2adapt = todolist_family_adapted[todolist_family_adapted['in'] < min(matrix2cover['in'])] 
@@ -345,11 +352,12 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
     schedule2add = todolist_family[~todolist_family['agent'].isin(agents_affected)]   
     
     for agent in agents_affected:
-        schedule2adapt = up2adapt[up2adapt['agent'] == agent].sort_values(by='in', ascending=False)
         schedule2consider = new_todolist_family[new_todolist_family['agent'] == agent]
+        
+        # parte superior de la matriz a adaptar
+        schedule2adapt = up2adapt[up2adapt['agent'] == agent].sort_values(by='in', ascending=False)
         fist_in_time = min(schedule2consider['in'])
         conmu_time = int(schedule2consider['conmu_time'].iloc[0])
-        
         for idx_s2a, row_s2a in schedule2adapt.iterrows():
                 
             out_time = fist_in_time - conmu_time
@@ -383,19 +391,51 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
             }   
             new_todolist_family = pd.concat([new_todolist_family, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
             conmu_time = int(row_s2a['conmu_time'])
-            
-    print('hemos llegado')
-    input(new_todolist_family)
-            
-            
-    input(schedule2adapt)
-    
-    print(up2adapt)
-    print(down2add)
-    input(new_todolist_family)
-    
-    #### addschedule2add que son los agentes que en este intento no se han tocado
         
+        # parte INFERIOR de la matriz a adaptar
+        schedule2adapt = down2adapt[down2adapt['agent'] == agent].sort_values(by='out', ascending=True)
+        last_out_time = max(schedule2consider['out'])
+        conmu_time = int(schedule2consider['conmu_time'].iloc[0])
+        for idx_s2a, row_s2a in schedule2adapt.iterrows():
+            in_time = last_out_time + conmu_time
+            
+            if in_time > row_s2a['closing']:
+                print(f"(Due to addaptation) {row_s2a['agent']} was not able to fullfill '{row_s2a['todo']}' at {row_s2a['in']}")
+                continue
+            
+            if row_s2a['time2spend'] == 0:
+                out_time = row_s2a['closing']                                                          ###### Aqui habria que mirar el paso siguiente, si existe un paso siguiente 
+                                                                                                       ###### mira si es fixed. Si es Fixed mirar su llegada y restarle el
+                                                                                                       ###### tiempo de traslado para el out de este.
+                                                                                                       ###### Si no es fixed, no tengo ni idea de que se podría hacer, sinceramente
+            else:
+                out_time = in_time + row_s2a['time2spend']
+            #actualizamos 'fist_in_time' para que si hay otra vualta del for, mire este in y le reste el recorrido
+            last_out_time = out_time
+            
+            rew_row ={
+                'agent': row_s2a['agent'],
+                'todo': row_s2a['todo'], 
+                'osm_id': row_s2a['osm_id'], 
+                'todo_type': row_s2a['todo_type'], 
+                'opening': row_s2a['opening'], 
+                'closing': row_s2a['closing'], 
+                'fixed?': row_s2a['fixed?'], 
+                'time2spend': row_s2a['time2spend'], 
+                'in': in_time, 
+                'out': out_time,
+                'conmu_time': conmu_time
+            }   
+            new_todolist_family = pd.concat([new_todolist_family, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+            conmu_time = int(row_s2a['conmu_time'])
+    
+    # añadimos los agentes no afectados
+    new_todolist_family = pd.concat([new_todolist_family, schedule2add], ignore_index=True).sort_values(by='in', ascending=True)           
+    
+    return new_todolist_family
+    
+    
+            
 def new_todolist_family_creation(matrix2cover):
     new_todolist_family = pd.DataFrame()
     
