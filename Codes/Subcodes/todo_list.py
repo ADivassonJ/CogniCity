@@ -121,7 +121,8 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique):
             'time_dist': time_dist,
             'soc_dist': soc_dist,
             'score': score,
-            'time': row_df_conb['in_h']
+            'in_h': row_df_conb['in_h'],
+            'in_d': row_df_conb['in_d']
         }
 
         responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)  
@@ -290,16 +291,13 @@ def todolist_family_creation(df_citizens, SG_relationship):
         family_df = df_citizens[df_citizens['family'] == family_name]
         
         todolist_family = todolist_family_initialization(SG_relationship, family_df)  
-        if max(todolist_family['todo_type']) > 0:
+        while max(todolist_family['todo_type']) > 0:
             responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique)
             todolist_family = home_trips_adding(family_df, todolist_family) 
-            
-            
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
             
-             
+        input(todolist_family)     
 
-        input(todolist_family)
         # y luego meter antes y despues casa, con resta o suma para ver cuando salen o llegan
 
 def home_trips_adding(family_df, todolist_family):
@@ -330,18 +328,15 @@ def home_trips_adding(family_df, todolist_family):
     
 def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique): 
     
-    while max(todolist_family['todo_type']) > 0:
-        print('yeahh looppp')
-        resties2cover = resties2cover_creation(todolist_family, responsability_matrix)
+    resties2cover = resties2cover_creation(todolist_family, responsability_matrix)
         
-        matrix2cover = matrix2cover_creation(todolist_family, resties2cover)
+    matrix2cover = matrix2cover_creation(todolist_family, resties2cover)
             
-        new_todolist_family = new_todolist_family_creation(matrix2cover)
+    new_todolist_family = new_todolist_family_creation(matrix2cover)
         
-        todolist_family = new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family)
+    todolist_family = new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family) 
     
-    print('new_todolist_family:')
-    input(todolist_family)    
+    return todolist_family
 
     
 def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family):
@@ -441,11 +436,10 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
             
 def new_todolist_family_creation(matrix2cover):
     new_todolist_family = pd.DataFrame()
-    input(matrix2cover)
     if matrix2cover['fixed?'].any():
         first_true_index = matrix2cover.index[matrix2cover['fixed?'] == True][0]
         in_time = matrix2cover['opening'].iloc[first_true_index] + first_true_index*matrix2cover['conmu_time'].iloc[0]
-    else:
+    else: #El principal problema esta aqui, que hacer si no necesito acudir a ninguna hora en concreto?
         first_true_index = -1
         in_time = matrix2cover['opening'].iloc[0]
         in_time = max([matrix2cover['opening'].iloc[0], + matrix2cover['conmu_time'].iloc[0]])
@@ -538,23 +532,17 @@ def resties2cover_creation(todolist_family, responsability_matrix):
     
     return resties2cover
         
-        
 def matrix2cover_creation(todolist_family, resties2cover):
     matrix2cover = pd.DataFrame()
-    
     agent = resties2cover['helper'].iloc[0]
     osm_id = resties2cover['osm_id_h'].iloc[0]
+    time_in = resties2cover['in_h'].iloc[0]
     
-    input(resties2cover)
-    
-    rew_row = todolist_family[(todolist_family['agent'] == agent) & (todolist_family['osm_id'] == osm_id)]
+    rew_row = todolist_family[(todolist_family['agent'] == agent) & (todolist_family['osm_id'] == osm_id) & (todolist_family['in'] == time_in)]
     matrix2cover = pd.concat([matrix2cover, rew_row], ignore_index=True)
-
     for _, row_r2c in resties2cover.iterrows():
-        rew_row = todolist_family[(todolist_family['agent'] == row_r2c['dependent']) & (todolist_family['osm_id'] == row_r2c['osm_id_d']) & (todolist_family['in'] == row_r2c['time'])]
+        rew_row = todolist_family[(todolist_family['agent'] == row_r2c['dependent']) & (todolist_family['osm_id'] == row_r2c['osm_id_d']) & (todolist_family['in'] == row_r2c['in_d'])]
         matrix2cover = pd.concat([matrix2cover, rew_row], ignore_index=True)
-    
-    input(matrix2cover)
     return matrix2cover   
     
 # Función principal
