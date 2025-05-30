@@ -320,6 +320,8 @@ def todolist_family_creation(df_citizens, SG_relationship):
             
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
 
+        input(todolist_family)
+
         # y luego meter antes y despues casa, con resta o suma para ver cuando salen o llegan
 
 def home_trips_adding(family_df, todolist_family):
@@ -478,18 +480,23 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
             new_todolist_family_agent = new_todolist_family[new_todolist_family['agent'] == agent_sch]
             last_agent_trip = new_todolist_family_agent[new_todolist_family_agent['out'] == max(new_todolist_family_agent['out'])]
             in_time = last_agent_trip['out'].iloc[0] + last_agent_trip['conmu_time'].iloc[0]
-            input(agent_schedule)
-            for _, agent_trip in agent_schedule:
-                # aqui moificas entrada y salida, tipico topico, lel
             
-            print('in_time')
-            input(in_time)
-        
-        print('new_todolist_family')
-        print(new_todolist_family)
-        print('matrix2cover')
-        input(matrix2cover)
-        
+            for _, agent_trip in agent_schedule.iterrows():
+                rew_row ={
+                    'agent': agent_trip['agent'],
+                    'todo': agent_trip['todo'], 
+                    'osm_id': agent_trip['osm_id'], 
+                    'todo_type': 0, 
+                    'opening': agent_trip['opening'], 
+                    'closing': agent_trip['closing'], 
+                    'fixed?': agent_trip['fixed?'], 
+                    'time2spend': agent_trip['time2spend'], 
+                    'in': in_time, 
+                    'out': agent_trip['out'],
+                    'conmu_time': agent_trip['conmu_time']
+                } 
+                new_todolist_family = pd.concat([new_todolist_family, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+    
         # en este caso, le metemos new_todolist_family a todolist_family_adapted, y luego tendremos que trabajar los matrix2cover
     
     up2adapt = todolist_family_adapted[todolist_family_adapted['in'] < min(matrix2cover['in'])] 
