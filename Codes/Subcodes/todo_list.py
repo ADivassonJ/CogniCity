@@ -12,6 +12,10 @@ from geopy.distance import geodesic
 from collections import defaultdict
 import folium
 from folium.plugins import AntPath
+import pandas as pd
+import folium
+from folium.plugins import AntPath
+import matplotlib.pyplot as plt 
 
 def load_filter_sort_reset(filepath):
     """
@@ -37,53 +41,72 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c      
 
 
-def plot_agent_route_on_map(todolist_df, sg_relationship_df, agent_name, save_path="recorrido.html"):
-    """
-    Genera un mapa folium con el recorrido de un agente, mostrando nombre del 'todo' en orden cronológico,
-    y flechas para indicar la dirección del recorrido.
+def plot_agents_in_split_map(todolist_df, sg_relationship_df, save_path="recorridos_agentes.html"):
+    agentes = todolist_df['agent'].unique()
+    num_agentes = len(agentes)
 
-    Args:
-        todolist_df (pd.DataFrame): DataFrame con ['agent', 'todo', 'osm_id', 'in', 'out']
-        sg_relationship_df (pd.DataFrame): DataFrame con ['osm_id', 'lat', 'lon']
-        agent_name (str): Nombre del agente
-        save_path (str): Ruta de archivo HTML a guardar
-    """
-    # Filtrar tareas del agente
-    agent_tasks = todolist_df[todolist_df['agent'] == agent_name].copy()
-    if agent_tasks.empty:
-        raise ValueError(f"No se encontraron tareas para el agente '{agent_name}'")
+    # Generar colores únicos
+    cmap = plt.cm.get_cmap('tab10', num_agentes)
+    color_map = {
+        agent: "#{:02x}{:02x}{:02x}".format(*(int(255 * c) for c in cmap(i)[:3]))
+        for i, agent in enumerate(agentes)
+    }
 
-    # Ordenar cronológicamente
-    agent_tasks.sort_values(by='in', inplace=True)
+    # Crear directorio temporal para guardar mapas individuales
+    temp_dir = "temp_maps"
+    os.makedirs(temp_dir, exist_ok=True)
+    map_files = []
 
-    # Unir con coordenadas
-    route = pd.merge(agent_tasks, sg_relationship_df, on='osm_id', how='left')
-    if route[['lat', 'lon']].isnull().any().any():
-        raise ValueError("Faltan coordenadas para algunas tareas del agente.")
+    for agent in agentes:
+        agent_tasks = todolist_df[todolist_df['agent'] == agent].copy()
+        agent_tasks.sort_values(by='in', inplace=True)
+        route = pd.merge(agent_tasks, sg_relationship_df, on='osm_id', how='left')
 
-    # Centrar mapa en la primera ubicación
-    start_location = [route.iloc[0]['lat'], route.iloc[0]['lon']]
-    route_map = folium.Map(location=start_location, zoom_start=13)
+        if route[['lat', 'lon']].isnull().any().any():
+            raise ValueError(f"Faltan coordenadas para el agente '{agent}'.")
 
-    # Agregar puntos con etiquetas
-    points = []
-    for _, row in route.iterrows():
-        label = row['todo']
-        folium.Marker(
-            location=[row['lat'], row['lon']],
-            popup=label,
-            tooltip=label,
-            icon=folium.Icon(color='blue', icon='info-sign')
-        ).add_to(route_map)
-        points.append([row['lat'], row['lon']])
+        # Centro inicial del mapa
+        start_latlon = [route.iloc[0]['lat'], route.iloc[0]['lon']]
+        mapa = folium.Map(location=start_latlon, zoom_start=13)
+        puntos = []
 
-    # Agregar flechas de dirección
-    if len(points) >= 2:
-        AntPath(points, color='blue', weight=4, delay=1000).add_to(route_map)
+        for _, row in route.iterrows():
+            punto = [row['lat'], row['lon']]
+            puntos.append(punto)
+            label = f"{row['todo']}"
+            folium.Marker(
+                location=punto,
+                popup=label,
+                tooltip=label,
+                icon=folium.Icon(color='blue', icon='info-sign')
+            ).add_to(mapa)
 
-    # Guardar el mapa
-    route_map.save(save_path)
-    print(f"Mapa guardado en: {save_path}")
+        if len(puntos) >= 2:
+            folium.PolyLine(
+                puntos,
+                color=color_map[agent],
+                weight=6,
+                opacity=0.8
+            ).add_to(mapa)
+
+        # Guardar mapa individual
+        map_file = os.path.join(temp_dir, f"{agent}.html")
+        mapa.save(map_file)
+        map_files.append((agent, map_file))
+
+    # Crear HTML combinado
+    with open(save_path, "w", encoding="utf-8") as f:
+        f.write("<html><head><title>Recorridos por agente</title></head><body>")
+        f.write("<style>iframe { width: 48%; height: 400px; display: inline-block; margin: 1%; }</style>")
+        f.write("<h1 style='text-align:center;'>Recorridos de agentes</h1>")
+
+        for agent, map_file in map_files:
+            f.write(f"<h3>{agent}</h3>")
+            f.write(f"<iframe src='{map_file}'></iframe>")
+
+        f.write("</body></html>")
+
+    print(f"Pantalla partida guardada en: {save_path}")
 
 def responsability_matrix_creation(todolist_family, SG_relationship_unique):
     responsability_matrix = pd.DataFrame()
@@ -320,6 +343,7 @@ def todolist_family_creation(df_citizens, SG_relationship):
             
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
 
+        plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
         input(todolist_family)
 
         # y luego meter antes y despues casa, con resta o suma para ver cuando salen o llegan
@@ -359,81 +383,13 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
     todolist_family = new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover, flag_to_jump)
     
     return todolist_family
-
-def antzeko_parecido(matrix2cover, new_todolist_family, prev_matrix2cover): 
-    
-    print('new_todolist_family:')
-    print(new_todolist_family)
-    print('matrix2cover:')
-    input(matrix2cover)
-    
-    # DataFrame para almacenar resultados si vas a ir agregando algo más adelante
-    new_new_list = pd.DataFrame()
-    # Filtrar dependientes con todo_type distinto de 0
-    dependants_1 = matrix2cover[matrix2cover['todo_type'] != 0]
-    # Filtrar en el DataFrame anterior aquellos agentes que están en dependants_1
-    dependants_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(dependants_1['agent'])]
-
-    # Agrupar por 'out'
-    grouped = dependants_0.groupby('out')
-    # Ordenar los grupos por el valor de 'out' (clave del grupo)
-    dependents2cover = dict(sorted(grouped, key=lambda x: x[0]))
-    
-    helper = prev_matrix2cover[prev_matrix2cover['todo_type'] == 0]
-    
-    out_time = next(iter(dependents2cover)) - helper['conmu_time'].iloc[0]
-    
-    rew_row ={
-        'agent': helper['agent'].iloc[0],
-        'todo': helper['todo'].iloc[0], 
-        'osm_id': helper['osm_id'].iloc[0], 
-        'todo_type': 0, 
-        'opening': helper['opening'].iloc[0], 
-        'closing': helper['closing'].iloc[0], 
-        'fixed?': helper['fixed?'].iloc[0], 
-        'time2spend': helper['time2spend'].iloc[0], 
-        'in': helper['in'].iloc[0], 
-        'out': out_time,
-        'conmu_time': helper['conmu_time'].iloc[0]
-    }   
-    
-    new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-    prev_out_time = out_time
-    
-    for _, d2r_group in dependents2cover.items():
-        out_time = prev_out_time + max(d2r_group['conmu_time'])
-        prev_out_time = out_time
-        
-        for agent in new_new_list['agent'].unique():
-            rew_row ={
-                'agent': agent,
-                'todo': f"accompaniment", 
-                'osm_id': d2r_group['osm_id'].iloc[0], 
-                'todo_type': 0, 
-                'opening': d2r_group['opening'].iloc[0], 
-                'closing': d2r_group['closing'].iloc[0], 
-                'fixed?': d2r_group['fixed?'].iloc[0], 
-                'time2spend': 0, 
-                'in': out_time, 
-                'out': out_time,
-                'conmu_time': d2r_group['conmu_time'].iloc[0]
-            } 
-            new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-        
-        d2r_group['out'] = out_time
-        new_new_list = pd.concat([new_new_list, d2r_group], ignore_index=True).sort_values(by='in', ascending=True)
-        
-    return new_new_list
-
-    
+   
 def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover, flag_to_jump):
     
     if flag_to_jump:
         todolist_family_adapted = todolist_family[~todolist_family.isin(matrix2cover.to_dict(orient='list')).all(axis=1)]
     else:
         todolist_family_adapted = todolist_family[~todolist_family.isin(prev_matrix2cover.to_dict(orient='list')).all(axis=1)]
-        
-        
         
         # Crear una máscara booleana para las filas que serán eliminadas
         mask = todolist_family.isin(prev_matrix2cover.to_dict(orient='list')).all(axis=1)
@@ -518,8 +474,7 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
             out_time = fist_in_time - conmu_time
             
             if out_time < row_s2a['opening']:
-                print(f"{row_s2a['agent']} no ha podido realizar {row_s2a['todo']}")
-                print(f'creo que esto no deberia poder pasar')
+                print(f"{row_s2a['agent']} ha tenido un error al realizar {row_s2a['todo']} por ser out_time '{out_time}'")
                 continue
             
             if row_s2a['time2spend'] == 0:
