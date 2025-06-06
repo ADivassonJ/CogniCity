@@ -40,7 +40,6 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2*np.arcsin(np.sqrt(a))
     return R * c      
 
-
 def plot_agents_in_split_map(todolist_df, sg_relationship_df, save_path="recorridos_agentes.html"):
     agentes = todolist_df['agent'].unique()
     num_agentes = len(agentes)
@@ -302,7 +301,7 @@ def todolist_family_initialization(SG_relationship, family_df):
         else:
             print(f"{row_f_df['name']} was not able to fullfill 'Entertainment' at {in_h}.")
         
-        ###home in
+        ### home in
         # in_home
         row_in_home = filtered[filtered['out'] == max(filtered['out'])]
         in_home_time = row_in_home['out'].iloc[0] + row_in_home['conmu_time'].iloc[0]
@@ -545,28 +544,41 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
     return new_todolist_family
 
 def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_family, prev_matrix2cover): 
-    
+    ## Dividir los datos
     # DataFrame para almacenar resultados si vas a ir agregando algo más adelante
     new_new_list = pd.DataFrame()
     # Filtrar dependientes con todo_type distinto de 0
     dependants_1 = matrix2cover[matrix2cover['todo_type'] != 0]
     # Filtrar en el DataFrame anterior aquellos agentes que están en dependants_1
     dependants_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(dependants_1['agent'])]
-
-    # Agrupar por 'out'
+    # Conseguir los datos especificos del helper
+    helper = prev_matrix2cover[prev_matrix2cover['todo_type'] == 0]
+    
+    ## Entender quien es el que condiciona el grupo
+    # Agrupar por 'out' para ver cual es el primero en salir de su sitio
     grouped = dependants_0.groupby('out')
     # Ordenar los grupos por el valor de 'out' (clave del grupo)
     dependents2cover = dict(sorted(grouped, key=lambda x: x[0]))
     
-    helper = prev_matrix2cover[prev_matrix2cover['todo_type'] == 0]
+    ## En base a la condición, asignar la hora de salida del helper 
+    first_df = next(iter(dependents2cover))
+    # Compara helper con cada fila del DataFrame
+    if (first_df == helper).all(axis=1).any():
+        # Si el helper esta en la primera fila, se salta la primera realizacion de un trip, pues recoge a estos agentes ya
+        out_time = first_df
+    else:
+        # el helper debe salir antes para recoger a los agentes que provocan la dependencia
+        out_time = first_df - helper['conmu_time'].iloc[0]                              # Issue 15
     
-    out_time = next(iter(dependents2cover)) - helper['conmu_time'].iloc[0]
+    print(f"out_time: {out_time}")
     
+    ## Crear nueva accion
+    # Datos
     rew_row ={
         'agent': helper['agent'].iloc[0],
         'todo': helper['todo'].iloc[0], 
         'osm_id': helper['osm_id'].iloc[0], 
-        'todo_type': 0, 
+        'todo_type': helper['todo_type'].iloc[0], 
         'opening': helper['opening'].iloc[0], 
         'closing': helper['closing'].iloc[0], 
         'fixed?': helper['fixed?'].iloc[0], 
@@ -575,15 +587,24 @@ def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_fami
         'out': out_time,
         'conmu_time': helper['conmu_time'].iloc[0]
     }   
-    
+    # Suma a dataframe
     new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-    prev_out_time = out_time
+    print(new_new_list)
     
+    
+    ## Movemos los agentes dependientes
+    # Actualizamos la variable para el loop
+    prev_out_time = out_time
+    # Loop con todos los GRUPOS de agentes, ordenados por hora de out
     for _, d2r_group in dependents2cover.items():
+        # Actualización de la variable para los datos
         out_time = prev_out_time + max(d2r_group['conmu_time'])
+        # Lo mismo pero para la siguiente iteración del loop
         prev_out_time = out_time
         
+        # Analizamos cada agente en el grupo
         for agent in new_new_list['agent'].unique():
+            # Creamos los nuevos datos
             rew_row ={
                 'agent': agent,
                 'todo': f"accompaniment", 
@@ -596,16 +617,22 @@ def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_fami
                 'in': out_time, 
                 'out': out_time,
                 'conmu_time': d2r_group['conmu_time'].iloc[0]
-            } 
+            }
+            # Suma a dataframe
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+        
+        print(d2r_group)
         
         d2r_group['out'] = out_time
         new_new_list = pd.concat([new_new_list, d2r_group], ignore_index=True).sort_values(by='in', ascending=True)
         
+        input(new_new_list)
+        
     return new_new_list
 
-
 def agent_transfer(matrix2cover, new_todolist_family, prev_matrix2cover):
+    new_todolist_family = gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_family, prev_matrix2cover)
+    
     if matrix2cover['fixed?'].any():
         first_true_index = matrix2cover.index[matrix2cover['fixed?'] == True][0]
         in_time = matrix2cover['opening'].iloc[first_true_index] + first_true_index*matrix2cover['conmu_time'].iloc[0]
@@ -640,6 +667,9 @@ def agent_transfer(matrix2cover, new_todolist_family, prev_matrix2cover):
             # If row_group is a Series of type object (not usual, but interpreted)
             if isinstance(row_group, object) and not isinstance(row_group, pd.Series):
                 row_group = pd.DataFrame([row_group])  # Convert to DataFrame if needed
+            
+            print(group)
+            
             if int(idx_group) == int(first_true_index):
                 in_time = row_group['opening']  # row_group is a Series, no need for iloc
             else:
