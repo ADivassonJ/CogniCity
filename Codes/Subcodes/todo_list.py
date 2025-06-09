@@ -543,22 +543,30 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
     
     return new_todolist_family
 
-def sort_route(out_osm_ids):
+def sort_route(osm_ids, helper):
     # Esta funcion deberia devolver el df ordenado con los verdaderos siempor de out
-    return out_osm_ids
+    # recuerda que el helper siempre debe ser el primero
 
-def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_family, prev_matrix2cover): 
-    ## Dividir los datos
-    # DataFrame para almacenar resultados si vas a ir agregando algo más adelante
-    new_new_list = pd.DataFrame()
-    # Filtrar dependientes con todo_type distinto de 0
-    dependants_1 = matrix2cover[matrix2cover['todo_type'] != 0]
-    # Filtrar en el DataFrame anterior aquellos agentes que están en dependants_1
-    dependants_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(dependants_1['agent'])]
-    # Conseguir los datos especificos del helper
-    helper = prev_matrix2cover[prev_matrix2cover['todo_type'] == 0] # Issue 16
+    dependants = osm_ids[osm_ids['osm_id'] != helper['osm_id'].iloc[0]].copy()
+    helper = osm_ids[osm_ids['osm_id'] == helper['osm_id'].iloc[0]].copy()
     
-    ## Creación de ruta de recogida
+    group_conmu_time = max(osm_ids['conmu_time'])
+    
+    # Detectar si la columna 'in' o 'out' está presente
+    target_col = 'in' if 'in' in dependants.columns else 'out'
+
+    # Aplicar la operación
+    dependants.loc[:, target_col] = dependants[target_col] - group_conmu_time * dependants.index
+    
+    if not dependants.empty:
+        helper.at[helper.index[0], target_col] = (dependants[target_col].iloc[0] + group_conmu_time)    
+    
+    combined_df = pd.concat([dependants, helper], ignore_index=True)
+    combined_df = combined_df.sort_values(by=target_col, ascending=False).reset_index(drop=True)
+    return combined_df
+
+def agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper):
+        ## Creación de ruta de recogida
     # DataFrame con datos de outs
     out_osm_ids = pd.DataFrame(columns=['osm_id', 'out', 'conmu_time'])
     # Agrupamos para crear ruta de recogida
@@ -571,7 +579,11 @@ def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_fami
         group_conmu_time = oi_group['conmu_time'].max()
         # Asignamos tiempo de salida del grupo
         if filtered.empty:
-            group_out_time = oi_group['out'].min()
+            filtered = matrix2cover[matrix2cover['fixed?'] == True]
+            if filtered.empty:
+                group_out_time = oi_group['out'].min()
+            else:
+                group_out_time = filtered['in'].max() - group_conmu_time*len(filtered)
         else:
             group_out_time = filtered['out'].max()
         # Añadir nueva fila de datos
@@ -581,113 +593,221 @@ def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_fami
             'conmu_time': group_conmu_time
         }   
         # Suma a dataframe
-        out_osm_ids = pd.concat([out_osm_ids, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='out', ascending=False)
+        out_osm_ids = pd.concat([out_osm_ids, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='out', ascending=False).reset_index(drop=True)
     
-    sorted_route = sort_route(out_osm_ids)
+    # Crear la ruta ordenada
+    sorted_route = sort_route(out_osm_ids, helper)
     
-    for name_group in sorted_route['osm_id']:
-        groupis = osm_id_groups.get_group(name_group)
-        input(groupis) # como gestiono lo de sacar un grupo del ente este lel
-    
-    # Agrupar por 'out' para ver cual es el primero en salir de su sitio
-    grouped = prev_matrix2cover.groupby('out')
-    # Ordenar los grupos por el valor de 'out' (clave del grupo)
-    dependents2cover = dict(sorted(grouped, key=lambda x: x[0]))
-    input(dependents2cover)
-    
-    ## Mirar osm_id
-    # Agrupamos por osm_id
-    
-    
-    
-    
-    ## En base a la condición, asignar la hora de salida del helper 
-    first_df = next(iter(dependents2cover))
-    # Compara helper con cada fila del DataFrame
-    if (first_df == helper).all(axis=1).any():
-        # Si el helper esta en la primera fila, se salta la primera realizacion de un trip, pues recoge a estos agentes ya
-        out_time = first_df
-        print('yes 1')
-        flag = False
-    else:
-        # el helper debe salir antes para recoger a los agentes que provocan la dependencia
-        out_time = first_df - helper['conmu_time'].iloc[0]                              # Issue 15
-        flag = True
-    
-    print(f"out_time: {out_time}")
-    
-    ## Crear nueva accion
-    # Datos
-    rew_row ={
-        'agent': helper['agent'].iloc[0],
-        'todo': helper['todo'].iloc[0], 
-        'osm_id': helper['osm_id'].iloc[0], 
-        'todo_type': helper['todo_type'].iloc[0], 
-        'opening': helper['opening'].iloc[0], 
-        'closing': helper['closing'].iloc[0], 
-        'fixed?': helper['fixed?'].iloc[0], 
-        'time2spend': helper['time2spend'].iloc[0], 
-        'in': helper['in'].iloc[0], 
-        'out': out_time,
-        'conmu_time': helper['conmu_time'].iloc[0]
-    }   
-    # Suma a dataframe
-    new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-    print(new_new_list)
-    
-    
-    ## Movemos los agentes dependientes
-    # Actualizamos la variable para el loop
-    prev_out_time = out_time
-    # Loop con todos los GRUPOS de agentes, ordenados por hora de out
-    for _, d2r_group in dependents2cover.items():
-        # Actualización de la variable para los datos
-        if flag:
-            out_time = prev_out_time + max(d2r_group['conmu_time'])
-        else:
-            print('yes 2')
-            out_time = prev_out_time
-            flag = True
-        # Lo mismo pero para la siguiente iteración del loop
-        prev_out_time = out_time
-        
-        # Analizamos cada agente en el grupo
-        for agent in new_new_list['agent'].unique():
-            # Creamos los nuevos datos
+    ## Crear el nuevo schedule (parte de recogida de agentes)
+    # Iteramos todos los osm_id de salida
+    for _, name_group in sorted_route.iterrows():
+        # Sacamos el grupo relativo al trip actual
+        group = osm_id_groups.get_group(name_group['osm_id'])
+        # Sacamos los valores a asignar para este grupo
+        group_out_time = name_group['out']
+        group_conmu_time = name_group['conmu_time']
+        # Miramos los agenets que ya estan en movimiento
+        previous_agents = new_new_list['agent'].unique()
+        # Iniciamos con los agentes en movimiento
+        for p_agent in previous_agents:
+            # Nueva fila
             rew_row ={
-                'agent': agent,
-                'todo': f"accompaniment", 
-                'osm_id': d2r_group['osm_id'].iloc[0], 
+                'agent': p_agent,
+                'todo': 'Accompany', 
+                'osm_id': name_group['osm_id'], 
                 'todo_type': 0, 
-                'opening': d2r_group['opening'].iloc[0], 
-                'closing': d2r_group['closing'].iloc[0], 
-                'fixed?': d2r_group['fixed?'].iloc[0], 
+                'opening': 0, 
+                'closing': float('inf'), 
+                'fixed?': False, 
                 'time2spend': 0, 
-                'in': out_time, 
-                'out': out_time,
-                'conmu_time': d2r_group['conmu_time'].iloc[0]
-            }
+                'in': group_out_time, 
+                'out': group_out_time,
+                'conmu_time': group_conmu_time
+            }   
             # Suma a dataframe
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-        
-        print(d2r_group)
-        
-        d2r_group['out'] = out_time
-        new_new_list = pd.concat([new_new_list, d2r_group], ignore_index=True).sort_values(by='in', ascending=True)
-        
-        input(new_new_list)
-        
+        # Despues agentes que se mueven por primera vez
+        for _, agent in group.iterrows():
+            # En caso de que el agente tenga que estar un tiempo especifico, de espera o se haya cerrado el servicio en el que estan, tendrá que esperar (sin poder hacer nada más)
+            if (group_out_time > agent['closing']) or (group_out_time > agent['out'] and agent['time2spend'] != 0):
+                # Calculamos el tiempo de espera
+                waiting_time = group_out_time - agent['out']
+                # Nueva fila
+                rew_row ={
+                    'agent': agent['agent'],
+                    'todo': f'Waiting', 
+                    'osm_id': agent['osm_id'], 
+                    'todo_type': 0, 
+                    'opening': agent['opening'], 
+                    'closing': agent['closing'], 
+                    'fixed?': agent['fixed?'], 
+                    'time2spend': waiting_time, 
+                    'in': agent['out'], 
+                    'out': group_out_time,
+                    'conmu_time': group_conmu_time
+                }   
+                # Suma a dataframe
+                new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+            # Actualización del caso original del agente
+            rew_row ={
+                'agent': agent['agent'],
+                'todo': agent['todo'], 
+                'osm_id': agent['osm_id'], 
+                'todo_type': agent['todo_type'], 
+                'opening': agent['opening'], 
+                'closing': agent['closing'], 
+                'fixed?': agent['fixed?'], 
+                'time2spend': agent['time2spend'], 
+                'in': agent['in'], 
+                'out': group_out_time,
+                'conmu_time': group_conmu_time
+            }   
+            # Suma a dataframe
+            new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
     return new_new_list
 
-def agent_transfer(matrix2cover, new_todolist_family, prev_matrix2cover):
-    new_todolist_family = gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_family, prev_matrix2cover)
+def agent_delivery(new_new_list, new_list, matrix2cover, helper):
+    ## Creación de ruta de recogida
+    # DataFrame con datos de ins
+    in_osm_ids = pd.DataFrame(columns=['osm_id', 'in', 'conmu_time'])
+    # Agrupamos para crear ruta de entrega
+    osm_id_groups = matrix2cover.groupby('osm_id')
+    # Pasamos por todos los grupos de la salida
+    for name_group, oi_group in osm_id_groups:
+        # Buscamos el valor minimo de in en el grupo que tenga fixed? == True (quién condiciona)
+        filtered = oi_group[oi_group['fixed?'] == True]
+        # Asignamos tiempo de conmutación del grupo
+        group_conmu_time = oi_group['conmu_time'].max()
+        # Asignamos tiempo de llegada del grupo
+        if filtered.empty:
+            group_in_time = oi_group['in'].min()
+        else:
+            group_in_time = filtered['in'].min()
+        # Añadir nueva fila de datos
+        rew_row ={ 
+            'osm_id': name_group,
+            'in': group_in_time,
+            'conmu_time': group_conmu_time
+        }   
+        # Suma a dataframe
+        in_osm_ids = pd.concat([in_osm_ids, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=False).reset_index(drop=True)
     
-    if matrix2cover['fixed?'].any():
-        first_true_index = matrix2cover.index[matrix2cover['fixed?'] == True][0]
-        in_time = matrix2cover['opening'].iloc[first_true_index] + first_true_index*matrix2cover['conmu_time'].iloc[0]
-    else:                                                                               #El principal problema esta aqui, que hacer si no necesito acudir a ninguna hora en concreto?
-        new_todolist_family = gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_family, prev_matrix2cover)
-        return new_todolist_family, False
+    # Crear la ruta ordenada
+    sorted_route = sort_route(in_osm_ids, helper)
+    
+    ## Crear el nuevo schedule (parte de recogida de agentes)
+    # Iteramos todos los osm_id de salida
+    for _, name_group in sorted_route.iterrows():
+        # Sacamos el grupo relativo al trip actual
+        group = osm_id_groups.get_group(name_group['osm_id'])
+        # Sacamos los valores a asignar para este grupo
+        group_in_time = name_group['in']
+        group_conmu_time = name_group['conmu_time']
+        # Miramos los agenets que ya estan en movimiento
+        previous_agents = new_new_list['agent'].unique()
+        # Iniciamos con los agentes en movimiento
+        for p_agent in previous_agents:
+            # Nueva fila
+            rew_row ={
+                'agent': p_agent,
+                'todo': 'Accompany', 
+                'osm_id': name_group['osm_id'], 
+                'todo_type': 0, 
+                'opening': 0, 
+                'closing': float('inf'), 
+                'fixed?': False, 
+                'time2spend': 0, 
+                'in': group_in_time, 
+                'out': group_in_time,
+                'conmu_time': group_conmu_time
+            }   
+            # Suma a dataframe
+            new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+        # Despues agentes que se mueven por primera vez
+        for _, agent in group.iterrows():
+            # En caso de que el agente tenga que estar un tiempo especifico, de espera o se haya cerrado el servicio en el que estan, tendrá que esperar (sin poder hacer nada más)
+            if (group_in_time < agent['opening']) or (group_in_time < agent['in'] and agent['fixed?'] == True):
+                # Calculamos el tiempo de espera
+                waiting_time = agent['in'] - group_in_time
+                # Nueva fila
+                rew_row ={
+                    'agent': agent['agent'],
+                    'todo': f'Waiting', 
+                    'osm_id': agent['osm_id'], 
+                    'todo_type': 0, 
+                    'opening': agent['opening'], 
+                    'closing': agent['closing'], 
+                    'fixed?': agent['fixed?'], 
+                    'time2spend': waiting_time, 
+                    'in': group_in_time, 
+                    'out': agent['in'],
+                    'conmu_time': group_conmu_time
+                }   
+                # Suma a dataframe
+                new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+                rew_row ={
+                    'agent': agent['agent'],
+                    'todo': agent['todo'], 
+                    'osm_id': agent['osm_id'], 
+                    'todo_type': 0, 
+                    'opening': agent['opening'], 
+                    'closing': agent['closing'], 
+                    'fixed?': agent['fixed?'], 
+                    'time2spend': agent['time2spend'], 
+                    'in': agent['in'], 
+                    'out': (agent['in'] + agent['time2spend']) if agent['time2spend'] != 0 else agent['closing'],
+                    'conmu_time': group_conmu_time
+                }   
+                # Suma a dataframe
+                new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+            else:
+                # Actualización del caso original del agente
+                rew_row ={
+                    'agent': agent['agent'],
+                    'todo': agent['todo'], 
+                    'osm_id': agent['osm_id'], 
+                    'todo_type': 0, 
+                    'opening': agent['opening'], 
+                    'closing': agent['closing'], 
+                    'fixed?': agent['fixed?'], 
+                    'time2spend': agent['time2spend'], 
+                    'in': group_in_time, 
+                    'out': (group_in_time + agent['time2spend']) if agent['time2spend'] != 0 else agent['closing'],
+                    'conmu_time': group_conmu_time
+                }   
+                # Suma a dataframe
+                new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+    return new_new_list
+
+def route_creation(matrix2cover, new_todolist_family, prev_matrix2cover): 
+    ## Dividir los datos
+    # DataFrame para almacenar resultados si vas a ir agregando algo más adelante
+    columns=['agent','todo','osm_id','todo_type','opening','closing','fixed?','time2spend','in','out','conmu_time']
+    new_list = pd.DataFrame(columns=columns)
+    new_new_list = pd.DataFrame(columns=columns)
+    # Filtrar dependientes con todo_type distinto de 0
+    dependants_1 = matrix2cover[matrix2cover['todo_type'] != 0]
+    # Filtrar en el DataFrame anterior aquellos agentes que están en dependants_1
+    dependants_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(dependants_1['agent'])]
+    # Conseguir los datos especificos del helper
+    helper_0 = prev_matrix2cover[prev_matrix2cover['todo_type'] == 0] # Issue 16
+    helper_1 = matrix2cover[matrix2cover['agent'] == helper_0['agent']]
+    
+    new_new_list = agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper_0)
+    new_list = pd.concat([new_list, new_new_list], ignore_index=True)
+    new_new_list = pd.DataFrame(columns=columns)
+    new_new_list = agent_delivery(new_new_list, prev_matrix2cover, matrix2cover, helper_1)
+    new_list = pd.concat([new_list, new_new_list], ignore_index=True)
+    print(new_todolist_family)
+    input(new_list)     
+    
+        
+    return new_list
+
+def agent_transfer(matrix2cover, new_todolist_family, prev_matrix2cover):
+    new_todolist_family = route_creation(matrix2cover, new_todolist_family, prev_matrix2cover)
+    
+    
     
     out_time = min([in_time + matrix2cover['time2spend'].iloc[0], matrix2cover['closing'].iloc[0]])
     
