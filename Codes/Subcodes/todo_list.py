@@ -342,10 +342,8 @@ def todolist_family_creation(df_citizens, SG_relationship):
             
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
 
-        plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
-        input(todolist_family)
-
-        # y luego meter antes y despues casa, con resta o suma para ver cuando salen o llegan
+        # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
+            input(todolist_family)
 
 def home_trips_adding(family_df, todolist_family):
     
@@ -376,11 +374,10 @@ def home_trips_adding(family_df, todolist_family):
 def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique):
 
     matrix2cover, prev_matrix2cover = matrix2cover_creation(todolist_family, responsability_matrix)
-
+    
     new_todolist_family = new_todolist_family_creation(matrix2cover, prev_matrix2cover)
     
     todolist_family = new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover)
-    
     return todolist_family
    
 def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover):
@@ -399,7 +396,7 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
         agent_schedule = new_todolist_family[new_todolist_family['agent'] == agent].reset_index(drop=True)
         # Sacamos el 'todo' del agente
         agent_todo = todolist_family[todolist_family['agent'] == agent].reset_index(drop=True)
-    
+        
         filtered_df1 = agent_todo.merge(agent_schedule[['todo', 'osm_id']], on=['todo', 'osm_id'], how='inner')
         
         filtered_idx = agent_todo.merge(
@@ -413,29 +410,16 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
         # Logramos las partes previa y posterior al cambio
         prev_df1 = agent_todo.loc[:first_idx - 1]
         post_df1 = agent_todo.loc[last_idx + 1:]
-        # La previa no se necesita mayor medificacion, por lo que se copia
-        new_new_list = pd.concat([new_new_list, prev_df1], ignore_index=True).sort_values(by='in', ascending=True)
+        # La previa no se necesita mayor modificacion, por lo que se copia
+        new_new_list = pd.concat([new_new_list, prev_df1], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         # La posterior se actualiza
         post_df1 = time_adding(post_df1, max(agent_schedule['out']))
         # Y despues se suma
-        new_new_list = pd.concat([new_new_list, post_df1], ignore_index=True).sort_values(by='in', ascending=True)
+        new_new_list = pd.concat([new_new_list, post_df1], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         # Finalmente se agrega la parte modificada previamente del agente
-        new_new_list = pd.concat([new_new_list, agent_schedule], ignore_index=True).sort_values(by='in', ascending=True)
-        print('new_new_list:')
-        input(new_new_list)
-        
-        
+        new_new_list = pd.concat([new_new_list, agent_schedule], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    return new_todolist_family
+    return new_new_list
 
 def time_adding(post_df1, last_out):
     post_df1_adapted = pd.DataFrame()
@@ -451,7 +435,7 @@ def time_adding(post_df1, last_out):
             'osm_id': pd_row['osm_id'], 
             'todo_type': pd_row['todo_type'], 
             'opening': pd_row['opening'], 
-            'closing': pd_row['closing'], 
+            'closing': pd_row['closing'], # Issue 16
             'fixed?': pd_row['fixed?'], 
             'time2spend': pd_row['time2spend'], 
             'in': new_in, 
@@ -708,9 +692,11 @@ def route_creation(matrix2cover, prev_matrix2cover):
     dependants_1 = matrix2cover[matrix2cover['todo_type'] != 0]
     # Filtrar en el DataFrame anterior aquellos agentes que están en dependants_1
     dependants_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(dependants_1['agent'])]
+    # Filtrar helper con todo_type igual a 0
+    helper_1 = matrix2cover[matrix2cover['todo_type'] == 0]
     # Conseguir los datos especificos del helper
-    helper_0 = prev_matrix2cover[prev_matrix2cover['todo_type'] == 0] # Issue 16
-    helper_1 = matrix2cover[matrix2cover['agent'] == helper_0['agent']]
+    helper_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(helper_1['agent'])] # Issue 16
+    helper_1 = matrix2cover[matrix2cover['agent'] == helper_0['agent'].iloc[0]]
     
     new_new_list = agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper_0)
     new_list = pd.concat([new_list, new_new_list], ignore_index=True)
