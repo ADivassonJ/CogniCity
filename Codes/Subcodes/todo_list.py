@@ -543,6 +543,10 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
     
     return new_todolist_family
 
+def sort_route(out_osm_ids):
+    # Esta funcion deberia devolver el df ordenado con los verdaderos siempor de out
+    return out_osm_ids
+
 def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_family, prev_matrix2cover): 
     ## Dividir los datos
     # DataFrame para almacenar resultados si vas a ir agregando algo más adelante
@@ -552,13 +556,50 @@ def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_fami
     # Filtrar en el DataFrame anterior aquellos agentes que están en dependants_1
     dependants_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(dependants_1['agent'])]
     # Conseguir los datos especificos del helper
-    helper = prev_matrix2cover[prev_matrix2cover['todo_type'] == 0]
+    helper = prev_matrix2cover[prev_matrix2cover['todo_type'] == 0] # Issue 16
     
-    ## Entender quien es el que condiciona el grupo
+    ## Creación de ruta de recogida
+    # DataFrame con datos de outs
+    out_osm_ids = pd.DataFrame(columns=['osm_id', 'out', 'conmu_time'])
+    # Agrupamos para crear ruta de recogida
+    osm_id_groups = prev_matrix2cover.groupby('osm_id')
+    # Pasamos por todos los grupos de la salida
+    for name_group, oi_group in osm_id_groups:
+        # Buscamos el valor maximo de out en el grupo que tenga time2spend != 0 (quién condiciona)
+        filtered = oi_group[oi_group['time2spend']!=0]
+        # Asignamos tiempo de conmutación del grupo
+        group_conmu_time = oi_group['conmu_time'].max()
+        # Asignamos tiempo de salida del grupo
+        if filtered.empty:
+            group_out_time = oi_group['out'].min()
+        else:
+            group_out_time = filtered['out'].max()
+        # Añadir nueva fila de datos
+        rew_row ={ 
+            'osm_id': name_group,
+            'out': group_out_time,
+            'conmu_time': group_conmu_time
+        }   
+        # Suma a dataframe
+        out_osm_ids = pd.concat([out_osm_ids, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='out', ascending=False)
+    
+    sorted_route = sort_route(out_osm_ids)
+    
+    for name_group in sorted_route['osm_id']:
+        groupis = osm_id_groups.get_group(name_group)
+        input(groupis) # como gestiono lo de sacar un grupo del ente este lel
+    
     # Agrupar por 'out' para ver cual es el primero en salir de su sitio
-    grouped = dependants_0.groupby('out')
+    grouped = prev_matrix2cover.groupby('out')
     # Ordenar los grupos por el valor de 'out' (clave del grupo)
     dependents2cover = dict(sorted(grouped, key=lambda x: x[0]))
+    input(dependents2cover)
+    
+    ## Mirar osm_id
+    # Agrupamos por osm_id
+    
+    
+    
     
     ## En base a la condición, asignar la hora de salida del helper 
     first_df = next(iter(dependents2cover))
@@ -566,9 +607,12 @@ def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_fami
     if (first_df == helper).all(axis=1).any():
         # Si el helper esta en la primera fila, se salta la primera realizacion de un trip, pues recoge a estos agentes ya
         out_time = first_df
+        print('yes 1')
+        flag = False
     else:
         # el helper debe salir antes para recoger a los agentes que provocan la dependencia
         out_time = first_df - helper['conmu_time'].iloc[0]                              # Issue 15
+        flag = True
     
     print(f"out_time: {out_time}")
     
@@ -598,7 +642,12 @@ def gestiona_esto_que_no_se_como_hacerlo_socorro(matrix2cover, new_todolist_fami
     # Loop con todos los GRUPOS de agentes, ordenados por hora de out
     for _, d2r_group in dependents2cover.items():
         # Actualización de la variable para los datos
-        out_time = prev_out_time + max(d2r_group['conmu_time'])
+        if flag:
+            out_time = prev_out_time + max(d2r_group['conmu_time'])
+        else:
+            print('yes 2')
+            out_time = prev_out_time
+            flag = True
         # Lo mismo pero para la siguiente iteración del loop
         prev_out_time = out_time
         
