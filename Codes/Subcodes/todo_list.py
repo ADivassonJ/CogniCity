@@ -307,7 +307,7 @@ def todolist_family_initialization(SG_relationship, family_df):
         in_home_time = row_in_home['out'].iloc[0] + row_in_home['conmu_time'].iloc[0]
         rew_row ={
             'agent': row_f_df['name'],
-            'todo': 'Home', 
+            'todo': 'Home_in', 
             'osm_id': row_f_df['home'], 
             'todo_type': row_f_df['WoS_type'], 
             'opening': 0, 
@@ -357,7 +357,7 @@ def home_trips_adding(family_df, todolist_family):
         # out_home
         rew_row ={
             'agent': row_agent['name'],
-            'todo': 'Home', 
+            'todo': 'Home_out', 
             'osm_id': row_agent['home'], 
             'todo_type': 0, 
             'opening': 0, 
@@ -377,171 +377,90 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
 
     matrix2cover, prev_matrix2cover = matrix2cover_creation(todolist_family, responsability_matrix)
 
-    new_todolist_family, flag_to_jump = new_todolist_family_creation(matrix2cover, prev_matrix2cover)
+    new_todolist_family = new_todolist_family_creation(matrix2cover, prev_matrix2cover)
     
-    todolist_family = new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover, flag_to_jump)
+    todolist_family = new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover)
     
     return todolist_family
    
-def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover, flag_to_jump):
+def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover):
+    # Inicializamos el df de suma de cosas
+    new_new_list = pd.DataFrame()
+    # Pasamos por todos los agentes del schedule
+    for agent in todolist_family['agent'].unique():
+        # Si el agente no ha sido modificado
+        if not agent in new_todolist_family['agent'].to_list():
+            # Obtenemos los datos del agente
+            agent_todo = todolist_family[todolist_family['agent'] == agent]
+            # Se mantienen lo previo
+            new_new_list = pd.concat([new_new_list, agent_todo], ignore_index=True).sort_values(by='in', ascending=True)
+            continue
+        # Sacamos los datos especificos del agente modificado
+        agent_schedule = new_todolist_family[new_todolist_family['agent'] == agent].reset_index(drop=True)
+        # Sacamos el 'todo' del agente
+        agent_todo = todolist_family[todolist_family['agent'] == agent].reset_index(drop=True)
     
-    if flag_to_jump:
-        todolist_family_adapted = todolist_family[~todolist_family.isin(matrix2cover.to_dict(orient='list')).all(axis=1)]
-    else:
-        todolist_family_adapted = todolist_family[~todolist_family.isin(prev_matrix2cover.to_dict(orient='list')).all(axis=1)]
+        filtered_df1 = agent_todo.merge(agent_schedule[['todo', 'osm_id']], on=['todo', 'osm_id'], how='inner')
         
-        # Crear una máscara booleana para las filas que serán eliminadas
-        mask = todolist_family.isin(prev_matrix2cover.to_dict(orient='list')).all(axis=1)
-
-        # Guardar los índices de las filas eliminadas
-        eliminated_indices = todolist_family[mask].index.tolist()
+        filtered_idx = agent_todo.merge(
+            filtered_df1[['todo', 'osm_id']], 
+            on=['todo', 'osm_id'], 
+            how='inner'
+        ).index
         
-        # Eliminar las filas coincidentes
-        todolist_family_adapted = todolist_family[~mask]
+        first_idx = filtered_idx.min()
+        last_idx = filtered_idx.max()
+        # Logramos las partes previa y posterior al cambio
+        prev_df1 = agent_todo.loc[:first_idx - 1]
+        post_df1 = agent_todo.loc[last_idx + 1:]
+        # La previa no se necesita mayor medificacion, por lo que se copia
+        new_new_list = pd.concat([new_new_list, prev_df1], ignore_index=True).sort_values(by='in', ascending=True)
+        # La posterior se actualiza
+        post_df1 = time_adding(post_df1, max(agent_schedule['out']))
+        # Y despues se suma
+        new_new_list = pd.concat([new_new_list, post_df1], ignore_index=True).sort_values(by='in', ascending=True)
+        # Finalmente se agrega la parte modificada previamente del agente
+        new_new_list = pd.concat([new_new_list, agent_schedule], ignore_index=True).sort_values(by='in', ascending=True)
+        print('new_new_list:')
+        input(new_new_list)
         
-        # Paso 1: Obtener los índices eliminados y los agentes afectados
-        eliminated_rows = todolist_family.loc[eliminated_indices]
-        affected_agents = eliminated_rows['agent'].unique()
-
-        # Paso 2: Crear una máscara para identificar filas con el mismo agente y con índice mayor a alguno eliminado
-        rows_to_remove = []
-
-        for agent in affected_agents:
-            # Obtener todos los índices eliminados para este agente
-            agent_deleted_indices = eliminated_rows[eliminated_rows['agent'] == agent].index
-
-            # Para cada índice eliminado, encontrar en el DataFrame adaptado los índices mayores con el mismo agente
-            for idx in agent_deleted_indices:
-                agent_rows = todolist_family_adapted[
-                    (todolist_family_adapted['agent'] == agent) & 
-                    (todolist_family_adapted.index > idx)
-                ]
-                rows_to_remove.extend(agent_rows.index.tolist())
-
-        # Eliminar duplicados por si algún índice fue agregado varias veces
-        rows_to_remove = list(set(rows_to_remove))
-
-        # Paso 3: Guardar esas filas en un nuevo DataFrame
-        extra_rows_by_agents = todolist_family_adapted.loc[rows_to_remove]
-
-        # Paso 4: Borrar esas filas de todolist_family_adapted
-        todolist_family_adapted = todolist_family_adapted.drop(index=rows_to_remove)
         
-        new_todolist_family = pd.concat([todolist_family_adapted, new_todolist_family], ignore_index=True).sort_values(by='in', ascending=True)
-        
-        agents_schedules2adapt = extra_rows_by_agents.groupby('agent')
- 
-        for agent_sch, agent_schedule in agents_schedules2adapt:
-            new_todolist_family_agent = new_todolist_family[new_todolist_family['agent'] == agent_sch]
-            last_agent_trip = new_todolist_family_agent[new_todolist_family_agent['out'] == max(new_todolist_family_agent['out'])]
-            in_time = last_agent_trip['out'].iloc[0] + last_agent_trip['conmu_time'].iloc[0]
-            
-            for _, agent_trip in agent_schedule.iterrows():
-                rew_row ={
-                    'agent': agent_trip['agent'],
-                    'todo': agent_trip['todo'], 
-                    'osm_id': agent_trip['osm_id'], 
-                    'todo_type': 0, 
-                    'opening': agent_trip['opening'], 
-                    'closing': agent_trip['closing'], 
-                    'fixed?': agent_trip['fixed?'], 
-                    'time2spend': agent_trip['time2spend'], 
-                    'in': in_time, 
-                    'out': agent_trip['out'],
-                    'conmu_time': agent_trip['conmu_time']
-                } 
-                new_todolist_family = pd.concat([new_todolist_family, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
     
-        # en este caso, le metemos new_todolist_family a todolist_family_adapted, y luego tendremos que trabajar los matrix2cover
     
-    up2adapt = todolist_family_adapted[todolist_family_adapted['in'] < min(matrix2cover['in'])] 
-    down2adapt = todolist_family_adapted[todolist_family_adapted['in'] > min(matrix2cover['in'])] 
-    # obtenemos los agentes que se han visto afectados
-    agents_affected = matrix2cover['agent'].unique()
-    # guardamos las rutas de aquellos que no han tenido ningun trip afectado
-    schedule2add = todolist_family[~todolist_family['agent'].isin(agents_affected)]   
     
-    for agent in agents_affected:
-        schedule2consider = new_todolist_family[new_todolist_family['agent'] == agent]
-        
-        # parte superior de la matriz a adaptar
-        schedule2adapt = up2adapt[up2adapt['agent'] == agent].sort_values(by='in', ascending=False)
-        fist_in_time = min(schedule2consider['in'])
-        conmu_time = int(schedule2consider['conmu_time'].iloc[0])
-        for idx_s2a, row_s2a in schedule2adapt.iterrows():
-                
-            out_time = fist_in_time - conmu_time
-            
-            if out_time < row_s2a['opening']:
-                print(f"{row_s2a['agent']} ha tenido un error al realizar {row_s2a['todo']} por ser out_time '{out_time}'")
-                continue
-            
-            if row_s2a['time2spend'] == 0:
-                in_time = row_s2a['opening']                                                           ###### Aqui habria que mirar el paso anterior, si existe un paso anterior 
-                                                                                                       ###### mira su salida y sumale el tiempo de traslado para el in de este.
-                                                                                                       ###### Si este in es mayor que el out calculado, que salte error
-            else:
-                in_time = out_time - row_s2a['time2spend']
-            #actualizamos 'fist_in_time' para que si hay otra vualta del for, mire este in y le reste el recorrido
-            fist_in_time = row_s2a['in']
-            
-            rew_row ={
-                'agent': row_s2a['agent'],
-                'todo': row_s2a['todo'], 
-                'osm_id': row_s2a['osm_id'], 
-                'todo_type': row_s2a['todo_type'], 
-                'opening': row_s2a['opening'], 
-                'closing': row_s2a['closing'], 
-                'fixed?': row_s2a['fixed?'], 
-                'time2spend': row_s2a['time2spend'], 
-                'in': in_time, 
-                'out': out_time,
-                'conmu_time': conmu_time
-            }   
-            new_todolist_family = pd.concat([new_todolist_family, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-            conmu_time = int(row_s2a['conmu_time'])
-        
-        # parte INFERIOR de la matriz a adaptar
-        schedule2adapt = down2adapt[down2adapt['agent'] == agent].sort_values(by='out', ascending=True)
-        last_out_time = max(schedule2consider['out'])
-        conmu_time = int(schedule2consider['conmu_time'].iloc[0])
-        for idx_s2a, row_s2a in schedule2adapt.iterrows():
-            in_time = last_out_time + conmu_time
-            
-            if in_time > row_s2a['closing']:
-                print(f"(Due to addaptation) {row_s2a['agent']} was not able to fullfill '{row_s2a['todo']}' at {row_s2a['in']}")
-                continue
-            
-            if row_s2a['time2spend'] == 0:
-                out_time = row_s2a['closing']                                                          ###### Aqui habria que mirar el paso siguiente, si existe un paso siguiente 
-                                                                                                       ###### mira si es fixed. Si es Fixed mirar su llegada y restarle el
-                                                                                                       ###### tiempo de traslado para el out de este.
-                                                                                                       ###### Si no es fixed, no tengo ni idea de que se podría hacer, sinceramente
-            else:
-                out_time = in_time + row_s2a['time2spend']
-            #actualizamos 'fist_in_time' para que si hay otra vualta del for, mire este in y le reste el recorrido
-            last_out_time = out_time
-            
-            rew_row ={
-                'agent': row_s2a['agent'],
-                'todo': row_s2a['todo'], 
-                'osm_id': row_s2a['osm_id'], 
-                'todo_type': row_s2a['todo_type'], 
-                'opening': row_s2a['opening'], 
-                'closing': row_s2a['closing'], 
-                'fixed?': row_s2a['fixed?'], 
-                'time2spend': row_s2a['time2spend'], 
-                'in': in_time, 
-                'out': out_time,
-                'conmu_time': conmu_time
-            }   
-            new_todolist_family = pd.concat([new_todolist_family, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-            conmu_time = int(row_s2a['conmu_time'])
     
-    # añadimos los agentes no afectados
-    new_todolist_family = pd.concat([new_todolist_family, schedule2add], ignore_index=True).sort_values(by='in', ascending=True)           
+    
+    
+    
+    
+    
     
     return new_todolist_family
+
+def time_adding(post_df1, last_out):
+    post_df1_adapted = pd.DataFrame()
+    for _, pd_row in post_df1.iterrows():
+        new_in = last_out + int(pd_row['conmu_time'])
+        if pd_row['closing'] <= (new_in + pd_row['time2spend']):
+            print(f"After adaptation, {pd_row['agent']} was not able to fullfill '{pd_row['todo']}' at {pd_row['in']}.")
+            continue
+        new_out = (new_in + pd_row['time2spend']) if pd_row['time2spend'] != 0 else pd_row['closing']
+        rew_row ={
+            'agent': pd_row['agent'],
+            'todo': pd_row['todo'], 
+            'osm_id': pd_row['osm_id'], 
+            'todo_type': pd_row['todo_type'], 
+            'opening': pd_row['opening'], 
+            'closing': pd_row['closing'], 
+            'fixed?': pd_row['fixed?'], 
+            'time2spend': pd_row['time2spend'], 
+            'in': new_in, 
+            'out': new_out,
+            'conmu_time': int(pd_row['conmu_time'])
+        }   
+        post_df1_adapted = pd.concat([post_df1_adapted, pd.DataFrame([rew_row])], ignore_index=True)
+        last_out = new_out + pd_row['time2spend']
+    return post_df1_adapted
 
 def sort_route(osm_ids, helper):
     # Esta funcion deberia devolver el df ordenado con los verdaderos siempor de out
@@ -779,7 +698,7 @@ def agent_delivery(new_new_list, new_list, matrix2cover, helper):
                 new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
     return new_new_list
 
-def route_creation(matrix2cover, new_todolist_family, prev_matrix2cover): 
+def route_creation(matrix2cover, prev_matrix2cover): 
     ## Dividir los datos
     # DataFrame para almacenar resultados si vas a ir agregando algo más adelante
     columns=['agent','todo','osm_id','todo_type','opening','closing','fixed?','time2spend','in','out','conmu_time']
@@ -798,98 +717,14 @@ def route_creation(matrix2cover, new_todolist_family, prev_matrix2cover):
     new_new_list = pd.DataFrame(columns=columns)
     new_new_list = agent_delivery(new_new_list, prev_matrix2cover, matrix2cover, helper_1)
     new_list = pd.concat([new_list, new_new_list], ignore_index=True)
-    print(new_todolist_family)
-    input(new_list)     
-    
         
     return new_list
 
-def agent_transfer(matrix2cover, new_todolist_family, prev_matrix2cover):
-    new_todolist_family = route_creation(matrix2cover, new_todolist_family, prev_matrix2cover)
-    
-    
-    
-    out_time = min([in_time + matrix2cover['time2spend'].iloc[0], matrix2cover['closing'].iloc[0]])
-    
-    # tras acompañar, helper va a su hubicacion
-    rew_row ={
-        'agent': matrix2cover['agent'].iloc[0],
-        'todo': matrix2cover['todo'].iloc[0], 
-        'osm_id': matrix2cover['osm_id'].iloc[0], 
-        'todo_type': 0, 
-        'opening': matrix2cover['opening'].iloc[0], 
-        'closing': matrix2cover['closing'].iloc[0], 
-        'fixed?': matrix2cover['fixed?'].iloc[0], 
-        'time2spend': matrix2cover['time2spend'].iloc[0], 
-        'in': in_time, 
-        'out': out_time,
-        'conmu_time': int(matrix2cover['conmu_time'].iloc[0])
-    }
-    helper_row = pd.DataFrame([rew_row])
-    new_todolist_family = pd.concat([new_todolist_family, helper_row], ignore_index=True)
-
-    # recoridos de las flotas
-    grouped = matrix2cover.iloc[1:].groupby('osm_id')
-    temporal_schedule = pd.DataFrame()
-    for _, group in grouped:
-        for idx_group, row_group in group.iterrows():
-            # If row_group is a Series of type object (not usual, but interpreted)
-            if isinstance(row_group, object) and not isinstance(row_group, pd.Series):
-                row_group = pd.DataFrame([row_group])  # Convert to DataFrame if needed
-            
-            print(group)
-            
-            if int(idx_group) == int(first_true_index):
-                in_time = row_group['opening']  # row_group is a Series, no need for iloc
-            else:
-                filtered = new_todolist_family[new_todolist_family['todo'] == 'accompaniment']
-                in_time = min(filtered['in']) - int(row_group['conmu_time'])
-            
-            out_time = min([in_time + row_group['time2spend'], row_group['closing']])
-            
-            rew_row ={
-                'agent': row_group['agent'],
-                'todo': row_group['todo'], 
-                'osm_id': row_group['osm_id'], 
-                'todo_type': 0, 
-                'opening': row_group['opening'], 
-                'closing': row_group['closing'], 
-                'fixed?': row_group['fixed?'], 
-                'time2spend': row_group['time2spend'], 
-                'in': in_time, 
-                'out': out_time,
-                'conmu_time': int(row_group['conmu_time'])
-            }
-            temporal_schedule = pd.concat([temporal_schedule, pd.DataFrame([rew_row])], ignore_index=True) 
-
-        # la flota les siguen
-        for _, row_ntf in new_todolist_family.iterrows():
-            rew_row ={
-                'agent': row_ntf['agent'],
-                'todo': f"accompaniment", 
-                'osm_id': group['osm_id'].iloc[0], 
-                'todo_type': 0, 
-                'opening': group['opening'].iloc[0], 
-                'closing': group['closing'].iloc[0], 
-                'fixed?': False, 
-                'time2spend': 0, 
-                'in': in_time, 
-                'out': in_time,
-                'conmu_time': int(group['conmu_time'].iloc[0])
-            }
-            new_todolist_family = pd.concat([new_todolist_family, pd.DataFrame([rew_row])], ignore_index=True) 
-        
-        new_todolist_family = pd.concat([new_todolist_family, temporal_schedule], ignore_index=True).sort_values(by='in', ascending=True).drop_duplicates().reset_index(drop=True)    
-    
-    return new_todolist_family, True
-
-def new_todolist_family_creation(matrix2cover, prev_matrix2cover):
-    new_todolist_family = pd.DataFrame()
-    
+def new_todolist_family_creation(matrix2cover, prev_matrix2cover):  
     # agent transfer 
-    new_todolist_family, flag_to_jump = agent_transfer(matrix2cover, new_todolist_family, prev_matrix2cover)
+    new_todolist_family = route_creation(matrix2cover, prev_matrix2cover)
     
-    return new_todolist_family, flag_to_jump
+    return new_todolist_family
     
 def matrix2cover_creation(todolist_family, resties2cover):
     matrix2cover = pd.DataFrame()
