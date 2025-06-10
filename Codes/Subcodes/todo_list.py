@@ -337,15 +337,12 @@ def todolist_family_creation(df_citizens, SG_relationship):
         todolist_family = todolist_family_initialization(SG_relationship, family_df)  
         todolist_family = home_trips_adding(family_df, todolist_family)
         
-        input(todolist_family)
-        
         while max(todolist_family['todo_type']) > 0:
             responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique)            
             
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
 
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
-        
 
 def home_trips_adding(family_df, todolist_family):
     
@@ -377,7 +374,7 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
 
     matrix2cover, prev_matrix2cover = matrix2cover_creation(todolist_family, responsability_matrix)
     
-    new_todolist_family = new_todolist_family_creation(matrix2cover, prev_matrix2cover)
+    new_todolist_family = route_creation(matrix2cover, prev_matrix2cover)
     
     todolist_family = new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover)
     return todolist_family
@@ -414,25 +411,28 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
         post_df1 = agent_todo.loc[last_idx + 1:]
         # La previa no se necesita mayor modificacion, por lo que se copia
         new_new_list = pd.concat([new_new_list, prev_df1], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
-        # La posterior se actualiza
-        post_df1 = time_adding(post_df1, max(agent_schedule['out']))
+        # Si la seccion posterior no concluye el recorrido, se actualiza
+        if max(agent_schedule['out']) != float('inf'):
+            post_df1 = time_adding(post_df1, max(agent_schedule['out']))
         # Y despues se suma
         new_new_list = pd.concat([new_new_list, post_df1], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         # Finalmente se agrega la parte modificada previamente del agente
         new_new_list = pd.concat([new_new_list, agent_schedule], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
-    
+    print('new_new_list:')
+    input(new_new_list)
     return new_new_list
 
 def time_adding(post_df1, last_out):
     post_df1_adapted = pd.DataFrame()
     for _, pd_row in post_df1.iterrows():
         new_in = last_out + int(pd_row['conmu_time'])
-        if pd_row['closing'] <= (new_in + pd_row['time2spend']):
-            
+        new_out = (new_in + pd_row['time2spend']) if pd_row['time2spend'] != 0 else pd_row['closing']
+        
+        if pd_row['closing'] < new_in or pd_row['closing'] < new_out:
             print(f"After adaptation, {pd_row['agent']} was not able to fullfill '{pd_row['todo']}' at {pd_row['in']}.")
             input(post_df1)
             continue
-        new_out = (new_in + pd_row['time2spend']) if pd_row['time2spend'] != 0 else pd_row['closing']
+        
         rew_row ={
             'agent': pd_row['agent'],
             'todo': pd_row['todo'], 
@@ -709,13 +709,7 @@ def route_creation(matrix2cover, prev_matrix2cover):
     new_list = pd.concat([new_list, new_new_list], ignore_index=True)
         
     return new_list
-
-def new_todolist_family_creation(matrix2cover, prev_matrix2cover):  
-    # agent transfer 
-    new_todolist_family = route_creation(matrix2cover, prev_matrix2cover)
-    
-    return new_todolist_family
-    
+  
 def matrix2cover_creation(todolist_family, resties2cover):
     matrix2cover = pd.DataFrame()
     prev_matrix2cover = pd.DataFrame()
