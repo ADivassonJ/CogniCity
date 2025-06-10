@@ -418,8 +418,6 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
         new_new_list = pd.concat([new_new_list, post_df1], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         # Finalmente se agrega la parte modificada previamente del agente
         new_new_list = pd.concat([new_new_list, agent_schedule], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
-    print('new_new_list:')
-    input(new_new_list)
     return new_new_list
 
 def time_adding(post_df1, last_out):
@@ -457,23 +455,45 @@ def sort_route(osm_ids, helper):
     dependants = osm_ids[osm_ids['osm_id'] != helper['osm_id'].iloc[0]].copy()
     helper = osm_ids[osm_ids['osm_id'] == helper['osm_id'].iloc[0]].copy()
     
-    group_conmu_time = max(osm_ids['conmu_time'])
+    dependants['conmu_time'] = HAY QUE PONER EL MAXIMO DE LOS INDICES SUPERIORES SI OUT SI NO DE LOS INDICES INFERIORES
     
+            osm_id     out conmu_time
+    0  N8984106678  1203.0         19
+    1  N2726127099  1260.0         56
+    2   W115929346  1374.0         57
+    
+            osm_id     out conmu_time
+    0  N8984106678  1203.0         19 -> 19
+    1  N2726127099  1260.0         56 -> 56
+    2   W115929346  1374.0         57 -> 57
+                                        CASUALIDAD SON LO MISMO PERO OTRO CASO:
+            osm_id     out conmu_time
+    0  N8984106678  1203.0         56 -> 56
+    1  N2726127099  1260.0         19 -> 56
+    2   W115929346  1374.0         57 -> 57                                            
+    
+                       
     # Detectar si la columna 'in' o 'out' está presente
     target_col = 'in' if 'in' in dependants.columns else 'out'
 
-    # Aplicar la operación
-    dependants.loc[:, target_col] = dependants[target_col] - group_conmu_time * dependants.index
-    
-    if not dependants.empty:
-        helper.at[helper.index[0], target_col] = (dependants[target_col].iloc[0] + group_conmu_time)    
-    
-    combined_df = pd.concat([dependants, helper], ignore_index=True)
-    combined_df = combined_df.sort_values(by=target_col, ascending=False).reset_index(drop=True)
+    if target_col == 'in':
+        # Aplicar la operación
+        dependants.loc[:, target_col] = dependants[target_col] - dependants['conmu_time'] * dependants.index
+        if not dependants.empty:
+            helper.at[helper.index[0], target_col] = (dependants[target_col].iloc[0] + group_conmu_time)
+        combined_df = pd.concat([dependants, helper], ignore_index=True)
+        combined_df = combined_df.sort_values(by=target_col, ascending=False).reset_index(drop=True)
+    else:
+        # Aplicar la operación
+        dependants.loc[:, target_col] = dependants[target_col] + dependants['conmu_time'] * dependants.index
+        if not dependants.empty:
+            helper.at[helper.index[0], target_col] = (dependants[target_col].iloc[0] - group_conmu_time)
+        combined_df = pd.concat([dependants, helper], ignore_index=True)
+        combined_df = combined_df.sort_values(by=target_col, ascending=True).reset_index(drop=True)
     return combined_df
 
 def agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper):
-        ## Creación de ruta de recogida
+    ## Creación de ruta de recogida
     # DataFrame con datos de outs
     out_osm_ids = pd.DataFrame(columns=['osm_id', 'out', 'conmu_time'])
     # Agrupamos para crear ruta de recogida
@@ -505,6 +525,9 @@ def agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper):
     # Crear la ruta ordenada
     sorted_route = sort_route(out_osm_ids, helper)
     
+    print('sorted_route')
+    print(sorted_route)
+    
     ## Crear el nuevo schedule (parte de recogida de agentes)
     # Iteramos todos los osm_id de salida
     for _, name_group in sorted_route.iterrows():
@@ -520,7 +543,7 @@ def agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper):
             # Nueva fila
             rew_row ={
                 'agent': p_agent,
-                'todo': 'Accompany', 
+                'todo': 'Collect', 
                 'osm_id': name_group['osm_id'], 
                 'todo_type': 0, 
                 'opening': 0, 
@@ -538,7 +561,7 @@ def agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper):
             # En caso de que el agente tenga que estar un tiempo especifico, de espera o se haya cerrado el servicio en el que estan, tendrá que esperar (sin poder hacer nada más)
             if (group_out_time > agent['closing']) or (group_out_time > agent['out'] and agent['time2spend'] != 0):
                 # Calculamos el tiempo de espera
-                waiting_time = group_out_time - agent['out']
+                waiting_time = group_out_time - min([agent['closing'], agent['out']])
                 # Nueva fila
                 rew_row ={
                     'agent': agent['agent'],
@@ -617,7 +640,7 @@ def agent_delivery(new_new_list, new_list, matrix2cover, helper):
             # Nueva fila
             rew_row ={
                 'agent': p_agent,
-                'todo': 'Accompany', 
+                'todo': 'Delivery', 
                 'osm_id': name_group['osm_id'], 
                 'todo_type': 0, 
                 'opening': 0, 
@@ -635,7 +658,7 @@ def agent_delivery(new_new_list, new_list, matrix2cover, helper):
             # En caso de que el agente tenga que estar un tiempo especifico, de espera o se haya cerrado el servicio en el que estan, tendrá que esperar (sin poder hacer nada más)
             if (group_in_time < agent['opening']) or (group_in_time < agent['in'] and agent['fixed?'] == True):
                 # Calculamos el tiempo de espera
-                waiting_time = agent['in'] - group_in_time
+                waiting_time = max([agent['in'], agent['opening']]) - group_in_time
                 # Nueva fila
                 rew_row ={
                     'agent': agent['agent'],
@@ -718,12 +741,19 @@ def route_creation(matrix2cover, prev_matrix2cover):
     helper_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(helper_1['agent'])] # Issue 16
     helper_1 = matrix2cover[matrix2cover['agent'] == helper_0['agent'].iloc[0]]
     
+    print('prev_matrix2cover')
+    print(prev_matrix2cover)
     new_new_list = agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper_0)
     new_list = pd.concat([new_list, new_new_list], ignore_index=True)
+    print(new_new_list)
     new_new_list = pd.DataFrame(columns=columns)
     new_new_list = agent_delivery(new_new_list, prev_matrix2cover, matrix2cover, helper_1)
     new_list = pd.concat([new_list, new_new_list], ignore_index=True)
-        
+    print('matrix2cover')
+    print(matrix2cover)
+    input(new_new_list)
+    print('*'*60)
+    print()
     return new_list
   
 def matrix2cover_creation(todolist_family, resties2cover):
