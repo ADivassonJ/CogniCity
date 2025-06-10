@@ -627,7 +627,7 @@ def agent_delivery(new_new_list, new_list, matrix2cover, helper):
                 'in': group_in_time, 
                 'out': group_in_time,
                 'conmu_time': group_conmu_time
-            }   
+            }
             # Suma a dataframe
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
         # Despues agentes que se mueven por primera vez
@@ -652,23 +652,38 @@ def agent_delivery(new_new_list, new_list, matrix2cover, helper):
                 }   
                 # Suma a dataframe
                 new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-                rew_row ={
-                    'agent': agent['agent'],
-                    'todo': agent['todo'], 
-                    'osm_id': agent['osm_id'], 
-                    'todo_type': 0, 
-                    'opening': agent['opening'], 
-                    'closing': agent['closing'], 
-                    'fixed?': agent['fixed?'], 
-                    'time2spend': agent['time2spend'], 
-                    'in': agent['in'], 
-                    'out': (agent['in'] + agent['time2spend']) if agent['time2spend'] != 0 else agent['closing'],
-                    'conmu_time': group_conmu_time
-                }   
-                # Suma a dataframe
-                new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+                
+                new_out = (agent['in'] + agent['time2spend']) if agent['time2spend'] != 0 else agent['closing']
+                
+                if new_out <= agent['closing']:
+                    rew_row ={
+                        'agent': agent['agent'],
+                        'todo': agent['todo'], 
+                        'osm_id': agent['osm_id'], 
+                        'todo_type': 0, 
+                        'opening': agent['opening'], 
+                        'closing': agent['closing'], 
+                        'fixed?': agent['fixed?'], 
+                        'time2spend': agent['time2spend'], 
+                        'in': agent['in'], 
+                        'out': new_out,
+                        'conmu_time': group_conmu_time
+                    }   
+                    # Suma a dataframe
+                    new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+                else:
+                    print(f"Due to 'Accompany' {agent['agent']} was not able to fullfill '{agent['todo']}' at {agent['in']}.")
             else:
                 # Actualización del caso original del agente
+                new_out = (group_in_time + agent['time2spend']) if agent['time2spend'] != 0 else agent['closing']
+                if new_out > agent['closing'] and agent['fixed?'] == False:
+                    non_active_time = new_out - agent['closing'] 
+                    new_out = agent['closing']
+                    print(f"Due to 'Accompany' {agent['agent']} lost {non_active_time} minutes of'{agent['todo']}'.")
+                elif new_out > agent['closing'] and agent['fixed?'] == True:
+                    print(f"Due to 'Accompany' {agent['agent']} was not able to fullfill '{agent['todo']}' at {agent['in']}.")
+                    continue
+                    
                 rew_row ={
                     'agent': agent['agent'],
                     'todo': agent['todo'], 
@@ -679,11 +694,12 @@ def agent_delivery(new_new_list, new_list, matrix2cover, helper):
                     'fixed?': agent['fixed?'], 
                     'time2spend': agent['time2spend'], 
                     'in': group_in_time, 
-                    'out': (group_in_time + agent['time2spend']) if agent['time2spend'] != 0 else agent['closing'],
+                    'out': new_out,
                     'conmu_time': group_conmu_time
                 }   
                 # Suma a dataframe
                 new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+                
     return new_new_list
 
 def route_creation(matrix2cover, prev_matrix2cover): 
