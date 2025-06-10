@@ -197,7 +197,7 @@ def todolist_family_initialization(SG_relationship, family_df):
         closing = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, f'{fixed_word}_closing'].values[0]
         time2spend = int(row_f_df['WoS_time'])
         in_h = opening
-        out_h = opening + time2spend
+        out_h = (in_h + time2spend) if time2spend != 0 else closing
             
         rew_row ={
             'agent': row_f_df['name'],
@@ -237,9 +237,9 @@ def todolist_family_initialization(SG_relationship, family_df):
             else: # si resulta que hoy no trabajaba
                 in_h = opening
                 
-            out_h = in_h + time2spend
+            out_h = (in_h + time2spend) if time2spend != 0 else closing
             
-            if in_h < closing:
+            if in_h < closing and out_h <= closing:
                 rew_row ={
                     'agent': row_f_df['name'],
                     'todo': 'Dutties', 
@@ -280,9 +280,9 @@ def todolist_family_initialization(SG_relationship, family_df):
         else: # si resulta que hoy no trabajaba
             in_h = opening
                 
-        out_h = closing
+        out_h = (in_h + time2spend) if time2spend != 0 else closing
         
-        if in_h < closing:    
+        if in_h < closing and out_h <= closing:    
             rew_row ={
                 'agent': row_f_df['name'],
                 'todo': 'Entertainment', 
@@ -337,13 +337,15 @@ def todolist_family_creation(df_citizens, SG_relationship):
         todolist_family = todolist_family_initialization(SG_relationship, family_df)  
         todolist_family = home_trips_adding(family_df, todolist_family)
         
+        input(todolist_family)
+        
         while max(todolist_family['todo_type']) > 0:
             responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique)            
             
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
 
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
-            input(todolist_family)
+        
 
 def home_trips_adding(family_df, todolist_family):
     
@@ -426,7 +428,9 @@ def time_adding(post_df1, last_out):
     for _, pd_row in post_df1.iterrows():
         new_in = last_out + int(pd_row['conmu_time'])
         if pd_row['closing'] <= (new_in + pd_row['time2spend']):
+            
             print(f"After adaptation, {pd_row['agent']} was not able to fullfill '{pd_row['todo']}' at {pd_row['in']}.")
+            input(post_df1)
             continue
         new_out = (new_in + pd_row['time2spend']) if pd_row['time2spend'] != 0 else pd_row['closing']
         rew_row ={
@@ -443,7 +447,7 @@ def time_adding(post_df1, last_out):
             'conmu_time': int(pd_row['conmu_time'])
         }   
         post_df1_adapted = pd.concat([post_df1_adapted, pd.DataFrame([rew_row])], ignore_index=True)
-        last_out = new_out + pd_row['time2spend']
+        last_out = new_out
     return post_df1_adapted
 
 def sort_route(osm_ids, helper):
