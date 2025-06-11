@@ -348,7 +348,6 @@ def todolist_family_creation(df_citizens, SG_relationship):
             
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
 
-            input(todolist_family)
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
 
 def home_trips_adding(family_df, todolist_family):
@@ -404,8 +403,6 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
         # Sacamos el 'todo' del agente
         agent_todo = todolist_family[todolist_family['agent'] == agent].reset_index(drop=True)
         
-        
-        ############################################ ERROR ESTA AQUI #############################################
         # Paso 1: Añadir el índice como columna para no perderlo al hacer merge
         agent_todo_with_index = agent_todo.reset_index()  # El índice se guarda en la columna 'index'
 
@@ -422,41 +419,43 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
         # Paso 5: Crear los dos nuevos DataFrames a partir de agent_todo original
         df_before_min = agent_todo[agent_todo.index < min_index]
         df_after_max = agent_todo[agent_todo.index > max_index]
-        ##########################################################################################################
-        
-        print('agent_schedule')
-        print(agent_schedule)
-        print('agent_todo')
-        print(agent_todo)
-        print('df_before_min')
-        print(df_before_min)
-        print('df_after_max')
-        print(df_after_max)
         
         # La previa no se necesita mayor modificacion, por lo que se copia
         new_new_list = pd.concat([new_new_list, df_before_min], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
-        # Si la seccion posterior no concluye el recorrido, se actualiza
-        if max(agent_schedule['out']) != float('inf'):
-            df_after_max = time_adding(df_after_max, max(agent_schedule['out']))
-            print('POST post_df1')
-            print(df_after_max)
-            
+        ## Si la seccion posterior no concluye el recorrido, se actualiza
+        # Forzar a float (o NaN si no se puede convertir)
+        agent_schedule['out'] = pd.to_numeric(agent_schedule['out'], errors='coerce')
+        # Ahora sí podés usar np.isinf sin error
+        if not np.isinf(agent_schedule['out']).any():
+            df_after_max = time_adding(df_after_max, max(agent_schedule['out']), agent_schedule)
         # Y despues se suma
         new_new_list = pd.concat([new_new_list, df_after_max], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         # Finalmente se agrega la parte modificada previamente del agente
         new_new_list = pd.concat([new_new_list, agent_schedule], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
     return new_new_list
 
-def time_adding(post_df1, last_out):
+def time_adding(post_df1, last_out, agent_schedule):
     post_df1_adapted = pd.DataFrame()
+    
     for _, pd_row in post_df1.iterrows():
         new_in = last_out + int(pd_row['conmu_time'])
         new_out = (new_in + pd_row['time2spend']) if pd_row['time2spend'] != 0 else pd_row['closing']
         
+        if last_out == float('inf'):
+            print('agent_schedule')
+            print(agent_schedule)
+            print('post_df1')
+            input(post_df1)
+        
         if pd_row['closing'] < new_in or pd_row['closing'] < new_out:
             print(f"After adaptation, {pd_row['agent']} was not able to fullfill '{pd_row['todo']}' at {pd_row['in']}.")
             continue
-        
+        if pd_row['todo'] == 'Delivery' or pd_row['todo'] == 'Waiting' or pd_row['todo'] == 'Collect':
+            print(f"¡Alto ahí! Se va a modificar la proxima linea:")
+            print(pd_row)
+            print(f"Con los valores de new_in: {new_in} y new_out: {new_out}")
+            print(f"last_out: {last_out}")
+            input()
         rew_row ={
             'agent': pd_row['agent'],
             'todo': pd_row['todo'], 
