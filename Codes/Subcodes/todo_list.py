@@ -108,8 +108,6 @@ def plot_agents_in_split_map(todolist_df, sg_relationship_df, save_path="recorri
     print(f"Pantalla partida guardada en: {save_path}")
 
 def responsability_matrix_creation(todolist_family, SG_relationship_unique):   
-    ####### aqui puede haber un problema en caso de que considere interesante la misma hora para un helper pero para dos actividades, no de agentes distintos, si no del mismo
-    
     responsability_matrix = pd.DataFrame()
     # DataFrame con todo_type > 0 (dependientes con trips que requieren asistencia)
     dependents = todolist_family[todolist_family["todo_type"] > 0].add_suffix('_d')
@@ -389,6 +387,7 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
     return todolist_family
    
 def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover):
+    
     # Inicializamos el df de suma de cosas
     new_new_list = pd.DataFrame()
     # Pasamos por todos los agentes del schedule
@@ -405,26 +404,45 @@ def new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_f
         # Sacamos el 'todo' del agente
         agent_todo = todolist_family[todolist_family['agent'] == agent].reset_index(drop=True)
         
-        filtered_df1 = agent_todo.merge(agent_schedule[['todo', 'osm_id']], on=['todo', 'osm_id'], how='inner')
         
-        filtered_idx = agent_todo.merge(
-            filtered_df1[['todo', 'osm_id']], 
-            on=['todo', 'osm_id'], 
-            how='inner'
-        ).index
+        ############################################ ERROR ESTA AQUI #############################################
+        # Paso 1: Añadir el índice como columna para no perderlo al hacer merge
+        agent_todo_with_index = agent_todo.reset_index()  # El índice se guarda en la columna 'index'
+
+        # Paso 2: Merge con agent_schedule
+        merged = agent_todo_with_index.merge(agent_schedule, on=['todo', 'osm_id'], how='inner')
+
+        # Paso 3: Obtener los índices originales de agent_todo que coincidieron
+        matching_indices = merged['index']  # Esta es la columna que guarda el índice original
+
+        # Paso 4: Calcular índice mínimo y máximo
+        min_index = matching_indices.min()
+        max_index = matching_indices.max()
+
+        # Paso 5: Crear los dos nuevos DataFrames a partir de agent_todo original
+        df_before_min = agent_todo[agent_todo.index < min_index]
+        df_after_max = agent_todo[agent_todo.index > max_index]
+        ##########################################################################################################
         
-        first_idx = filtered_idx.min()
-        last_idx = filtered_idx.max()
-        # Logramos las partes previa y posterior al cambio
-        prev_df1 = agent_todo.loc[:first_idx - 1]
-        post_df1 = agent_todo.loc[last_idx + 1:]
+        print('agent_schedule')
+        print(agent_schedule)
+        print('agent_todo')
+        print(agent_todo)
+        print('df_before_min')
+        print(df_before_min)
+        print('df_after_max')
+        print(df_after_max)
+        
         # La previa no se necesita mayor modificacion, por lo que se copia
-        new_new_list = pd.concat([new_new_list, prev_df1], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
+        new_new_list = pd.concat([new_new_list, df_before_min], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         # Si la seccion posterior no concluye el recorrido, se actualiza
         if max(agent_schedule['out']) != float('inf'):
-            post_df1 = time_adding(post_df1, max(agent_schedule['out']))
+            df_after_max = time_adding(df_after_max, max(agent_schedule['out']))
+            print('POST post_df1')
+            print(df_after_max)
+            
         # Y despues se suma
-        new_new_list = pd.concat([new_new_list, post_df1], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
+        new_new_list = pd.concat([new_new_list, df_after_max], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         # Finalmente se agrega la parte modificada previamente del agente
         new_new_list = pd.concat([new_new_list, agent_schedule], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
     return new_new_list
@@ -465,7 +483,7 @@ def sort_route(osm_ids, helper):
                        
     # Detectar si la columna 'in' o 'out' está presente
     target_col = 'in' if 'in' in dependants.columns else 'out'
-
+    
     current_max = 0
     for d_idx, d_row in dependants.iterrows():
         current_max = max([d_row['conmu_time'], current_max])
@@ -482,7 +500,7 @@ def sort_route(osm_ids, helper):
         # Aplicar la operación
         dependants.loc[:, target_col] = dependants[target_col] + dependants['conmu_time'] * dependants.index
         if not dependants.empty:
-            helper.at[helper.index[0], target_col] = (dependants[target_col].min() - max([helper['conmu_time'].iloc[0], current_max]))
+            helper.at[helper.index[0], target_col] = (dependants[target_col].min() - helper['conmu_time'].iloc[0])
         combined_df = pd.concat([dependants, helper], ignore_index=True)
         combined_df = combined_df.sort_values(by=target_col, ascending=True).reset_index(drop=True)
     return combined_df
@@ -519,9 +537,6 @@ def agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper):
     
     # Crear la ruta ordenada
     sorted_route = sort_route(out_osm_ids, helper)
-    
-    print('sorted_route')
-    print(sorted_route)
     
     ## Crear el nuevo schedule (parte de recogida de agentes)
     # Iteramos todos los osm_id de salida
