@@ -107,7 +107,9 @@ def plot_agents_in_split_map(todolist_df, sg_relationship_df, save_path="recorri
 
     print(f"Pantalla partida guardada en: {save_path}")
 
-def responsability_matrix_creation(todolist_family, SG_relationship_unique):
+def responsability_matrix_creation(todolist_family, SG_relationship_unique):   
+    ####### aqui puede haber un problema en caso de que considere interesante la misma hora para un helper pero para dos actividades, no de agentes distintos, si no del mismo
+    
     responsability_matrix = pd.DataFrame()
     # DataFrame con todo_type > 0 (dependientes con trips que requieren asistencia)
     dependents = todolist_family[todolist_family["todo_type"] > 0].add_suffix('_d')
@@ -177,6 +179,12 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique):
         responsability_matrix = responsability_matrix[responsability_matrix['out_h'] == min_group]
     else:
         print(f'family XX has no responsables.')
+    
+    ## Nos deshacemos de los casos de un helper ayuda al mismo dependant para multiples tareas (evitamos futuros conflictos)
+    # Agrupamos por las columnas 'helper' y 'dependent' y obtenemos el índice del menor 'score'
+    idx_min_scores = responsability_matrix.groupby(['helper', 'dependent'])['score'].idxmin()
+    # Seleccionamos solo esas filas
+    responsability_matrix = responsability_matrix.loc[idx_min_scores].reset_index(drop=True)
     
     return responsability_matrix
 
@@ -342,6 +350,7 @@ def todolist_family_creation(df_citizens, SG_relationship):
             
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
 
+            input(todolist_family)
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
 
 def home_trips_adding(family_df, todolist_family):
@@ -428,7 +437,6 @@ def time_adding(post_df1, last_out):
         
         if pd_row['closing'] < new_in or pd_row['closing'] < new_out:
             print(f"After adaptation, {pd_row['agent']} was not able to fullfill '{pd_row['todo']}' at {pd_row['in']}.")
-            input(post_df1)
             continue
         
         rew_row ={
@@ -453,41 +461,28 @@ def sort_route(osm_ids, helper):
     # recuerda que el helper siempre debe ser el primero
 
     dependants = osm_ids[osm_ids['osm_id'] != helper['osm_id'].iloc[0]].copy()
-    helper = osm_ids[osm_ids['osm_id'] == helper['osm_id'].iloc[0]].copy()
-    
-    dependants['conmu_time'] = HAY QUE PONER EL MAXIMO DE LOS INDICES SUPERIORES SI OUT SI NO DE LOS INDICES INFERIORES
-    
-            osm_id     out conmu_time
-    0  N8984106678  1203.0         19
-    1  N2726127099  1260.0         56
-    2   W115929346  1374.0         57
-    
-            osm_id     out conmu_time
-    0  N8984106678  1203.0         19 -> 19
-    1  N2726127099  1260.0         56 -> 56
-    2   W115929346  1374.0         57 -> 57
-                                        CASUALIDAD SON LO MISMO PERO OTRO CASO:
-            osm_id     out conmu_time
-    0  N8984106678  1203.0         56 -> 56
-    1  N2726127099  1260.0         19 -> 56
-    2   W115929346  1374.0         57 -> 57                                            
-    
+    helper = osm_ids[osm_ids['osm_id'] == helper['osm_id'].iloc[0]].copy()    
                        
     # Detectar si la columna 'in' o 'out' está presente
     target_col = 'in' if 'in' in dependants.columns else 'out'
 
+    current_max = 0
+    for d_idx, d_row in dependants.iterrows():
+        current_max = max([d_row['conmu_time'], current_max])
+        dependants.loc[d_idx, 'conmu_time'] = current_max
+    
     if target_col == 'in':
         # Aplicar la operación
         dependants.loc[:, target_col] = dependants[target_col] - dependants['conmu_time'] * dependants.index
         if not dependants.empty:
-            helper.at[helper.index[0], target_col] = (dependants[target_col].iloc[0] + group_conmu_time)
+            helper.at[helper.index[0], target_col] = (dependants[target_col].max() + helper['conmu_time'].iloc[0])
         combined_df = pd.concat([dependants, helper], ignore_index=True)
         combined_df = combined_df.sort_values(by=target_col, ascending=False).reset_index(drop=True)
     else:
         # Aplicar la operación
         dependants.loc[:, target_col] = dependants[target_col] + dependants['conmu_time'] * dependants.index
         if not dependants.empty:
-            helper.at[helper.index[0], target_col] = (dependants[target_col].iloc[0] - group_conmu_time)
+            helper.at[helper.index[0], target_col] = (dependants[target_col].min() - max([helper['conmu_time'].iloc[0], current_max]))
         combined_df = pd.concat([dependants, helper], ignore_index=True)
         combined_df = combined_df.sort_values(by=target_col, ascending=True).reset_index(drop=True)
     return combined_df
@@ -741,19 +736,11 @@ def route_creation(matrix2cover, prev_matrix2cover):
     helper_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(helper_1['agent'])] # Issue 16
     helper_1 = matrix2cover[matrix2cover['agent'] == helper_0['agent'].iloc[0]]
     
-    print('prev_matrix2cover')
-    print(prev_matrix2cover)
     new_new_list = agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper_0)
     new_list = pd.concat([new_list, new_new_list], ignore_index=True)
-    print(new_new_list)
     new_new_list = pd.DataFrame(columns=columns)
     new_new_list = agent_delivery(new_new_list, prev_matrix2cover, matrix2cover, helper_1)
     new_list = pd.concat([new_list, new_new_list], ignore_index=True)
-    print('matrix2cover')
-    print(matrix2cover)
-    input(new_new_list)
-    print('*'*60)
-    print()
     return new_list
   
 def matrix2cover_creation(todolist_family, resties2cover):
