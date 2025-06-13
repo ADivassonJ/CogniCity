@@ -14,7 +14,7 @@ from geopy.distance import geodesic
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-def todolist_family_initialization(SG_relationship, family_df, activities):
+def todolist_family_initialization(SG_relationship, family_df, activities): # esta funcion necesita tambien relacion de familias y arquetipos
     # No puede trabajarse sin ningun tipo de actividades asignadas
     if activities == []:
         activities = ['WoS', 'Dutties', 'Entertainment']
@@ -66,16 +66,20 @@ def todolist_family_initialization(SG_relationship, family_df, activities):
                 except Exception:
                     # En caso de que el agente NO tenga un tiempo requerido de actividad
                     time2spend = 0
+                # El caso mayoritario de 'todo' para las acciones
                 todo_type = row_f_df[f'{activity}_type'] if not activity in home_travels else row_f_df['WoS_type']
+                # En caso de la primera acción
                 if activity == activities[0]:
                     in_time = opening
                     out_time = (in_time + time2spend) if time2spend != 0 else closing
+                # En caso de la última acción
                 elif activity == activities[-1]:
                     filtered = todolist_family[todolist_family['agent'] == row_f_df['name']]
                     in_time = 0
                     row_out = filtered[filtered['in'] == min(filtered['in'])]
-                    out_time = row_out['in'].iloc[0] - row_out['conmu_time'].iloc[0]
-                    todo_type = 0
+                    out_time = row_out['in'].iloc[0] - row_out['conmu_time'].iloc[0] # Mira al tiempo de entrada de la primera acción y le resta el tiempo de conmutación
+                    todo_type = 0 # No necesitan que nadie les acompañe, porqueempiezan el día ahí
+                # El resto de acciones
                 else:
                     try:
                         filtered = todolist_family[todolist_family['agent'] == row_f_df['name']]
@@ -127,16 +131,16 @@ def todolist_family_creation(df_citizens, SG_relationship):
         # Creamos una lista de tareas con sus recorridos para cada agente de forma independiente
         todolist_family = todolist_family_initialization(SG_relationship, family_df, [])  # Aqui el '[]' se debe meter los servicios a analizar (pueden ser 'WoS', 'Dutties' y/o 'Entertainment')
                                                                                           # Deberiamos leerlo del doc de system management
-        input(todolist_family)
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         while max(todolist_family['todo_type']) > 0:
             # En caso de existir dependencias, se asignan responsables
             responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique)            
-            input()
-            todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
+            print(responsability_matrix)
+            input('#' * 80)
+            '''todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
             print('todolist_family')
             print(todolist_family)
-            input('#' * 80)
+            input('#' * 80)'''
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
 
 # Función de distancia haversine
@@ -159,10 +163,8 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique):
     # Eliminamos los independientes pero no capaces de ayudar (aquellos que en WoS son dependientes)
     agents_with_wos = todolist_family[(todolist_family['todo'] == 'WoS') & (todolist_family['todo_type'] != 0)]['agent'].unique()
     helpers = helpers[~helpers['agent_h'].isin(agents_with_wos)].reset_index(drop=True)
-    
     # Producto cartesiano (todas las combinaciones posibles)
     df_combinado = helpers.merge(dependents, how='cross')
-    input(df_combinado)
     # Calculamos todas las convinaciones
     for idx_df_conb, row_df_conb in df_combinado.iterrows():
         # Si la entrada es 0, sera la actividad de Home_out, por lo que lo ignoramos, no se plantean actividades previas a esta
@@ -180,26 +182,17 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique):
         soc_dist = 1 # Aqui habrá que poner algo estadistico o algo
         # Calculamos la puntuación
         score = geo_dist + abs(time_dist)/100 + soc_dist # quizas cada uno entre el maximo?
-        
+        # Sacamos los schedule y step previo del helper
         try: 
-            h_schedule = todolist_family[(todolist_family['agent'] == row_df_conb['agent_h']) & (todolist_family['out'] <= row_df_conb['in_h'])] 
-            
-            print('h_schedule')
-            print(h_schedule)
-            print('todolist_family')
-            print(todolist_family)
-                         
+            h_schedule = todolist_family[(todolist_family['agent'] == row_df_conb['agent_h']) & (todolist_family['out'] <= row_df_conb['in_h'])]            
             h_pre_step = h_schedule[h_schedule['out'] == max(h_schedule['out'])]
         except Exception:
             input('sa petao')
         
+        # Sacamos los schedule y step previo del dependant
         d_schedule = todolist_family[(todolist_family['agent'] == row_df_conb['agent_d']) & (todolist_family['out'] <= row_df_conb['in_d'])] 
-        
-        print('row_df_conb')
-        print(row_df_conb)
-                     
         d_pre_step = d_schedule[d_schedule['out'] == max(d_schedule['out'])]
-        
+        # Creamos la nueva fila
         new_row = {
             'helper': row_df_conb['agent_h'],
             'dependent': row_df_conb['agent_d'],
@@ -216,7 +209,7 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique):
             'out_d': d_pre_step['out'].iloc[0],
             'in_d': row_df_conb['in_d']
         }
-
+        # La añadimos a la matriz de responsabilidad
         responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)
 
     if not responsability_matrix.empty:
