@@ -139,6 +139,10 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique):
         
         try: 
             h_schedule = todolist_family[(todolist_family['agent'] == row_df_conb['agent_h']) & (todolist_family['out'] <= row_df_conb['in_h'])]              
+            print('h_schedule')
+            print(h_schedule)
+            print('todolist_family')
+            print(todolist_family)
             h_pre_step = h_schedule[h_schedule['out'] == max(h_schedule['out'])]
         except Exception:
             input('sa petao')

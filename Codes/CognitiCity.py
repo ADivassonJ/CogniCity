@@ -34,9 +34,7 @@ def main():
 
     pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes)
     
-
-
-
+    
 def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
     # Suponiendo que df_citizens y df_families ya están definidos
     df_final_stats_citizens = df_citizens['archetype'].value_counts().reset_index()
@@ -70,8 +68,6 @@ def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_arch
     # Mostrar el promedio de rate_difference
     print("    Abs error on citizens:", round(merged_citizens['rate_difference'].mean(), 4), "%")
     print("    Abs error on families:", round(merged_families['rate_difference'].mean(), 4), "%")
-    
-    
     
 
 if __name__ == '__main__':
