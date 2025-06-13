@@ -120,6 +120,73 @@ def todolist_family_initialization(SG_relationship, family_df, activities): # es
     
     return todolist_family
 
+def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique):
+    # Calculamos los apartados sobre los que actuar dentro de 'todolist_family'
+    matrix2cover, prev_matrix2cover = matrix2cover_creation(todolist_family, responsability_matrix)
+    # Tomamos los apartados sobre los que actuar y los adaptamos a las necesidades de los dependants
+    new_todolist_family = route_creation(matrix2cover, prev_matrix2cover)
+    # Adaptar el resto del schedule a las modificaciones realizadas
+    todolist_family = new_todolist_family_adaptation(todolist_family, matrix2cover, new_todolist_family, prev_matrix2cover)
+    return todolist_family
+
+def route_creation(matrix2cover, prev_matrix2cover): 
+    ## Dividir los datos
+    # DataFrame para almacenar resultados si vas a ir agregando algo más adelante
+    columns=['agent','todo','osm_id','todo_type','opening','closing','fixed','time2spend','in','out','conmu_time']
+    new_list = pd.DataFrame(columns=columns)
+    new_new_list = pd.DataFrame(columns=columns)
+    # Filtrar dependientes con todo_type distinto de 0
+    dependants_1 = matrix2cover[matrix2cover['todo_type'] != 0]
+    # Filtrar en el DataFrame anterior aquellos agentes que están en dependants_1
+    dependants_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(dependants_1['agent'])]
+    # Filtrar helper con todo_type igual a 0
+    helper_1 = matrix2cover[matrix2cover['todo_type'] == 0]
+    # Conseguir los datos especificos del helper
+    helper_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(helper_1['agent'])] # Issue 16
+    helper_1 = matrix2cover[matrix2cover['agent'] == helper_0['agent'].iloc[0]]
+    ## Ejecutamos las actividades de recogida y entrega de agentes
+    # Recogida
+    new_new_list = agent_collection(new_new_list, prev_matrix2cover, matrix2cover, helper_0)
+    new_list = pd.concat([new_list, new_new_list], ignore_index=True)
+    
+    new_new_list = pd.DataFrame(columns=columns)
+    
+    # Entrega
+    new_new_list = agent_delivery(new_new_list, prev_matrix2cover, matrix2cover, helper_1)
+    new_list = pd.concat([new_list, new_new_list], ignore_index=True)
+    return new_list
+
+
+
+def matrix2cover_creation(todolist_family, responsability_matrix):
+    matrix2cover_rows = []
+    prev_matrix2cover_rows = []
+
+    # First row from helper (assumes first row contains this info)
+    r0 = responsability_matrix.iloc[0]
+
+    # Add current helper task
+    current_helper_row = todolist_family[(todolist_family['agent'] == r0['helper']) & (todolist_family['osm_id'] == r0['osm_id_h1']) & (todolist_family['in'] == r0['in_h'])]
+    matrix2cover_rows.append(current_helper_row)
+
+    # Add previous helper task
+    prev_helper_row = todolist_family[(todolist_family['agent'] == r0['helper']) & (todolist_family['osm_id'] == r0['osm_id_h0']) & (todolist_family['out'] == r0['out_h'])]
+    prev_matrix2cover_rows.append(prev_helper_row)
+
+    # Process dependents
+    for _, row in responsability_matrix.iterrows():
+        current_dependent_row = todolist_family[(todolist_family['agent'] == row['dependent']) & (todolist_family['osm_id'] == row['osm_id_d1']) & (todolist_family['in'] == row['in_d'])]
+        matrix2cover_rows.append(current_dependent_row)
+
+        prev_dependent_row = todolist_family[(todolist_family['agent'] == row['dependent']) & (todolist_family['osm_id'] == row['osm_id_d0']) &(todolist_family['out'] == row['out_d'])]
+        prev_matrix2cover_rows.append(prev_dependent_row)
+
+    # Concatenate once for efficiency
+    matrix2cover = pd.concat(matrix2cover_rows, ignore_index=True)
+    prev_matrix2cover = pd.concat(prev_matrix2cover_rows, ignore_index=True)
+
+    return matrix2cover, prev_matrix2cover
+  
 
 def todolist_family_creation(df_citizens, SG_relationship):
     SG_relationship_unique = SG_relationship.drop_duplicates(subset='osm_id')
@@ -135,12 +202,10 @@ def todolist_family_creation(df_citizens, SG_relationship):
         while max(todolist_family['todo_type']) > 0:
             # En caso de existir dependencias, se asignan responsables
             responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique)            
-            print(responsability_matrix)
+            # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
+            todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
+            
             input('#' * 80)
-            '''todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
-            print('todolist_family')
-            print(todolist_family)
-            input('#' * 80)'''
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
 
 # Función de distancia haversine
