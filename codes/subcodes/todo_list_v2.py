@@ -207,8 +207,6 @@ def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relati
     matrix2cover, prev_matrix2cover = matrix2cover_creation(todolist_family, responsability_matrix)
     # Tomamos los apartados sobre los que actuar y los adaptamos a las necesidades de los dependants
     new_todolist_family = route_creation(matrix2cover, prev_matrix2cover)
-    print('new_todolist_family')
-    input(new_todolist_family)
     # Adaptar el resto del schedule a las modificaciones realizadas
     todolist_family = new_todolist_family_adaptation(todolist_family, new_todolist_family)
     return todolist_family
@@ -232,7 +230,7 @@ def route_creation(matrix2cover, prev_matrix2cover):
     new_new_list = agent_collection(prev_matrix2cover, matrix2cover, helper_0)
     new_list = pd.concat([new_list, new_new_list], ignore_index=True)
     # Entrega
-    new_new_list = agent_delivery(prev_matrix2cover, matrix2cover, helper_1)
+    new_new_list = agent_delivery(prev_matrix2cover, matrix2cover, helper_1, new_list)
     new_list = pd.concat([new_list, new_new_list], ignore_index=True)
     return new_list
 
@@ -265,8 +263,6 @@ def sort_route(osm_ids, helper):
             helper.at[helper.index[0], target_col] = (dependants[target_col].min() - helper['conmu_time'].iloc[0])
         combined_df = pd.concat([dependants, helper], ignore_index=True)
         combined_df = combined_df.sort_values(by=target_col, ascending=True).reset_index(drop=True)
-        print('combined_df')
-        print(combined_df)
     return combined_df
 
 def agent_collection(prev_matrix2cover, matrix2cover, helper):
@@ -355,7 +351,9 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 }   
                 # Suma a dataframe
                 new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-
+                new_out = agent['out']
+            else: 
+                new_out = group_out_time
             # Actualización del caso original del agente
             rew_row ={
                 'agent': agent['agent'],
@@ -367,14 +365,14 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 'fixed?': agent['fixed?'], 
                 'time2spend': agent['time2spend'], 
                 'in': agent['in'], 
-                'out': min(agent['out'], agent['closing']),
+                'out': new_out,
                 'conmu_time': group_conmu_time
             }   
             # Suma a dataframe
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
     return new_new_list
 
-def agent_delivery(prev_matrix2cover, matrix2cover, helper):
+def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
     # Inicializamos el df de los resultados
     columns=['agent','todo','osm_id','todo_type','opening','closing','fixed?','time2spend','in','out','conmu_time']
     new_new_list = pd.DataFrame(columns=columns)
@@ -392,8 +390,12 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper):
         ## Asignamos tiempo de llegada del grupo
         # En caso de NO HABER ningún agente condicionante
         if filtered.empty: # No tiene más condiciones, porque si es fixed? tendra un time2spend seguro, no hace falta comprobar
-            # Asier, no toques esto, de verdad, que esta bien
-            group_in_time = oi_group['in'].max() 
+
+            max_out = agent_collection['out'].max()
+            max_in = agent_collection['in'].max()
+            agents_row = agent_collection[(agent_collection['out'] == max_out) & (agent_collection['in'] == max_in)]            
+
+            group_in_time = agents_row['out'].iloc[0] + agents_row['conmu_time'].iloc[0]
         else:
             # Tomamos como hora de entrada la del agente condicionante con hora más tenprana
             # Este será el último en ser entregado, asi te aseguras de que todos llegan antes de la hora, ninguno tarde.
@@ -532,6 +534,7 @@ def todolist_family_creation(df_citizens, SG_relationship):
             responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique)            
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
+            input(todolist_family)
         input('#' * 80)
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
 
