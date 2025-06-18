@@ -100,7 +100,7 @@ def todolist_family_initialization(SG_relationship, family_df, activities): # es
                         'todo_type': todo_type, 
                         'opening': opening, 
                         'closing': closing, 
-                        'fixed?': fixed, 
+                        'fixed': fixed, 
                         'time2spend': time2spend, 
                         'in': in_time, 
                         'out': out_time,
@@ -128,7 +128,9 @@ def time_adding(df_after_max, last_out):
         # Se calcula la nueva hora de entrada
         new_in = last_out + int(df_a_row['conmu_time'])
         # Se calcula la nueva hora de salida
-        new_out = (new_in + df_a_row['time2spend']) if df_a_row['time2spend'] != 0 else df_a_row['closing'] 
+        new_out = (new_in + df_a_row['time2spend']) if df_a_row['time2spend'] != 0 else df_a_row['closing']
+        if df_a_row['todo'] in ['Delivery', 'Collect']:
+            new_out = new_in
         # En caso de detectarse alguna incompativilidad horaria, el agente no realiza la acción
         if df_a_row['closing'] < new_in or df_a_row['closing'] < new_out:
             print(f"After adaptation, {df_a_row['agent']} was not able to fullfill '{df_a_row['todo']}' at {df_a_row['in']}.")
@@ -141,7 +143,7 @@ def time_adding(df_after_max, last_out):
             'todo_type': df_a_row['todo_type'], 
             'opening': df_a_row['opening'], 
             'closing': df_a_row['closing'], # Issue 16
-            'fixed?': df_a_row['fixed?'], 
+            'fixed': df_a_row['fixed'], 
             'time2spend': df_a_row['time2spend'], 
             'in': new_in, 
             'out': new_out,
@@ -181,7 +183,7 @@ def new_todolist_family_adaptation(todolist_family, new_todolist_family):
             # Obtenemos los datos del agente
             agent_todo = todolist_family[todolist_family['agent'] == agent]
             # Se mantienen lo previo
-            new_new_list = pd.concat([new_new_list, agent_todo], ignore_index=True).sort_values(by='in', ascending=True)
+            new_list = pd.concat([new_list, agent_todo], ignore_index=True).sort_values(by='in', ascending=True)
             continue
         # Sacamos los datos especificos del agente modificado
         agent_schedule = new_todolist_family[new_todolist_family['agent'] == agent].reset_index(drop=True)
@@ -196,7 +198,11 @@ def new_todolist_family_adaptation(todolist_family, new_todolist_family):
         # Miramos si existe algo posterior
         if not df_after_max.empty:
             # Se modifica el df df_after_max para actualizar los tiempos
+            print('pre_df_after_max')
+            print(df_after_max)
             df_after_max = time_adding(df_after_max, max(new_new_list['out']))
+            print('post_df_after_max')
+            print(df_after_max)
         # Y despues se suma
         new_new_list = pd.concat([new_new_list, df_after_max], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         new_list = pd.concat([new_list, new_new_list], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
@@ -267,7 +273,7 @@ def sort_route(osm_ids, helper):
 
 def agent_collection(prev_matrix2cover, matrix2cover, helper):
     # Inicializamos el df de los resultados
-    columns=['agent','todo','osm_id','todo_type','opening','closing','fixed?','time2spend','in','out','conmu_time']
+    columns=['agent','todo','osm_id','todo_type','opening','closing','fixed','time2spend','in','out','conmu_time']
     new_new_list = pd.DataFrame(columns=columns)
     ## Creación de ruta de recogida
     # DataFrame con datos de outs
@@ -282,7 +288,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
         group_conmu_time = oi_group['conmu_time'].max()
         # Asignamos tiempo de salida del grupo
         if filtered.empty:
-            filtered = matrix2cover[matrix2cover['fixed?'] == True]
+            filtered = matrix2cover[matrix2cover['fixed'] == True]
             if filtered.empty:
                 group_out_time = oi_group['out'].min()
             else:
@@ -321,7 +327,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 'todo_type': 0, 
                 'opening': 0, 
                 'closing': float('inf'), 
-                'fixed?': False, 
+                'fixed': False, 
                 'time2spend': 0, 
                 'in': group_out_time, 
                 'out': group_out_time,
@@ -343,7 +349,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                     'todo_type': 0, 
                     'opening': 0,               # Es una accion not-place-related, pero sí time-related
                     'closing': float('inf'),    # Es una accion not-place-related, pero sí time-related 
-                    'fixed?': agent['fixed?'], 
+                    'fixed': agent['fixed'], 
                     'time2spend': waiting_time, 
                     'in': agent['out'], 
                     'out': group_out_time,
@@ -362,7 +368,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 'todo_type': agent['todo_type'], 
                 'opening': agent['opening'], 
                 'closing': agent['closing'], 
-                'fixed?': agent['fixed?'], 
+                'fixed': agent['fixed'], 
                 'time2spend': agent['time2spend'], 
                 'in': agent['in'], 
                 'out': new_out,
@@ -374,7 +380,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
 
 def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
     # Inicializamos el df de los resultados
-    columns=['agent','todo','osm_id','todo_type','opening','closing','fixed?','time2spend','in','out','conmu_time']
+    columns=['agent','todo','osm_id','todo_type','opening','closing','fixed','time2spend','in','out','conmu_time']
     new_new_list = pd.DataFrame(columns=columns)
     ## Creación de ruta de recogida
     # DataFrame con datos de ins
@@ -383,18 +389,17 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
     osm_id_groups = matrix2cover.groupby('osm_id')
     # Pasamos por todos los grupos de la salida
     for name_group, oi_group in osm_id_groups:
-        # Buscamos el valor minimo de in en el grupo que tenga fixed? == True (quién condiciona)
-        filtered = oi_group[oi_group['fixed?'] == True]
+        # Buscamos el valor minimo de in en el grupo que tenga fixed == True (quién condiciona)
+        filtered = oi_group[oi_group['fixed'] == True]
         # Asignamos tiempo de conmutación del grupo
         group_conmu_time = oi_group['conmu_time'].max()
         ## Asignamos tiempo de llegada del grupo
         # En caso de NO HABER ningún agente condicionante
-        if filtered.empty: # No tiene más condiciones, porque si es fixed? tendra un time2spend seguro, no hace falta comprobar
-
+        if filtered.empty: # No tiene más condiciones, porque si es fixed tendra un time2spend seguro, no hace falta comprobar
             max_out = agent_collection['out'].max()
-            max_in = agent_collection['in'].max()
-            agents_row = agent_collection[(agent_collection['out'] == max_out) & (agent_collection['in'] == max_in)]            
-
+            agents_row = agent_collection[agent_collection['out'] == max_out]
+            max_in = agents_row['in'].max()           
+            agents_row = agents_row[agents_row['in'] == max_in]
             group_in_time = agents_row['out'].iloc[0] + agents_row['conmu_time'].iloc[0]
         else:
             # Tomamos como hora de entrada la del agente condicionante con hora más tenprana
@@ -432,7 +437,7 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                 'todo_type': 0, 
                 'opening': 0, 
                 'closing': float('inf'), 
-                'fixed?': False, 
+                'fixed': False, 
                 'time2spend': 0, 
                 'in': group_in_time, 
                 'out': group_in_time,
@@ -443,7 +448,7 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
         # Despues agentes que se mueven por primera vez
         for _, agent in group.iterrows():
             # Si el agente llega antes de la apertura
-            if (group_in_time < agent['opening']) or (group_in_time < agent['in'] and agent['fixed?'] == True):
+            if (group_in_time < agent['opening']) or (group_in_time < agent['in'] and agent['fixed'] == True):
                 # Calculamos el tiempo de espera
                 waiting_time = max([agent['in'], agent['opening']]) - group_in_time # Tecnicamente [agent['in'], agent['opening']] deberian ser iguales si es fix, pero bue
                 # Nueva fila
@@ -454,7 +459,7 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                     'todo_type': 0, 
                     'opening': 0,               # Es una accion not-place-related, pero sí time-related
                     'closing': float('inf'),    # Es una accion not-place-related, pero sí time-related
-                    'fixed?': agent['fixed?'], 
+                    'fixed': agent['fixed'], 
                     'time2spend': waiting_time, 
                     'in': group_in_time, 
                     'out': agent['in'],
@@ -477,7 +482,7 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                 'todo_type': 0, 
                 'opening': agent['opening'], 
                 'closing': agent['closing'], 
-                'fixed?': agent['fixed?'], 
+                'fixed': agent['fixed'], 
                 'time2spend': agent['time2spend'], 
                 'in': in_time, 
                 'out': new_out,
@@ -524,18 +529,24 @@ def todolist_family_creation(df_citizens, SG_relationship):
     df_citizens_families = df_citizens.groupby('family')
     # Recorrer cada familia
     for family_name, family_df in df_citizens_families:
-        
+        # Inicializamos el dataframe para guardar el historial de la matriz de responsabilidades. Esta es por familia, por lo que se reinicia en cada bucle.
+        responsability_matrix_history = pd.DataFrame()
         # Creamos una lista de tareas con sus recorridos para cada agente de forma independiente
         todolist_family = todolist_family_initialization(SG_relationship, family_df, [])  # Aqui el '[]' se debe meter los servicios a analizar (pueden ser 'WoS', 'Dutties' y/o 'Entertainment')
                                                                                           # Deberiamos leerlo del doc de system management
+        todolist_family_original = todolist_family
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         while max(todolist_family['todo_type']) > 0:
             # En caso de existir dependencias, se asignan responsables
-            responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique)            
+            responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original)
+            print('responsability_matrix')
+            print(responsability_matrix)
+            responsability_matrix_history = pd.concat([responsability_matrix_history, responsability_matrix], ignore_index=True)
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
+            print('todolist_family')
             input(todolist_family)
-        input('#' * 80)
+            input('#' * 80)
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
 
 # Función de distancia haversine
@@ -548,7 +559,7 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2*np.arcsin(np.sqrt(a))
     return R * c   
 
-def responsability_matrix_creation(todolist_family, SG_relationship_unique):   
+def responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original):   
     # Creamos la matriz de los resultados
     responsability_matrix = pd.DataFrame()
     # DataFrame con todo_type > 0 (dependientes con trips que requieren asistencia)
@@ -556,10 +567,13 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique):
     # DataFrame con todo_type == 0 (independientes)
     helpers = todolist_family[todolist_family["todo_type"] == 0].add_suffix('_h')
     # Eliminamos los independientes pero no capaces de ayudar (aquellos que en WoS son dependientes)
-    agents_with_wos = todolist_family[(todolist_family['todo'] == 'WoS') & (todolist_family['todo_type'] != 0)]['agent'].unique()
+    agents_with_wos = todolist_family_original[(todolist_family_original['todo'] == 'WoS') & (todolist_family_original['todo_type'] != 0)]['agent'].unique()
     helpers = helpers[~helpers['agent_h'].isin(agents_with_wos)].reset_index(drop=True)
     # Producto cartesiano (todas las combinaciones posibles)
     df_combinado = helpers.merge(dependents, how='cross')
+    # Eliminamos los valores de acciones por actividades previas
+    valores_excluir = ['Collect', 'Waiting collection', 'Waiting opening', 'Delivery']  # Esto puede ser problematico
+    df_combinado = df_combinado[~df_combinado['todo_h'].isin(valores_excluir) & ~df_combinado['todo_d'].isin(valores_excluir)]
     # Calculamos todas las convinaciones
     for idx_df_conb, row_df_conb in df_combinado.iterrows():
         # Si la entrada es 0, sera la actividad de Home_out, por lo que lo ignoramos, no se plantean actividades previas a esta
@@ -607,6 +621,8 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique):
         # La añadimos a la matriz de responsabilidad
         responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)
 
+    input(responsability_matrix)
+    
     if not responsability_matrix.empty:
         responsability_matrix = responsability_matrix.loc[
             responsability_matrix.groupby(['dependent', 'osm_id_d1'])['score'].idxmin()
