@@ -133,7 +133,9 @@ def time_adding(df_after_max, last_out):
             new_out = new_in
         # En caso de detectarse alguna incompativilidad horaria, el agente no realiza la acción
         if df_a_row['closing'] < new_in or df_a_row['closing'] < new_out:
-            print(f"After adaptation, {df_a_row['agent']} was not able to fullfill '{df_a_row['todo']}' at {df_a_row['in']}.")
+            print(f"After adaptation, {df_a_row['agent']} was not able to fullfill '{df_a_row['todo']}' at {new_in}.")
+            print(f"new_in: {new_in} and new_out: {new_out}")
+            print(f"new_in = {last_out} + {int(df_a_row['conmu_time'])}")
             continue
         # Se crea la nueva fila
         rew_row ={
@@ -198,11 +200,7 @@ def new_todolist_family_adaptation(todolist_family, new_todolist_family):
         # Miramos si existe algo posterior
         if not df_after_max.empty:
             # Se modifica el df df_after_max para actualizar los tiempos
-            print('pre_df_after_max')
-            print(df_after_max)
             df_after_max = time_adding(df_after_max, max(new_new_list['out']))
-            print('post_df_after_max')
-            print(df_after_max)
         # Y despues se suma
         new_new_list = pd.concat([new_new_list, df_after_max], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         new_list = pd.concat([new_list, new_new_list], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
@@ -492,7 +490,6 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)     
     return new_new_list
 
-
 def matrix2cover_creation(todolist_family, responsability_matrix):
     matrix2cover_rows = []
     prev_matrix2cover_rows = []
@@ -535,17 +532,18 @@ def todolist_family_creation(df_citizens, SG_relationship):
         todolist_family = todolist_family_initialization(SG_relationship, family_df, [])  # Aqui el '[]' se debe meter los servicios a analizar (pueden ser 'WoS', 'Dutties' y/o 'Entertainment')
                                                                                           # Deberiamos leerlo del doc de system management
         todolist_family_original = todolist_family
+        print('todolist_family:')
+        print(todolist_family)
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         while max(todolist_family['todo_type']) > 0:
             # En caso de existir dependencias, se asignan responsables
-            responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original)
-            print('responsability_matrix')
-            print(responsability_matrix)
+            responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original, responsability_matrix_history)
+            
             responsability_matrix_history = pd.concat([responsability_matrix_history, responsability_matrix], ignore_index=True)
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
             print('todolist_family')
-            input(todolist_family)
+            print(todolist_family)
             input('#' * 80)
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
 
@@ -559,7 +557,7 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2*np.arcsin(np.sqrt(a))
     return R * c   
 
-def responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original):   
+def responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original, responsability_matrix_history):   
     # Creamos la matriz de los resultados
     responsability_matrix = pd.DataFrame()
     # DataFrame con todo_type > 0 (dependientes con trips que requieren asistencia)
@@ -621,7 +619,18 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
         # La añadimos a la matriz de responsabilidad
         responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)
 
-    input(responsability_matrix)
+    if not responsability_matrix_history.empty:
+        # Primero creamos una columna auxiliar concatenando las 4 columnas para facilitar la comparación:
+        cols = ['osm_id_h0', 'osm_id_h1', 'osm_id_d0', 'osm_id_d1']
+
+        responsability_matrix['key'] = responsability_matrix[cols].agg('-'.join, axis=1)
+        responsability_matrix_history['key'] = responsability_matrix_history[cols].agg('-'.join, axis=1)
+
+        # Ahora filtramos el dataframe original eliminando las filas cuyos 'key' están en el history
+        filtered_df = responsability_matrix[~responsability_matrix['key'].isin(responsability_matrix_history['key'])]
+
+        # Por último, si quieres puedes eliminar la columna auxiliar 'key'
+        responsability_matrix = filtered_df.drop(columns=['key'])
     
     if not responsability_matrix.empty:
         responsability_matrix = responsability_matrix.loc[
@@ -634,7 +643,7 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
         # Filtrar el DataFrame original para quedarte solo con ese grupo
         responsability_matrix = responsability_matrix[responsability_matrix['out_h'] == min_group]
     else:
-        print(f'family XX has no responsables.')
+        input(f'action has no responsables available.')
     
     ## Nos deshacemos de los casos de un helper ayuda al mismo dependant para multiples tareas (evitamos futuros conflictos)
     # Agrupamos por las columnas 'helper' y 'dependent' y obtenemos el índice del menor 'score'
