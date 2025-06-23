@@ -120,11 +120,33 @@ def todolist_family_initialization(SG_relationship, family_df, activities): # es
     
     return todolist_family
 
-def time_adding(df_after_max, last_out):
+def now_and_next(agent_todo, idx_a_m):
+    # Especificamos las actuaciones sobre las que no se realizan calculos
+    valores_excluir = ['Collect', 'Waiting collection', 'Waiting opening', 'Delivery']
+    # En caso de que la actividad de analisis sea del cierre del dia o excluida
+    if (agent_todo['out'][idx_a_m] == float('inf')) or (agent_todo['todo'][idx_a_m] in valores_excluir):
+        return None, None
+    # Sacamos el valor actual del osm_id
+    current_id = agent_todo['osm_id'][idx_a_m]
+    # Inicializamos el sumatorio para el indice
+    i = 1
+    # Mientras la fila que queremos analizar este entre alguna de las actividades excluidas que sume al sumatorio
+    while (agent_todo['todo'][idx_a_m + i] in valores_excluir):
+        i += 1
+        if i >= len(agent_todo):
+            print("agent_todo")
+            print(agent_todo)
+            print("i")
+            input(i)
+    # Obtenemos el id del siguiente paso
+    next_id = agent_todo['osm_id'][idx_a_m + i]
+    return current_id, next_id
+    
+def time_adding(df_after_max, last_out, responsability_matrix_history):
     # Inicializamos el df de resultados
     df_after_max_adapted = pd.DataFrame()
     # Actuamos sobre cada linea del df de acciones posteriores a las modificadas
-    for _, df_a_row in df_after_max.iterrows():
+    for idx_a_m, df_a_row in df_after_max.iterrows():
         # Se calcula la nueva hora de entrada
         new_in = last_out + int(df_a_row['conmu_time'])
         # Se calcula la nueva hora de salida
@@ -172,20 +194,56 @@ def df_division(agent_todo, agent_schedule):
     df_after_max = agent_todo[agent_todo.index > max_index]    
     return df_before_min, df_after_max
 
+def manage_agent_dependences(agent, todolist_family, responsability_matrix_history):
+    # Buscamos en el historial si el agente ha tenido alguna modificación
+    mask_h = (responsability_matrix_history['dependent'] == agent)
+    mask_d = (responsability_matrix_history['helper'] == agent)
+    filtrado = responsability_matrix_history[mask_h | mask_d]
+    # Sacamos el primero (el que afectará en cascada al resto de acciones)
+    fila_menor_in = filtrado.loc[filtrado['in_h'].idxmin()]
+    # Sacamos la iteración en la que ha ocurrido
+    iteration = fila_menor_in['iter']
+    
+    # Si el agente ha sido modificado en iteraciones anteriores
+    if (agent in responsability_matrix_history['dependent']) or (agent in responsability_matrix_history['helper']):
+        # Obtenemos los datos del agente
+        agent_todo = todolist_family[todolist_family['agent'] == agent].reset_index()
+        # Vamos fila por fila dentro de su schedule
+        for idx_a_t, row_a_t in agent_todo.iterrows():
+            # Sacamos su osm_id actual y el del next step
+            now,next = now_and_next(agent_todo, idx_a_t)
+            if not [now,next] == [None, None]:
+                # Compara si el par [now, next] (en cualquier orden) coincide con las columnas h o d
+                mask_h = ((responsability_matrix_history['osm_id_h0'] == now) & (responsability_matrix_history['osm_id_h1'] == next))
+                mask_d = ((responsability_matrix_history['osm_id_d0'] == now) & (responsability_matrix_history['osm_id_d1'] == next))
+                filtrado = responsability_matrix_history[mask_h | mask_d]
+                print('row_a_t')
+                print(row_a_t)
+                print('now,next')
+                print(now,next)
+                print('filtrado')
+                input(filtrado)
+                # si una actividaqd no se puede realizar y pasa a la siguiente, la siguiente debe vorrarse de agent_todo, si no dará error
+            else:
+                input('None None')
+                # Si es el último, por lo que no hay next o otra condicion, se adapta la entrada de la acción
+    # Si el agente NO ha sido modificado en iteraciones anteriores
+    else:
+        # Obtenemos los datos del agente
+        agent_todo = todolist_family[todolist_family['agent'] == agent].reset_index()
+    return agent_todo
 
-def new_todolist_family_adaptation(todolist_family, new_todolist_family): 
+def new_todolist_family_adaptation(todolist_family, new_todolist_family, responsability_matrix_history): 
     # Inicializamos el df de resultados
     new_list = pd.DataFrame()
     # Pasamos por todos los agentes del schedule
     for agent in todolist_family['agent'].unique():
         # Inicializamos el df temporal resultados especificos para cada agente
         new_new_list = pd.DataFrame()
-        # Si el agente no ha sido modificado
+        # Si el agente no ha sido modificado en esta iteración
         if not agent in new_todolist_family['agent'].to_list():
-            # Obtenemos los datos del agente
-            agent_todo = todolist_family[todolist_family['agent'] == agent]
-            # Se mantienen lo previo
-            new_list = pd.concat([new_list, agent_todo], ignore_index=True).sort_values(by='in', ascending=True)
+            new_new_list = manage_agent_dependences(agent, todolist_family, responsability_matrix_history)
+            new_list = pd.concat([new_list, new_new_list], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
             continue
         # Sacamos los datos especificos del agente modificado
         agent_schedule = new_todolist_family[new_todolist_family['agent'] == agent].reset_index(drop=True)
@@ -200,19 +258,19 @@ def new_todolist_family_adaptation(todolist_family, new_todolist_family):
         # Miramos si existe algo posterior
         if not df_after_max.empty:
             # Se modifica el df df_after_max para actualizar los tiempos
-            df_after_max = time_adding(df_after_max, max(new_new_list['out']))
+            df_after_max = time_adding(df_after_max, max(new_new_list['out']), responsability_matrix_history)
         # Y despues se suma
         new_new_list = pd.concat([new_new_list, df_after_max], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
         new_list = pd.concat([new_list, new_new_list], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
     return new_list
 
-def todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique):
+def todolist_family_adaptation(responsability_matrix, todolist_family, responsability_matrix_history):
     # Calculamos los apartados sobre los que actuar dentro de 'todolist_family'
     matrix2cover, prev_matrix2cover = matrix2cover_creation(todolist_family, responsability_matrix)
     # Tomamos los apartados sobre los que actuar y los adaptamos a las necesidades de los dependants
     new_todolist_family = route_creation(matrix2cover, prev_matrix2cover)
     # Adaptar el resto del schedule a las modificaciones realizadas
-    todolist_family = new_todolist_family_adaptation(todolist_family, new_todolist_family)
+    todolist_family = new_todolist_family_adaptation(todolist_family, new_todolist_family, responsability_matrix_history)
     return todolist_family
 
 def route_creation(matrix2cover, prev_matrix2cover): 
@@ -361,7 +419,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
             # Actualización del caso original del agente
             rew_row ={
                 'agent': agent['agent'],
-                'todo': f"{agent['todo']}", 
+                'todo': agent['todo'], 
                 'osm_id': agent['osm_id'], 
                 'todo_type': agent['todo_type'], 
                 'opening': agent['opening'], 
@@ -370,7 +428,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 'time2spend': agent['time2spend'], 
                 'in': agent['in'], 
                 'out': new_out,
-                'conmu_time': group_conmu_time
+                'conmu_time': agent['conmu_time']
             }   
             # Suma a dataframe
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
@@ -475,7 +533,7 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                 
             rew_row ={
                 'agent': agent['agent'],
-                'todo': f"{agent['todo']}", 
+                'todo': agent['todo'], 
                 'osm_id': agent['osm_id'], 
                 'todo_type': 0, 
                 'opening': agent['opening'], 
@@ -534,17 +592,21 @@ def todolist_family_creation(df_citizens, SG_relationship):
         todolist_family_original = todolist_family
         print('todolist_family:')
         print(todolist_family)
+        input('#' * 80)
+        iter = 0
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         while max(todolist_family['todo_type']) > 0:
             # En caso de existir dependencias, se asignan responsables
-            responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original, responsability_matrix_history)
-            
+            responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original, responsability_matrix_history, iter)
             responsability_matrix_history = pd.concat([responsability_matrix_history, responsability_matrix], ignore_index=True)
+            print('responsability_matrix_history')
+            print(responsability_matrix_history)
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
-            todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, SG_relationship_unique)
+            todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family, responsability_matrix_history)
             print('todolist_family')
             print(todolist_family)
             input('#' * 80)
+            iter += 1
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
 
 # Función de distancia haversine
@@ -557,7 +619,7 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2*np.arcsin(np.sqrt(a))
     return R * c   
 
-def responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original, responsability_matrix_history):   
+def responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original, responsability_matrix_history, iter):   
     # Creamos la matriz de los resultados
     responsability_matrix = pd.DataFrame()
     # DataFrame con todo_type > 0 (dependientes con trips que requieren asistencia)
@@ -614,23 +676,11 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
             'out_h': h_pre_step['out'].iloc[0],
             'in_h': row_df_conb['in_h'],
             'out_d': d_pre_step['out'].iloc[0],
-            'in_d': row_df_conb['in_d']
+            'in_d': row_df_conb['in_d'], 
+            'iter': iter
         }
         # La añadimos a la matriz de responsabilidad
         responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)
-
-    if not responsability_matrix_history.empty:
-        # Primero creamos una columna auxiliar concatenando las 4 columnas para facilitar la comparación:
-        cols = ['osm_id_h0', 'osm_id_h1', 'osm_id_d0', 'osm_id_d1']
-
-        responsability_matrix['key'] = responsability_matrix[cols].agg('-'.join, axis=1)
-        responsability_matrix_history['key'] = responsability_matrix_history[cols].agg('-'.join, axis=1)
-
-        # Ahora filtramos el dataframe original eliminando las filas cuyos 'key' están en el history
-        filtered_df = responsability_matrix[~responsability_matrix['key'].isin(responsability_matrix_history['key'])]
-
-        # Por último, si quieres puedes eliminar la columna auxiliar 'key'
-        responsability_matrix = filtered_df.drop(columns=['key'])
     
     if not responsability_matrix.empty:
         responsability_matrix = responsability_matrix.loc[
@@ -652,8 +702,6 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
     responsability_matrix = responsability_matrix.loc[idx_min_scores].reset_index(drop=True)
     
     return responsability_matrix
-
-
 
 def load_filter_sort_reset(filepath):
     """
