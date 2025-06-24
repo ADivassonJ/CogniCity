@@ -565,21 +565,9 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2*np.arcsin(np.sqrt(a))
     return R * c   
 
-def responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original):   
+def resp_score_calculation(todolist_family, SG_relationship_unique, df_combinado, dependent):
     # Creamos la matriz de los resultados
     responsability_matrix = pd.DataFrame()
-    # DataFrame con todo_type > 0 (dependientes con trips que requieren asistencia)
-    dependents = todolist_family[todolist_family["todo_type"] > 0].add_suffix('_d')
-    # DataFrame con todo_type == 0 (independientes)
-    helpers = todolist_family[todolist_family["todo_type"] == 0].add_suffix('_h')
-    # Eliminamos los independientes pero no capaces de ayudar (aquellos que en WoS son dependientes)
-    agents_with_wos = todolist_family_original[(todolist_family_original['todo'] == 'WoS') & (todolist_family_original['todo_type'] != 0)]['agent'].unique()
-    helpers = helpers[~helpers['agent_h'].isin(agents_with_wos)].reset_index(drop=True)
-    # Producto cartesiano (todas las combinaciones posibles)
-    df_combinado = helpers.merge(dependents, how='cross')
-    # Eliminamos los valores de acciones por actividades previas
-    valores_excluir = ['Collect', 'Waiting collection', 'Waiting opening', 'Delivery']  # Esto puede ser problematico
-    df_combinado = df_combinado[~df_combinado['todo_h'].isin(valores_excluir) & ~df_combinado['todo_d'].isin(valores_excluir)]
     # Calculamos todas las convinaciones
     for idx_df_conb, row_df_conb in df_combinado.iterrows():
         # Si la entrada es 0, sera la actividad de Home_out, por lo que lo ignoramos, no se plantean actividades previas a esta
@@ -608,9 +596,6 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
         d_schedule = todolist_family[(todolist_family['agent'] == row_df_conb['agent_d']) & (todolist_family['out'] <= row_df_conb['in_d'])] 
         d_pre_step = d_schedule[d_schedule['out'] == max(d_schedule['out'])]
         
-        if (d_pre_step['todo'].iloc[0] in valores_excluir) or (h_pre_step['todo'].iloc[0] in valores_excluir):
-            continue
-        
         # Creamos la nueva fila
         new_row = {
             'helper': row_df_conb['agent_h'],
@@ -634,27 +619,49 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
         }
         # La añadimos a la matriz de responsabilidad
         responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)
-    if not responsability_matrix.empty:
-        # Para cada grupo (dependent, osm_id_d0, osm_id_d1), selecciona la fila con menor 'out_h'
-        responsability_matrix = responsability_matrix.loc[
-            responsability_matrix.groupby(['dependent','osm_id_d0','osm_id_d1'])['out_d'].idxmin()
-        ].reset_index(drop=True)
-        # Para cada grupo (dependent), selecciona la fila con menor 'score'
-        responsability_matrix = responsability_matrix.loc[
-            responsability_matrix.groupby(['dependent'])['out_d'].idxmin()
-        ].reset_index(drop=True)
-    else:
-        print(f'action has no responsables available.')
-        return pd.DataFrame()
-    # Si alguna de las funciones (collect o deliver) se pueden compativilizar facil    
-    if (responsability_matrix['osm_id_h0'].to_list() == responsability_matrix['osm_id_d0'].to_list()) or (responsability_matrix['osm_id_h1'].to_list() == responsability_matrix['osm_id_d1'].to_list()):
-        return responsability_matrix
-    # Si alguna de las funciones (collect o deliver) NO se pueden compativilizar facil 
-    else:
-        responsability_matrix = responsability_matrix.loc[
-            responsability_matrix.groupby(['helper'])['out_d'].idxmin()
-        ].reset_index(drop=True)
-        return responsability_matrix
+    responsability_matrix = responsability_matrix.loc[responsability_matrix.groupby(['dependent'])['score'].idxmin()].reset_index(drop=True)
+    
+    ## Nos aseguramos que las acciona a acometer se realizan por el mismo agente
+    # Logramos el helper del dependent principal
+    helper = responsability_matrix[responsability_matrix['dependent'] == dependent]['helper'].iloc[0]
+    # Quitamos las acciones no realizadas por este helper
+    responsability_matrix = responsability_matrix[responsability_matrix['helper'] == helper]
+    
+    return responsability_matrix
+
+def responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original):   
+    # Encuentra el primer 'todo_type' es distinto de 0
+    first_not0 = todolist_family[todolist_family['todo_type'] != 0].iloc[0].add_suffix('_d')
+    # Sacamos los valores relevantes
+    dependent = first_not0['agent_d']
+    in_d = first_not0['in_d']
+    # DataFrame con todo_type == 0 (independientes)
+    helpers = todolist_family[todolist_family["todo_type"] == 0].add_suffix('_h')
+    # Eliminamos los independientes pero no capaces de ayudar (aquellos que en WoS son dependientes)
+    agents_with_wos = todolist_family_original[(todolist_family_original['todo'] == 'WoS') & (todolist_family_original['todo_type'] != 0)]['agent'].unique()
+    helpers = helpers[~helpers['agent_h'].isin(agents_with_wos)].reset_index(drop=True)
+    # Eliminamos los valores de acciones por actividades previas
+    valores_excluir = ['Collect', 'Waiting collection', 'Waiting opening', 'Delivery']  # Esto puede ser problematico
+    helpers = helpers[~helpers['todo_h'].isin(valores_excluir)]
+
+    # Ahora miramos los siguientes por ver si existe la opcion de compatibilizar el recorrido
+    rest_not0 = todolist_family[todolist_family['todo_type'] != 0].iloc[1:].reset_index(drop=True).add_suffix('_d')
+    # Retiramos del grupo el agente ya analizado
+    rest_not0 = rest_not0[rest_not0['agent_d'] != dependent]
+    # Retiramos del grupo aquellos valores de entrada que difieran más del tiempo maximo de conmutacion de la familia    
+    rest_not0 = rest_not0[(rest_not0['in_d'] - in_d) < todolist_family['conmu_time'].max()] # Porque me ha dado la gana
+    # Nos quedamos con el primero de cada nuevo dependant    
+    rest_not0 = rest_not0.loc[rest_not0.groupby(['agent_d'])['in_d'].idxmin()].reset_index(drop=True)
+    # Repetir la fila para que tenga el mismo número de filas que helper
+    feasible_not0 = pd.concat([pd.DataFrame([first_not0]), rest_not0], ignore_index=True)
+    
+    # Producto cartesiano (todas las combinaciones posibles)
+    df_combinado = helpers.merge(feasible_not0, how='cross')
+    
+    # Calculamos todas las convinaciones
+    responsability_matrix = resp_score_calculation(todolist_family, SG_relationship_unique, df_combinado, dependent)
+    
+    return responsability_matrix
 
 def load_filter_sort_reset(filepath):
     """
