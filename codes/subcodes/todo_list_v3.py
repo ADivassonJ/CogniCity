@@ -13,6 +13,11 @@ from folium.plugins import AntPath
 from geopy.distance import geodesic
 from collections import defaultdict
 from datetime import datetime, timedelta
+# Configura pandas para mostrar todo sin truncar
+pd.set_option('display.max_columns', None)  # muestra todas las columnas
+pd.set_option('display.max_rows', None)     # muestra todas las filas
+pd.set_option('display.width', None)        # desactiva el límite de ancho
+pd.set_option('display.max_colwidth', None) # no recorta contenido de celdas
 
 def todolist_family_initialization(SG_relationship, family_df, activities): # esta funcion necesita tambien relacion de familias y arquetipos
     # No puede trabajarse sin ningun tipo de actividades asignadas
@@ -133,7 +138,9 @@ def time_adding(df_after_max, last_out):
             new_out = new_in
         # En caso de detectarse alguna incompativilidad horaria, el agente no realiza la acción
         if df_a_row['closing'] < new_in or df_a_row['closing'] < new_out:
-            print(f"After adaptation, {df_a_row['agent']} was not able to fullfill '{df_a_row['todo']}' at {df_a_row['in']}.")
+            print(f"After adaptation, {df_a_row['agent']} was not able to fullfill '{df_a_row['todo']}'.")
+            print(f"Opening: {df_a_row['opening']} Closing: {df_a_row['closing']}.")
+            print(f"new_in: {new_in} new_out: {new_out}.")
             continue
         # Se crea la nueva fila
         rew_row ={
@@ -320,8 +327,8 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 'todo': 'Collect', 
                 'osm_id': name_group['osm_id'], 
                 'todo_type': 0, 
-                'opening': 0, 
-                'closing': float('inf'), 
+                'opening': group_out_time, 
+                'closing': group_out_time, 
                 'fixed': False, 
                 'time2spend': 0, 
                 'in': group_out_time, 
@@ -430,8 +437,8 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                 'todo': 'Delivery', 
                 'osm_id': name_group['osm_id'], 
                 'todo_type': 0, 
-                'opening': 0, 
-                'closing': float('inf'), 
+                'opening': group_in_time, 
+                'closing': group_in_time, 
                 'fixed': False, 
                 'time2spend': 0, 
                 'in': group_in_time, 
@@ -529,16 +536,23 @@ def todolist_family_creation(df_citizens, SG_relationship):
         todolist_family_original = todolist_family
         print('todolist_family:')
         print(todolist_family)
-        input('#' * 80)
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         while max(todolist_family['todo_type']) > 0:
             # En caso de existir dependencias, se asignan responsables
             responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original)
+            if responsability_matrix.empty:
+                # Encuentra índices donde 'todo_type' es distinto de 0
+                mask = todolist_family['todo_type'] != 0
+                # Si hay alguno, reemplaza el primero por 0
+                if mask.any():
+                    first_index = todolist_family[mask].index[0]
+                    todolist_family.at[first_index, 'todo_type'] = 0
+                continue
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family)
-            print('todolist_family')
-            print(todolist_family)
-            input('#' * 80)
+        print('todolist_family')
+        print(todolist_family)
+        input('#' * 80)
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
 
 # Función de distancia haversine
@@ -593,13 +607,21 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
         # Sacamos los schedule y step previo del dependant
         d_schedule = todolist_family[(todolist_family['agent'] == row_df_conb['agent_d']) & (todolist_family['out'] <= row_df_conb['in_d'])] 
         d_pre_step = d_schedule[d_schedule['out'] == max(d_schedule['out'])]
+        
+        if (d_pre_step['todo'].iloc[0] in valores_excluir) or (h_pre_step['todo'].iloc[0] in valores_excluir):
+            continue
+        
         # Creamos la nueva fila
         new_row = {
             'helper': row_df_conb['agent_h'],
             'dependent': row_df_conb['agent_d'],
+            'todo_h0':h_pre_step['todo'].iloc[0],
+            'todo_h1':row_df_conb['todo_h'],
+            'todo_d0': d_pre_step['todo'].iloc[0],
+            'todo_d1': row_df_conb['todo_d'],
             'osm_id_h0': h_pre_step['osm_id'].iloc[0],
-            'osm_id_h1': row_df_conb['osm_id_h'],
             'osm_id_d0': d_pre_step['osm_id'].iloc[0],
+            'osm_id_h1': row_df_conb['osm_id_h'],            
             'osm_id_d1': row_df_conb['osm_id_d'],
             'geo_dist': geo_dist,
             'time_dist': time_dist,
@@ -608,24 +630,31 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
             'out_h': h_pre_step['out'].iloc[0],
             'in_h': row_df_conb['in_h'],
             'out_d': d_pre_step['out'].iloc[0],
-            'in_d': row_df_conb['in_d'], 
-            'iter': iter
+            'in_d': row_df_conb['in_d']
         }
         # La añadimos a la matriz de responsabilidad
         responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)
-    
     if not responsability_matrix.empty:
         # Para cada grupo (dependent, osm_id_d0, osm_id_d1), selecciona la fila con menor 'out_h'
         responsability_matrix = responsability_matrix.loc[
-            responsability_matrix.groupby(['dependent','osm_id_d0','osm_id_d1'])['out_h'].idxmin()
+            responsability_matrix.groupby(['dependent','osm_id_d0','osm_id_d1'])['out_d'].idxmin()
         ].reset_index(drop=True)
         # Para cada grupo (dependent), selecciona la fila con menor 'score'
         responsability_matrix = responsability_matrix.loc[
-            responsability_matrix.groupby(['dependent'])['score'].idxmin()
+            responsability_matrix.groupby(['dependent'])['out_d'].idxmin()
         ].reset_index(drop=True)
     else:
-        input(f'action has no responsables available.')
-    return responsability_matrix
+        print(f'action has no responsables available.')
+        return pd.DataFrame()
+    # Si alguna de las funciones (collect o deliver) se pueden compativilizar facil    
+    if (responsability_matrix['osm_id_h0'].to_list() == responsability_matrix['osm_id_d0'].to_list()) or (responsability_matrix['osm_id_h1'].to_list() == responsability_matrix['osm_id_d1'].to_list()):
+        return responsability_matrix
+    # Si alguna de las funciones (collect o deliver) NO se pueden compativilizar facil 
+    else:
+        responsability_matrix = responsability_matrix.loc[
+            responsability_matrix.groupby(['helper'])['out_d'].idxmin()
+        ].reset_index(drop=True)
+        return responsability_matrix
 
 def load_filter_sort_reset(filepath):
     """
