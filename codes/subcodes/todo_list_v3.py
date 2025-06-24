@@ -380,7 +380,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
     return new_new_list
 
-def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
+def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):   
     # Inicializamos el df de los resultados
     columns=['agent','todo','osm_id','todo_type','opening','closing','fixed','time2spend','in','out','conmu_time']
     new_new_list = pd.DataFrame(columns=columns)
@@ -491,7 +491,29 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                 'conmu_time': agent['conmu_time']
             }   
             # Suma a dataframe
-            new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)     
+            new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
+    
+    # Paso 1: Filtrar la fila deseada (como ya haces)
+    filtered_nnl = new_new_list[new_new_list['todo'] == 'Delivery']
+    filtered_nnl = filtered_nnl.loc[filtered_nnl.groupby(['agent'])['out'].idxmax()]
+    filtered_nnl = filtered_nnl[filtered_nnl['agent'] == helper['agent'].iloc[0]]
+    # Asegurarse de que solo hay una fila
+    if len(filtered_nnl) > 1:
+        print(f"filtered_nnl no tiene solo una fila:")
+        print('filtered_nnl:')
+        input(filtered_nnl)
+    if len(filtered_nnl) == 0:
+        return new_new_list
+    # Paso 2: Buscar la fila idéntica en new_new_list
+    target_row = filtered_nnl.iloc[0]  # Convertir a Series
+    match_idx = (new_new_list == target_row).all(axis=1)
+    # Paso 3: Obtener el índice y modificar conmu_time
+    idx = new_new_list[match_idx].index[0]
+    
+    new_new_list.at[idx, 'conmu_time'] = matrix2cover.loc[
+        matrix2cover['agent'] == helper['agent'].iloc[0], 'conmu_time'
+    ].iloc[0]
+
     return new_new_list
 
 def matrix2cover_creation(todolist_family, responsability_matrix):
