@@ -252,25 +252,41 @@ def sort_route(osm_ids, helper):
     # Detectar si la columna 'in' o 'out' está presente
     target_col = 'in' if 'in' in dependants.columns else 'out'
     
-    current_max = 0
-    for d_idx, d_row in dependants.iterrows():
-        current_max = max([d_row['conmu_time'], current_max])
-        dependants.loc[d_idx, 'conmu_time'] = current_max
+    ascending = True
+    if not dependants.empty:
+        current_max = 0
+        for d_idx, d_row in dependants.iterrows():
+            current_max = max([d_row['conmu_time'], current_max])
+            dependants.loc[d_idx, 'conmu_time'] = current_max
+        if target_col == 'in':
+            print('dependants:')
+            print('pre:')
+            print(dependants)
+            # Aplicar la operación
+            dependants.loc[:, target_col] = dependants[target_col].iloc[0] - dependants['conmu_time'] * dependants.index
+            print('post:')
+            print(dependants)
+            if not dependants.empty:
+                helper.at[helper.index[0], target_col] = (dependants[target_col].max() + helper['conmu_time'].iloc[0])
+            ascending = False
+        else:
+            print('dependants:')
+            print('pre:')
+            print(dependants)
+            # Aplicar la operación
+            dependants.loc[:, target_col] = dependants[target_col].iloc[0] + dependants['conmu_time'] * dependants.index
+            print('post:')
+            print(dependants)
+            if not dependants.empty:
+                helper.at[helper.index[0], target_col] = (dependants[target_col].min() - helper['conmu_time'].iloc[0])
+            ascending = True
     
-    if target_col == 'in':
-        # Aplicar la operación
-        dependants.loc[:, target_col] = dependants[target_col] - dependants['conmu_time'] * dependants.index
-        if not dependants.empty:
-            helper.at[helper.index[0], target_col] = (dependants[target_col].max() + helper['conmu_time'].iloc[0])
-        combined_df = pd.concat([dependants, helper], ignore_index=True)
-        combined_df = combined_df.sort_values(by=target_col, ascending=False).reset_index(drop=True)
-    else:
-        # Aplicar la operación
-        dependants.loc[:, target_col] = dependants[target_col] + dependants['conmu_time'] * dependants.index
-        if not dependants.empty:
-            helper.at[helper.index[0], target_col] = (dependants[target_col].min() - helper['conmu_time'].iloc[0])
-        combined_df = pd.concat([dependants, helper], ignore_index=True)
-        combined_df = combined_df.sort_values(by=target_col, ascending=True).reset_index(drop=True)
+    combined_df = pd.concat([dependants, helper], ignore_index=True)
+    combined_df = combined_df.sort_values(by=target_col, ascending=ascending).reset_index(drop=True)
+    
+    print('sorted_route:')
+    print(combined_df)
+    
     return combined_df
 
 def agent_collection(prev_matrix2cover, matrix2cover, helper):
