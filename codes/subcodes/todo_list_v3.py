@@ -301,16 +301,10 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
             filtered = matrix2cover[matrix2cover['fixed'] == True]
             if filtered.empty:
                 group_out_time = oi_group['out'].min() # - group_conmu_time*len(filtered) # El probelma es que lo he añadido pero len(filtered) es 0 porque se supone que si entra aqui es .empty
-                print('oi_group')
-                print(oi_group)
             else:
                 group_out_time = filtered['in'].max() - group_conmu_time*len(filtered)
-                print('filtered1')
-                print(filtered)
         else:
             group_out_time = filtered['out'].max()
-            print('filtered2')
-            print(filtered)
         # Añadir nueva fila de datos
         rew_row ={ 
             'osm_id': name_group,
@@ -704,8 +698,8 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
     rest_not0 = todolist_family[todolist_family['todo_type'] != 0].iloc[1:].reset_index(drop=True).add_suffix('_d')
     # Retiramos del grupo el agente ya analizado
     rest_not0 = rest_not0[rest_not0['agent_d'] != dependent]
-    # Retiramos del grupo aquellos valores de entrada que difieran más del tiempo maximo de conmutacion de la familia    
-    rest_not0 = rest_not0[(rest_not0['in_d'] - in_d) < todolist_family['conmu_time'].max()] # Porque me ha dado la gana
+    # Retiramos del grupo aquellos valores de entrada que difieran más del tiempo maximo de conmutacion de la familia
+    rest_not0 = rest_not0[(rest_not0['in_d'] - in_d) < todolist_family['conmu_time'].max()] # Issue 22
     # Nos quedamos con el primero de cada nuevo dependant    
     rest_not0 = rest_not0.loc[rest_not0.groupby(['agent_d'])['in_d'].idxmin()].reset_index(drop=True)
     # Repetir la fila para que tenga el mismo número de filas que helper
