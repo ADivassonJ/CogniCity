@@ -254,29 +254,21 @@ def sort_route(osm_ids, helper):
     
     ascending = True
     if not dependants.empty:
-        current_max = 0
+        current_max = max(helper['conmu_time'])
+        
         for d_idx, d_row in dependants.iterrows():
             current_max = max([d_row['conmu_time'], current_max])
             dependants.loc[d_idx, 'conmu_time'] = current_max
+            
         if target_col == 'in':
-            print('dependants:')
-            print('pre:')
-            print(dependants)
             # Aplicar la operación
             dependants.loc[:, target_col] = dependants[target_col].iloc[0] - dependants['conmu_time'] * dependants.index
-            print('post:')
-            print(dependants)
             if not dependants.empty:
                 helper.at[helper.index[0], target_col] = (dependants[target_col].max() + helper['conmu_time'].iloc[0])
             ascending = False
         else:
-            print('dependants:')
-            print('pre:')
-            print(dependants)
             # Aplicar la operación
             dependants.loc[:, target_col] = dependants[target_col].iloc[0] + dependants['conmu_time'] * dependants.index
-            print('post:')
-            print(dependants)
             if not dependants.empty:
                 helper.at[helper.index[0], target_col] = (dependants[target_col].min() - helper['conmu_time'].iloc[0])
             ascending = True
@@ -284,7 +276,7 @@ def sort_route(osm_ids, helper):
     combined_df = pd.concat([dependants, helper], ignore_index=True)
     combined_df = combined_df.sort_values(by=target_col, ascending=ascending).reset_index(drop=True)
     
-    print('sorted_route:')
+    print('sorted_route')
     print(combined_df)
     
     return combined_df
@@ -308,11 +300,17 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
         if filtered.empty:
             filtered = matrix2cover[matrix2cover['fixed'] == True]
             if filtered.empty:
-                group_out_time = oi_group['out'].min()
+                group_out_time = oi_group['out'].min() # - group_conmu_time*len(filtered) # El probelma es que lo he añadido pero len(filtered) es 0 porque se supone que si entra aqui es .empty
+                print('oi_group')
+                print(oi_group)
             else:
                 group_out_time = filtered['in'].max() - group_conmu_time*len(filtered)
+                print('filtered1')
+                print(filtered)
         else:
             group_out_time = filtered['out'].max()
+            print('filtered2')
+            print(filtered)
         # Añadir nueva fila de datos
         rew_row ={ 
             'osm_id': name_group,
@@ -372,10 +370,27 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                     'in': agent['out'], 
                     'out': group_out_time,
                     'conmu_time': agent['conmu_time']
-                }   
+                }
                 # Suma a dataframe
                 new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
                 new_out = agent['out']
+                # En caso de que esta espera sea por parte del helper
+                if agent['agent'] in helper['agent'].to_list():
+                    rew_row ={
+                        'agent': agent['agent'],
+                        'todo': f'Collect', 
+                        'osm_id': agent['osm_id'],  # Issue 17
+                        'todo_type': 0, 
+                        'opening': group_out_time,               # Es una accion not-place-related, pero sí time-related
+                        'closing': group_out_time,    # Es una accion not-place-related, pero sí time-related 
+                        'fixed': False, 
+                        'time2spend': 0, 
+                        'in': group_out_time, 
+                        'out': group_out_time,
+                        'conmu_time': group_conmu_time
+                    }   
+                    # Suma a dataframe
+                    new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
             else: 
                 new_out = group_out_time
             # Actualización del caso original del agente
@@ -572,13 +587,16 @@ def todolist_family_creation(df_citizens, SG_relationship):
         todolist_family = todolist_family_initialization(SG_relationship, family_df, [])  # Aqui el '[]' se debe meter los servicios a analizar (pueden ser 'WoS', 'Dutties' y/o 'Entertainment')
                                                                                           # Deberiamos leerlo del doc de system management
         todolist_family_original = todolist_family
-        print('todolist_family:')
+        print('LEVEL 1:')
         print(todolist_family)
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         while max(todolist_family['todo_type']) > 0:
             # En caso de existir dependencias, se asignan responsables
             responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original)
             if responsability_matrix.empty:
+                print(f"Se ha ejecutado el 'truquito'.")
+                print(f"Basicamente, no hay agentes helper disponibles para asistir en estos escenarios.")
+                input(f"No deberia haber pasado esto ...")
                 # Encuentra índices donde 'todo_type' es distinto de 0
                 mask = todolist_family['todo_type'] != 0
                 # Si hay alguno, reemplaza el primero por 0
@@ -588,7 +606,7 @@ def todolist_family_creation(df_citizens, SG_relationship):
                 continue
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family)
-        print('todolist_family')
+        print('LEVEL 2')
         print(todolist_family)
         input('#' * 80)
         # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
