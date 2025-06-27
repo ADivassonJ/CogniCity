@@ -19,7 +19,7 @@ pd.set_option('display.max_rows', None)     # muestra todas las filas
 pd.set_option('display.width', None)        # desactiva el límite de ancho
 pd.set_option('display.max_colwidth', None) # no recorta contenido de celdas
 
-def todolist_family_initialization(SG_relationship, family_df, activities): # esta funcion necesita tambien relacion de familias y arquetipos
+def todolist_family_initialization(pop_building, family_df, activities): # esta funcion necesita tambien relacion de familias y arquetipos
     # No puede trabajarse sin ningun tipo de actividades asignadas
     if activities == []:
         activities = ['WoS', 'Dutties', 'Entertainment']
@@ -46,7 +46,7 @@ def todolist_family_initialization(SG_relationship, family_df, activities): # es
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
                     # [Aqui habrá que meter una funcion de verdad, que valore en base a estadistica]
-                    available_options = SG_relationship[SG_relationship['service_group'] == activity]['osm_id'].tolist()
+                    available_options = pop_building[pop_building['service_group'] == activity]['osm_id'].tolist()
                     # Elegimos uno aleatorio del grupo de validos
                     osm_id = random.choice(available_options)    
                 try:
@@ -63,8 +63,8 @@ def todolist_family_initialization(SG_relationship, family_df, activities): # es
                     fixed = False
                     fixed_word = 'Service'
                 ## Sacamos los datos relevantes
-                opening = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, f'{fixed_word}_opening'].values[0]
-                closing = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, f'{fixed_word}_closing'].values[0]
+                opening = pop_building.loc[pop_building['osm_id'] == osm_id, f'{fixed_word}_opening'].values[0]
+                closing = pop_building.loc[pop_building['osm_id'] == osm_id, f'{fixed_word}_closing'].values[0]
                 try:
                     # En caso de que el agente tenga un tiempo requerido de actividad
                     time2spend = int(row_f_df[f'{activity}_time'])
@@ -571,14 +571,14 @@ def matrix2cover_creation(todolist_family, responsability_matrix):
     return matrix2cover, prev_matrix2cover
   
 
-def todolist_family_creation(df_citizens, SG_relationship):
-    SG_relationship_unique = SG_relationship.drop_duplicates(subset='osm_id')
+def todolist_family_creation(df_citizens, pop_building):
+    pop_building_unique = pop_building.drop_duplicates(subset='osm_id')
     results = pd.DataFrame()
     df_citizens_families = df_citizens.groupby('family')
     # Recorrer cada familia
     for family_name, family_df in df_citizens_families:
         # Creamos una lista de tareas con sus recorridos para cada agente de forma independiente
-        todolist_family = todolist_family_initialization(SG_relationship, family_df, [])  # Aqui el '[]' se debe meter los servicios a analizar (pueden ser 'WoS', 'Dutties' y/o 'Entertainment')
+        todolist_family = todolist_family_initialization(pop_building, family_df, [])  # Aqui el '[]' se debe meter los servicios a analizar (pueden ser 'WoS', 'Dutties' y/o 'Entertainment')
                                                                                           # Deberiamos leerlo del doc de system management
         todolist_family_original = todolist_family
         print('LEVEL 1:')
@@ -586,7 +586,7 @@ def todolist_family_creation(df_citizens, SG_relationship):
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         while max(todolist_family['todo_type']) > 0:
             # En caso de existir dependencias, se asignan responsables
-            responsability_matrix = responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original)
+            responsability_matrix = responsability_matrix_creation(todolist_family, pop_building_unique, todolist_family_original)
             if responsability_matrix.empty:
                 print(f"Se ha ejecutado el 'truquito'.")
                 print(f"Basicamente, no hay agentes helper disponibles para asistir en estos escenarios.")
@@ -603,7 +603,7 @@ def todolist_family_creation(df_citizens, SG_relationship):
         print('LEVEL 2')
         print(todolist_family)
         input('#' * 80)
-        # plot_agents_in_split_map(todolist_family, SG_relationship, save_path="recorridos_todos.html")
+        # plot_agents_in_split_map(todolist_family, pop_building, save_path="recorridos_todos.html")
 
 # Función de distancia haversine
 def haversine(lat1, lon1, lat2, lon2):
@@ -615,7 +615,7 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2*np.arcsin(np.sqrt(a))
     return R * c   
 
-def resp_score_calculation(todolist_family, SG_relationship_unique, df_combinado, dependent):
+def resp_score_calculation(todolist_family, pop_building_unique, df_combinado, dependent):
     # Creamos la matriz de los resultados
     responsability_matrix = pd.DataFrame()
     # Calculamos todas las convinaciones
@@ -624,8 +624,8 @@ def resp_score_calculation(todolist_family, SG_relationship_unique, df_combinado
         if row_df_conb['in_h'] == 0:
             continue
         # Sacamos las latitudes y longitudes de las posiciones de helper y dependant
-        lat_h, lon_h = SG_relationship_unique.loc[SG_relationship_unique['osm_id'] == row_df_conb['osm_id_h'], ['lat', 'lon']].values[0]
-        lat_d, lon_d = SG_relationship_unique.loc[SG_relationship_unique['osm_id'] == row_df_conb['osm_id_d'], ['lat', 'lon']].values[0]
+        lat_h, lon_h = pop_building_unique.loc[pop_building_unique['osm_id'] == row_df_conb['osm_id_h'], ['lat', 'lon']].values[0]
+        lat_d, lon_d = pop_building_unique.loc[pop_building_unique['osm_id'] == row_df_conb['osm_id_d'], ['lat', 'lon']].values[0]
         ## Sacamos los valores de las distancias
         # Distancia geografica
         geo_dist = haversine(lat_h, lon_h, lat_d, lon_d)
@@ -679,7 +679,7 @@ def resp_score_calculation(todolist_family, SG_relationship_unique, df_combinado
     
     return responsability_matrix
 
-def responsability_matrix_creation(todolist_family, SG_relationship_unique, todolist_family_original):   
+def responsability_matrix_creation(todolist_family, pop_building_unique, todolist_family_original):   
     # Encuentra el primer 'todo_type' es distinto de 0
     first_not0 = todolist_family[todolist_family['todo_type'] != 0].iloc[0].add_suffix('_d')
     # Sacamos los valores relevantes
@@ -709,7 +709,7 @@ def responsability_matrix_creation(todolist_family, SG_relationship_unique, todo
     df_combinado = helpers.merge(feasible_not0, how='cross')
     
     # Calculamos todas las convinaciones
-    responsability_matrix = resp_score_calculation(todolist_family, SG_relationship_unique, df_combinado, dependent)
+    responsability_matrix = resp_score_calculation(todolist_family, pop_building_unique, df_combinado, dependent)
     
     return responsability_matrix
 
@@ -730,7 +730,7 @@ def load_filter_sort_reset(filepath):
 def main_td():
     # Input
     population = 450
-    study_area = 'Kanaleneiland'
+    study_area = 'Otxarkoaga'
     
     ## Code initialization
     # Paths initialization
@@ -772,12 +772,12 @@ def main_td():
     for net_type in networks:           
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
     
-    SG_relationship = pd.read_excel(f"{paths['maps']}/SG_relationship.xlsx")
+    pop_building = pd.read_excel(f"{paths['population']}/pop_building.xlsx")
     
     ##############################################################################
     print(f'docs readed')
     
-    todolist_family_creation(df_citizens, SG_relationship)
+    todolist_family_creation(df_citizens, pop_building)
 
 # Ejecución
 if __name__ == '__main__':

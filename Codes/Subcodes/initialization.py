@@ -41,7 +41,6 @@ def Archetype_documentation_initialization(paths):
         }
     except Exception as e:
         raise FileNotFoundError(f"[ERROR] Archetype files are not found in {paths['archetypes']}. Please fix and restart.") from e
-
     # Validar y cargar stats_synpop
     stats_synpop = load_or_create_stats(
         paths['archetypes'],
@@ -74,9 +73,7 @@ def load_or_create_stats(archetypes_path, filename, creation_func, creation_args
 
     return df_stats
         
-def Synthetic_population_initialization(pop_archetypes, population, stats_synpop, paths, SG_relationship, study_area, stats_trans):
-    
-    agent_populations = {}
+def Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats_synpop, paths, SG_relationship, study_area, stats_trans):
     system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
     
     try:
@@ -109,18 +106,19 @@ def Synthetic_population_initialization(pop_archetypes, population, stats_synpop
     return agent_populations
 
 def Geodata_initialization(study_area, paths, pop_archetypes):
+    agent_populations = {}
     # Obtener redes activas desde transport_archetypes
     networks = get_active_networks(pop_archetypes['transport'])
 
     # Paso 1: Cargar o descargar POIs
-    osm_elements_df = load_or_download_pois(study_area, paths[study_area], paths['maps'])
+    agent_populations['building'] = load_or_download_pois(study_area, paths[study_area], paths['population'], pop_archetypes['building'])
 
     # Paso 2: Cargar o descargar redes
     networks_map = load_or_download_networks(study_area, paths['maps'], networks)
 
     # TO_DO: Añadir datos de buses eléctricos aquí
 
-    return osm_elements_df, networks_map
+    return agent_populations, networks_map
 
 def get_active_networks(transport_archetypes_df):
     active_maps = transport_archetypes_df.loc[
@@ -133,24 +131,28 @@ def get_active_networks(transport_archetypes_df):
     
     return active_maps
 
-def load_or_download_pois(study_area, study_area_path, map_path):
+def load_or_download_pois(study_area, study_area_path, pop_path, building_archetypes_df):
     try:
         print(f'Loading POIs data ...')
-        return pd.read_excel(f'{map_path}/SG_relationship.xlsx')
+        return pd.read_excel(f'{pop_path}/pop_building.xlsx')
     except Exception:
         print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
-        return download_pois(study_area, study_area_path, map_path)
+        return download_pois(study_area, study_area_path, pop_path, building_archetypes_df)
 
-def download_pois(study_area, study_area_path, map_path):
+def download_pois(study_area, study_area_path, pop_path, building_archetypes_df):
     try:
         print(f'        Downloading services data from {study_area} ...')
-        SG_relationship = pd.read_excel(f'{study_area_path}/Services-Group relationship.xlsx')
+        Services_Group_relationship = pd.read_excel(f'{study_area_path}/Services-Group relationship.xlsx')
     except Exception:
         print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({study_area_path}).")
         raise FileNotFoundError("Required file missing.")
 
-    print(f'        Processing data ...')
-    services_groups = services_groups_creation(SG_relationship)
+    print(f'        Processing data (it might take a while)...')
+    
+    # Sacamos las columnas de arquetipos de servicios actualmente activos
+    to_keep = building_archetypes_df['name'].unique()
+
+    services_groups = services_groups_creation(Services_Group_relationship, to_keep)
     
     all_osm_data = []
 
@@ -164,13 +166,36 @@ def download_pois(study_area, study_area_path, map_path):
             group_name = futures[future]
             try:
                 df_group = future.result()
-                df_group['service_group'] = group_name.replace('_list', '')
+                df_group['archetype'] = group_name.replace('_list', '')
                 all_osm_data.append(df_group)
             except Exception as e:
                 print(f"    [ERROR] Failed to get data for {group_name}: {e}")
-
     osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
-    osm_elements_df.to_excel(f'{map_path}/SG_relationship.xlsx', index=False)
+    
+    SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
+    
+    SG_relationship.to_excel(f'{pop_path}/pop_building.xlsx', index=False)
+
+    return SG_relationship
+
+def building_schedule_adding(osm_elements_df, building_archetypes_df):
+    '''
+    Esta funcion esta para sumar las caracteristicas a la poblacion de los building
+    '''
+    list_building_variables = [col.rsplit('_', 1)[0] for col in building_archetypes_df.columns if col.endswith('_mu')]
+    
+    for idx, row_oedf in osm_elements_df.iterrows():
+        list_building_values = get_vehicle_stats(row_oedf['archetype'], building_archetypes_df, list_building_variables)
+        
+        if list_building_values == {}:
+            input(f"row_oedf['archetype']: {row_oedf['archetype']}")
+            continue
+        
+        list_building_values['Service_opening'] = list_building_values['WoS_opening'] + list_building_values['Service_opening']
+        list_building_values['Service_closing'] = list_building_values['WoS_closing'] + list_building_values['Service_closing']
+        
+        osm_elements_df = assign_data(list_building_values, list_building_values, osm_elements_df, idx)
+
     return osm_elements_df
 
 def load_or_download_networks(study_area, study_area_path, networks):
@@ -410,13 +435,21 @@ def get_wos_action(archetype, pop_archetypes, stats_synpop):
     ].values[0]
     return get_stats_value(value, stats_synpop, archetype, 'WoS_action')
 
+def assign_data(list_variables, list_values, df_pop, idx):
+    for variable in list_variables:
+        value = list_values[variable]
+        if variable.endswith('_type') or variable.endswith('_amount'):
+            value = int(round(value)) # ISSUE XXCC
+        df_pop.at[idx, variable] = value
+    return df_pop
+
 def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans):
     variables = [col.rsplit('_', 1)[0] for col in pop_archetypes['transport'].columns if col.endswith('_mu')]
     # Suponiendo que variables ya está definida en algún lado
     df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family', 'ubication'] + variables)
 
-    # Filtramos los valores posibles de 'osm_id' donde 'service_group' es 'home'
-    home_ids = SG_relationship[SG_relationship['service_group'] == 'home']['osm_id'].tolist()
+    # Filtramos los valores posibles de 'osm_id' donde 'archetype' es 'home'
+    home_ids = SG_relationship[SG_relationship['archetype'] == 'home']['osm_id'].tolist()
 
     # Inicializamos una copia barajada de home_ids
     shuffled_home_ids = random.sample(home_ids, len(home_ids))
@@ -457,18 +490,15 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
     # Asignar hogar a cada ciudadano
     df_citizens['home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'home'))
     
-    work_ids = SG_relationship[SG_relationship['service_group'] == 'work']['osm_id'].tolist()  
-    study_ids = SG_relationship[SG_relationship['service_group'] == 'study']['osm_id'].tolist()  
+    work_ids = SG_relationship[SG_relationship['archetype'] == 'work']['osm_id'].tolist()  
+    study_ids = SG_relationship[SG_relationship['archetype'] == 'study']['osm_id'].tolist()  
     
     for idx in range(len(df_citizens)):
         
         list_citizen_variables = [col.rsplit('_', 1)[0] for col in pop_archetypes['citizen'].columns if col.endswith('_mu')]
         list_citizen_values = get_vehicle_stats(df_citizens['archetype'][idx], pop_archetypes['citizen'], list_citizen_variables)
-        for citizen_variable in list_citizen_variables:
-            value = list_citizen_values[citizen_variable]
-            if citizen_variable.endswith('_type') or citizen_variable.endswith('_amount'):
-                value = int(round(value))
-            df_citizens.at[idx, citizen_variable] = value
+        
+        df_citizens = assign_data(list_citizen_variables, list_citizen_values, df_citizens, idx)
 
         if df_citizens['WoS_action_type'][idx] == 1:
             WoS_id = random.choice(work_ids)
@@ -486,9 +516,9 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
     
     # Filtrar la fila correspondiente al arquetipo
     row = transport_archetypes[transport_archetypes['name'] == archetype]
-
     if row.empty:
-        raise ValueError(f"Archetype '{archetype}' not found in transport_archetypes")
+        print(f"Strange mistake happend")
+        return {}
 
     row = row.iloc[0]  # Extrae la primera (y única esperada) fila como Series
 
@@ -503,7 +533,7 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
             min_var = float(row[f'{variable}_min'])
         except Exception as e:
             min_var = float(0)
-
+        
         var_result = np.random.normal(mu, sigma)
         var_result = max(min(var_result, max_var), min_var)
         results[variable] = var_result
@@ -552,23 +582,16 @@ def random_name_surname(ref_dict):
     surname = random.choice(ref_dict[name])
     return f"{name}_{surname}"
 
-def services_groups_creation(df):
+def services_groups_creation(df, to_keep):
     # Primero quitamos las filas marcadas como 'not considered'
     df = df[df['not considered'] != 'x'].reset_index(drop=True)
 
-    # Lista de columnas que definen los grupos
-    groups = [
-        "home", "study", "work", "entertainment", "healthcare",
-        "public_transportation", "private_transportation", "charging_station"
-    ]
-
     # Diccionarios de salida, uno por grupo
     group_dicts = {}
-
+    
     # Para cada grupo, filtramos filas con 'x' y construimos el diccionario correspondiente
-    for group in groups:
+    for group in to_keep:
         group_df = df[df[group] == 'x'][['name', 'surname']].dropna()
-        
         group_ref = {}
         
         for _, row in group_df.iterrows():
@@ -826,7 +849,7 @@ def obtener_dataframe_direcciones(city, pos_ref):
 def main():
     # Input
     population = 450
-    study_area = 'Kanaleneiland'
+    study_area = 'Otxarkoaga'
     
     ## Code initialization
     # Paths initialization
@@ -868,9 +891,9 @@ def main():
     # Archetype documentation initialization
     pop_archetypes, stats_synpop, stats_trans = Archetype_documentation_initialization(paths)
     # Geodata initialization
-    SG_relationship, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
+    agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
     # Synthetic population initialization
-    agent_populations = Synthetic_population_initialization(pop_archetypes, population, stats_synpop, paths, SG_relationship, study_area, stats_trans)
+    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats_synpop, paths, agent_populations['building'], study_area, stats_trans)
     print('#'*20, ' Initialization finalized ','#'*20)
     
 if __name__ == '__main__':
