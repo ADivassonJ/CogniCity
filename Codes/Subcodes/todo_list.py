@@ -13,11 +13,11 @@ from folium.plugins import AntPath
 from geopy.distance import geodesic
 from collections import defaultdict
 from datetime import datetime, timedelta
-# Configura pandas para mostrar todo sin truncar
+'''# Configura pandas para mostrar todo sin truncar
 pd.set_option('display.max_columns', None)  # muestra todas las columnas
 pd.set_option('display.max_rows', None)     # muestra todas las filas
 pd.set_option('display.width', None)        # desactiva el límite de ancho
-pd.set_option('display.max_colwidth', None) # no recorta contenido de celdas
+pd.set_option('display.max_colwidth', None) # no recorta contenido de celdas'''
 
 def todolist_family_initialization(pop_building, family_df, activities): # esta funcion necesita tambien relacion de familias y arquetipos
     # No puede trabajarse sin ningun tipo de actividades asignadas
@@ -30,8 +30,8 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
     todolist_family = pd.DataFrame()
     # Pasamos por cada agente que constitulle la familia 
     for idx_f_df, row_f_df in family_df.iterrows():               
-        
-        for activity in activities: 
+        for activity in activities:
+            print(f"activities: {activities}")
             try:
                 activity_amount = row_f_df[f'{activity}_amount']
             except Exception:
@@ -46,7 +46,7 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
                     # [Aqui habrá que meter una funcion de verdad, que valore en base a estadistica]
-                    available_options = pop_building[pop_building['service_group'] == activity]['osm_id'].tolist()
+                    available_options = pop_building[pop_building['archetype'] == activity]['osm_id'].tolist()
                     # Elegimos uno aleatorio del grupo de validos
                     osm_id = random.choice(available_options)    
                 try:
@@ -275,9 +275,6 @@ def sort_route(osm_ids, helper):
     
     combined_df = pd.concat([dependants, helper], ignore_index=True)
     combined_df = combined_df.sort_values(by=target_col, ascending=ascending).reset_index(drop=True)
-    
-    print('sorted_route')
-    print(combined_df)
     
     return combined_df
 
@@ -730,6 +727,7 @@ def load_filter_sort_reset(filepath):
 def main_td():
     # Input
     population = 450
+    study_area = 'Kanaleneiland'
     study_area = 'Otxarkoaga'
     
     ## Code initialization
