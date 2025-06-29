@@ -727,7 +727,6 @@ def main_td():
     # Input
     population = 450
     study_area = 'Kanaleneiland'
-    study_area = 'Otxarkoaga'
     
     ## Code initialization
     # Paths initialization

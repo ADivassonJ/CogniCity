@@ -1,10 +1,12 @@
 import os
 import sys
 import time
+import shutil
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from Subcodes.initialization import Archetype_documentation_initialization, Geodata_initialization, Synthetic_population_initialization
+from subcodes.initialization import Archetype_documentation_initialization, Geodata_initialization, Synthetic_population_initialization
+from subcodes.todo_list import todolist_family_creation
 pd.set_option('mode.chained_assignment', 'raise')  # Convierte el warning en error
 
 ### Main
@@ -15,25 +17,52 @@ def main():
     
     ## Code initialization
     # Paths initialization
-    main_path = Path(__file__).resolve().parent.parent
-    subcodes_path = main_path / 'Subcodes'
-    archetypes_path = main_path / 'Archetypes'
-    data_path = main_path / 'Data'
-    results_path = main_path / 'Results'
-    os.makedirs(data_path, exist_ok=True)
-    os.makedirs(results_path, exist_ok=True)
+    paths = {}
+    
+    paths['main'] = Path(__file__).resolve().parent.parent
+    paths['system'] = paths['main'] / 'system'
+    
+    system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
+    
+    file_management = system_management[['file_1', 'file_2', 'pre']]
+    # Paso 2: Bucle sobre filas del mini DF
+    for index, row in file_management.iterrows():
+        file_1 = paths[study_area] if row['file_1'] == 'study_area' else paths[row['file_1']]
+        file_2 = study_area if row['file_2'] == 'study_area' else row['file_2']
+        paths[file_2] = file_1 / file_2
+        if not paths[file_2].exists():
+            if row['pre'] == 'y':
+                print(f"[Error] Critical file not detected:")
+                print(f"{paths[file_2]}")
+                print(f"Please solve the mentioned issue and reestart the model.")
+                sys.exit()
+            elif row['pre'] == 'p':
+                user_is_stupid = True
+                while user_is_stupid:    
+                    response = input(f"Data for the case study '{study_area}' was not found.\nDo you want to copy data from standar scenario or do you want to create your own? [Y/N]\n")
+                    if response == 'Y':
+                        user_is_stupid = False
+                        shutil.copytree(paths['base_scenario'], paths[file_2])
+                    elif response == 'N':
+                        user_is_stupid = False
+                        os.makedirs(paths[file_2], exist_ok=True)
+                    else:
+                        print(f"Your response was not valid, please respond Y (yes) or N (no).")
+            else:
+                os.makedirs(paths[file_2], exist_ok=True)
     
     print('#'*20, ' System initialization ','#'*20)
     # Archetype documentation initialization
-    citizen_archetypes, family_archetypes, s_archetypes, stats_synpop = Archetype_documentation_initialization(main_path, archetypes_path)
+    pop_archetypes, stats_synpop, stats_trans = Archetype_documentation_initialization(paths)
     # Geodata initialization
-    SG_relationship, networks_map = Geodata_initialization(study_area, data_path)
+    agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
     # Synthetic population initialization
-    df_citizens, df_families = Synthetic_population_initialization(citizen_archetypes, family_archetypes, population, stats_synpop, data_path, SG_relationship, study_area)
+    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats_synpop, paths, agent_populations['building'], study_area, stats_trans)
     print('#'*20, ' Initialization finalized ','#'*20)
 
-    pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes)
+    pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])
     
+    todolist_family_creation(agent_populations['citizen'], agent_populations['building'])
     
 def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
     # Suponiendo que df_citizens y df_families ya están definidos

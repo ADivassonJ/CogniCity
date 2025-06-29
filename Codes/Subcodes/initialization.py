@@ -849,7 +849,7 @@ def obtener_dataframe_direcciones(city, pos_ref):
 def main():
     # Input
     population = 450
-    study_area = 'Otxarkoaga'
+    study_area = 'Abando'
     
     ## Code initialization
     # Paths initialization
