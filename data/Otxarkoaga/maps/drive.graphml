@@ -876,7 +876,7 @@
       <data key="d8">[128190008, 751532994, 128190006]</data>
       <data key="d9">True</data>
       <data key="d19">BI-20</data>
-      <data key="d10">['Egirleta etorbidea', 'Circunvalación este de Bilbao']</data>
+      <data key="d10">['Circunvalación este de Bilbao', 'Egirleta etorbidea']</data>
       <data key="d11">primary</data>
       <data key="d16">70</data>
       <data key="d12">394.391</data>
@@ -935,7 +935,7 @@
       <data key="d9">True</data>
       <data key="d14">2</data>
       <data key="d19">BI-20</data>
-      <data key="d10">['Egirleta etorbidea', 'Circunvalación este de Bilbao']</data>
+      <data key="d10">['Circunvalación este de Bilbao', 'Egirleta etorbidea']</data>
       <data key="d11">primary</data>
       <data key="d16">70</data>
       <data key="d12">264.592</data>
@@ -1046,7 +1046,7 @@
       <data key="d19">BI-20</data>
       <data key="d10">Circunvalación este de Bilbao</data>
       <data key="d11">primary</data>
-      <data key="d16">['70', '60']</data>
+      <data key="d16">['60', '70']</data>
       <data key="d12">712.6519999999999</data>
       <data key="d13">LINESTRING (-2.8968525 43.2618845, -2.8972849 43.2622752, -2.8974453 43.2624245, -2.8976116 43.2625806, -2.8977332 43.262687, -2.8978244 43.2627646, -2.8979712 43.262877, -2.898181 43.2630185, -2.8983588 43.2631133, -2.8984895 43.2631723, -2.898634 43.2632341, -2.8987625 43.2632799, -2.8989166 43.2633265, -2.899069 43.2633651, -2.8991838 43.263392, -2.8993128 43.2634195, -2.899548 43.2634661, -2.899809 43.2635163, -2.8999656 43.2635488, -2.9001243 43.2635866, -2.9002642 43.2636248, -2.9003931 43.2636658, -2.9005362 43.2637207, -2.9006506 43.2637723, -2.9007989 43.2638515, -2.9009045 43.2639164, -2.9011607 43.264088, -2.9014073 43.2642623, -2.9015494 43.2643554, -2.9016113 43.2643938, -2.9016789 43.2644314, -2.9017796 43.2644852, -2.9018699 43.2645272, -2.9020025 43.2645811, -2.9021493 43.2646313, -2.9022454 43.2646574, -2.9023878 43.2646896, -2.9024782 43.2647056, -2.902577 43.2647216, -2.9026919 43.2647342, -2.902816 43.264745, -2.9033184 43.2647807, -2.9034644 43.2647957, -2.9036312 43.2648211, -2.9037684 43.2648547, -2.9038895 43.2648922, -2.904035 43.2649476, -2.9041891 43.2650228)</data>
     </edge>
@@ -1347,7 +1347,7 @@
     <edge id="0" source="1958486326" target="12705297735">
       <data key="d8">[623205929, 185282108]</data>
       <data key="d9">False</data>
-      <data key="d14">['1', '2']</data>
+      <data key="d14">['2', '1']</data>
       <data key="d10">Arbolantxa zeharkalea / Travesía Arbolantxa</data>
       <data key="d11">residential</data>
       <data key="d16">50</data>
@@ -1749,7 +1749,7 @@
     </edge>
     <edge id="0" source="12705297735" target="1958486326">
       <data key="d8">[623205929, 185282108]</data>
-      <data key="d14">['1', '2']</data>
+      <data key="d14">['2', '1']</data>
       <data key="d10">Arbolantxa zeharkalea / Travesía Arbolantxa</data>
       <data key="d11">residential</data>
       <data key="d16">50</data>
@@ -1758,7 +1758,7 @@
       <data key="d12">36.301</data>
       <data key="d13">LINESTRING (-2.8965968 43.2609026, -2.8965602 43.2608492, -2.8965075 43.2607754, -2.89644 43.2606179, -2.8964346 43.2605997)</data>
     </edge>
-    <data key="d0">2025-06-27 11:53:47</data>
+    <data key="d0">2025-06-29 10:51:49</data>
     <data key="d1">OSMnx 1.1.2</data>
     <data key="d2">epsg:4326</data>
     <data key="d3">True</data>

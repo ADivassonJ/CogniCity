@@ -31,7 +31,6 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
     # Pasamos por cada agente que constitulle la familia 
     for idx_f_df, row_f_df in family_df.iterrows():               
         for activity in activities:
-            print(f"activities: {activities}")
             try:
                 activity_amount = row_f_df[f'{activity}_amount']
             except Exception:
@@ -45,7 +44,7 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
                 except Exception:
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
-                    # [Aqui habrá que meter una funcion de verdad, que valore en base a estadistica]
+                    # [Aqui habrá que meter una funcion de verdad, que valore en base a estadistica]                  
                     available_options = pop_building[pop_building['archetype'] == activity]['osm_id'].tolist()
                     # Elegimos uno aleatorio del grupo de validos
                     osm_id = random.choice(available_options)    

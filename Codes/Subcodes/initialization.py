@@ -235,7 +235,7 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
        total_presence (int): Citizens total presence from archetype data
        stats_synpop (DataFrame): df with all archetypes' statistical values
        ind_arch (str, optional): Archetype name on which individuals (families with just one citizen) 
-      exists. If individial homes are an archetype different from 'f_arch_0', especify here under variable 'ind_arch'.
+      exists. If individial Homes are an archetype different from 'f_arch_0', especify here under variable 'ind_arch'.
     Returns:
        df_distribution (DataFrame): All citizens that were not able to add to a family
        df_citizens (DataFrame): df with all citizens of the system and theis main characteristics
@@ -448,25 +448,25 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
     # Suponiendo que variables ya está definida en algún lado
     df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family', 'ubication'] + variables)
 
-    # Filtramos los valores posibles de 'osm_id' donde 'archetype' es 'home'
-    home_ids = SG_relationship[SG_relationship['archetype'] == 'home']['osm_id'].tolist()
+    # Filtramos los valores posibles de 'osm_id' donde 'archetype' es 'Home'
+    Home_ids = SG_relationship[SG_relationship['archetype'] == 'Home']['osm_id'].tolist()
 
-    # Inicializamos una copia barajada de home_ids
-    shuffled_home_ids = random.sample(home_ids, len(home_ids))
+    # Inicializamos una copia barajada de Home_ids
+    shuffled_Home_ids = random.sample(Home_ids, len(Home_ids))
     counter = 0  # contador para avanzar en la lista barajada
 
-    # Asignamos un valor de shuffled_home_ids a cada fila en df_families
+    # Asignamos un valor de shuffled_Home_ids a cada fila en df_families
     for idx_df_f, row_df_f in df_families.iterrows():
-        if counter >= len(shuffled_home_ids):
-            shuffled_home_ids = random.sample(home_ids, len(home_ids))
+        if counter >= len(shuffled_Home_ids):
+            shuffled_Home_ids = random.sample(Home_ids, len(Home_ids))
             counter = 0
 
-        home_id = shuffled_home_ids[counter]
+        Home_id = shuffled_Home_ids[counter]
         counter += 1
         
-        df_families.at[idx_df_f, 'home'] = home_id
-        df_families.at[idx_df_f, 'home_type'] = SG_relationship.loc[
-            SG_relationship['osm_id'] == home_id, 'building_type'
+        df_families.at[idx_df_f, 'Home'] = Home_id
+        df_families.at[idx_df_f, 'Home_type'] = SG_relationship.loc[
+            SG_relationship['osm_id'] == Home_id, 'building_type'
         ].values[0]
 
         filtered_st_trans = stats_trans[stats_trans['item_1'] == row_df_f['archetype']]
@@ -480,7 +480,7 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
                     'name': f'priv_vehicle_{len(df_priv_vehicle)}',
                     'archetype': row_fs['item_2'],
                     'family': row_df_f['name'],
-                    'ubication': home_id} #CUIDADO CON ESTO; ES UNA SIMPLIFICACION; DEBERIA SER UN PARKING SPOT
+                    'ubication': Home_id} #CUIDADO CON ESTO; ES UNA SIMPLIFICACION; DEBERIA SER UN PARKING SPOT
                 new_vehicle_row.update(stats_variables)
                 df_priv_vehicle.loc[len(df_priv_vehicle)] = new_vehicle_row        
     
@@ -488,7 +488,7 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
     df_citizens['family'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'name'))
     
     # Asignar hogar a cada ciudadano
-    df_citizens['home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'home'))
+    df_citizens['Home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'Home'))
     
     work_ids = SG_relationship[SG_relationship['archetype'] == 'work']['osm_id'].tolist()  
     study_ids = SG_relationship[SG_relationship['archetype'] == 'study']['osm_id'].tolist()  
