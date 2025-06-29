@@ -1,5 +1,6 @@
 import os
 import sys
+import math
 import shutil
 import random
 import osmnx as ox
@@ -194,7 +195,11 @@ def building_schedule_adding(osm_elements_df, building_archetypes_df):
         list_building_values['Service_opening'] = list_building_values['WoS_opening'] + list_building_values['Service_opening']
         list_building_values['Service_closing'] = list_building_values['WoS_closing'] + list_building_values['Service_closing']
         
-        osm_elements_df = assign_data(list_building_values, list_building_values, osm_elements_df, idx)
+        for key, value in list_building_values.items():
+            if not math.isinf(value):
+                list_building_values[key] = int(round(value / 30.0) * 30)
+        
+        osm_elements_df = assign_data(list_building_variables, list_building_values, osm_elements_df, idx)
 
     return osm_elements_df
 
@@ -439,7 +444,9 @@ def assign_data(list_variables, list_values, df_pop, idx):
     for variable in list_variables:
         value = list_values[variable]
         if variable.endswith('_type') or variable.endswith('_amount'):
-            value = int(round(value)) # ISSUE XXCC
+            value = int(round(value))
+        elif variable.endswith('_time'):
+            value = int(round(value / 30.0) * 30)
         df_pop.at[idx, variable] = value
     return df_pop
 
@@ -849,7 +856,7 @@ def obtener_dataframe_direcciones(city, pos_ref):
 def main():
     # Input
     population = 450
-    study_area = 'Abando'
+    study_area = 'Kanaleneiland'
     
     ## Code initialization
     # Paths initialization
@@ -875,7 +882,7 @@ def main():
             elif row['pre'] == 'p':
                 user_is_stupid = True
                 while user_is_stupid:    
-                    response = input(f"Data for the case study '{study_area}' was not found.\nDo you want to copy data from standar scenario or do you want to create your own? [Y/N]\n")
+                    response = input(f"Data for the case study '{study_area}' was not found.\nDo you want to copy data from standar scenario or do you want to create your own? [Y (copy)/N (create)]\n")
                     if response == 'Y':
                         user_is_stupid = False
                         shutil.copytree(paths['base_scenario'], paths[file_2])

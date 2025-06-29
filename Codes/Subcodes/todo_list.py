@@ -6,6 +6,7 @@ import itertools
 import osmnx as ox
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 import networkx as nx
 from pathlib import Path
 import matplotlib.pyplot as plt 
@@ -36,7 +37,7 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
             except Exception:
                 activity_amount = 1
             
-            for _ in range(activity_amount):
+            for _ in range(int(activity_amount)):
                 
                 try:
                     # En caso de que el agente cuente ya con un edificio especifico para realizar la accion acude a él
@@ -569,16 +570,21 @@ def matrix2cover_creation(todolist_family, responsability_matrix):
 
 def todolist_family_creation(df_citizens, pop_building):
     pop_building_unique = pop_building.drop_duplicates(subset='osm_id')
-    results = pd.DataFrame()
+    level_1_results = pd.DataFrame()
+    level_2_results = pd.DataFrame()
     df_citizens_families = df_citizens.groupby('family')
     # Recorrer cada familia
-    for family_name, family_df in df_citizens_families:
+    for family_name, family_df in tqdm(df_citizens_families, desc="Procesando familias"):
         # Creamos una lista de tareas con sus recorridos para cada agente de forma independiente
         todolist_family = todolist_family_initialization(pop_building, family_df, [])  # Aqui el '[]' se debe meter los servicios a analizar (pueden ser 'WoS', 'Dutties' y/o 'Entertainment')
                                                                                           # Deberiamos leerlo del doc de system management
         todolist_family_original = todolist_family
+        
         print('LEVEL 1:')
         print(todolist_family)
+        
+        level_1_results = pd.concat([level_1_results, todolist_family], ignore_index=True).reset_index(drop=True)
+        
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         while max(todolist_family['todo_type']) > 0:
             # En caso de existir dependencias, se asignan responsables
@@ -596,10 +602,18 @@ def todolist_family_creation(df_citizens, pop_building):
                 continue
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family)
+        
         print('LEVEL 2')
         print(todolist_family)
-        input('#' * 80)
+        
+        level_2_results = pd.concat([level_2_results, todolist_family], ignore_index=True).reset_index(drop=True)
+        
         # plot_agents_in_split_map(todolist_family, pop_building, save_path="recorridos_todos.html")
+        
+        input("#"*120)
+    
+    return level_1_results, level_2_results
+    
 
 # Función de distancia haversine
 def haversine(lat1, lon1, lat2, lon2):
@@ -773,7 +787,10 @@ def main_td():
     ##############################################################################
     print(f'docs readed')
     
-    todolist_family_creation(df_citizens, pop_building)
+    level_1_results, level_2_results = todolist_family_creation(df_citizens, pop_building)
+    
+    level_1_results.to_excel(f"{paths['result']}/{study_area}_level_1.xlsx", index=False)
+    level_2_results.to_excel(f"{paths['result']}/{study_area}_level_2.xlsx", index=False)
 
 # Ejecución
 if __name__ == '__main__':
