@@ -515,7 +515,7 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
         df_citizens.at[idx, 'WoS_subgroup'] = SG_relationship.loc[
             SG_relationship['osm_id'] == WoS_id, 'building_type'
         ].values[0]  # Esto obtiene el nombre correspondiente
-
+    
     return df_families, df_citizens, df_priv_vehicle
 
 def get_vehicle_stats(archetype, transport_archetypes, variables):

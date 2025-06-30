@@ -30,7 +30,7 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
     # Inicializamos el df en el que meteremos los schedules
     todolist_family = pd.DataFrame()
     # Pasamos por cada agente que constitulle la familia 
-    for idx_f_df, row_f_df in family_df.iterrows():               
+    for idx_f_df, row_f_df in family_df.iterrows():             
         for activity in activities:
             try:
                 activity_amount = row_f_df[f'{activity}_amount']
@@ -63,8 +63,16 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
                     fixed = False
                     fixed_word = 'Service'
                 ## Sacamos los datos relevantes
-                opening = pop_building.loc[pop_building['osm_id'] == osm_id, f'{fixed_word}_opening'].values[0]
-                closing = pop_building.loc[pop_building['osm_id'] == osm_id, f'{fixed_word}_closing'].values[0]
+                if activity == 'WoS':
+                    activity_re = 'work'
+                else:
+                    activity_re = activity
+                
+                opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
+                closing = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
+                
+                input(f"opening: {opening} closing: {closing}")
+                
                 try:
                     # En caso de que el agente tenga un tiempo requerido de actividad
                     time2spend = int(row_f_df[f'{activity}_time'])
@@ -116,9 +124,12 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
                 else:
                     print(f"{row_f_df['name']} was not able to fullfill '{activity}' at {in_time}.")
                     print(f"They were trying to go at {in_time} until {out_time} but '{osm_id}' it closes at {closing}")
-            
-    # En caso de haber solo un agente en la familia, le transformamos en autosufuciente    
-    if todolist_family['agent'].nunique() == 1:
+                    
+    ## En caso de que la familia cuente con dependientes pero no con helpers, se da por hecho que estos son saciados de algún modo por algún otro agente externo a la familia
+    dependent = todolist_family[todolist_family['todo_type'] != 0]['agent'].unique()
+    helpers = todolist_family[(todolist_family['todo_type'] == 0) & (~todolist_family['agent'].isin(dependent))]['agent'].unique()
+    if (len(helpers) == 0) and (len(dependent) != 0):
+        print(f"The family '{family_df['family'].iloc[0]}' has no responsables for its dependants. For LEVEL 2 analisys, we will consider their need somehow fulfilled, but it is an aproximation.")
         todolist_family['todo_type'] = 0
     
     todolist_family = todolist_family.sort_values(by='in', ascending=True).reset_index(drop=True)
@@ -690,16 +701,16 @@ def resp_score_calculation(todolist_family, pop_building_unique, df_combinado, d
     return responsability_matrix
 
 def responsability_matrix_creation(todolist_family, pop_building_unique, todolist_family_original):   
-    # Encuentra el primer 'todo_type' es distinto de 0
-    first_not0 = todolist_family[todolist_family['todo_type'] != 0].iloc[0].add_suffix('_d')
+    # Encuentra los agentes con alguna dependencia
+    dependents = todolist_family[todolist_family['todo_type'] != 0].add_suffix('_d')
+    # Saca la primera
+    first_not0 = dependents.iloc[0]
     # Sacamos los valores relevantes
     dependent = first_not0['agent_d']
     in_d = first_not0['in_d']
-    # DataFrame con todo_type == 0 (independientes)
-    helpers = todolist_family[todolist_family["todo_type"] == 0].add_suffix('_h')
-    # Eliminamos los independientes pero no capaces de ayudar (aquellos que en WoS son dependientes)
-    agents_with_wos = todolist_family_original[(todolist_family_original['todo'] == 'WoS') & (todolist_family_original['todo_type'] != 0)]['agent'].unique()
-    helpers = helpers[~helpers['agent_h'].isin(agents_with_wos)].reset_index(drop=True)
+    
+    # Encuentra los agentes con independientes
+    helpers = todolist_family[(todolist_family["todo_type"] == 0) & (~todolist_family['agent'].isin(dependents['agent_d']))].add_suffix('_h')
     # Eliminamos los valores de acciones por actividades previas
     valores_excluir = ['Collect', 'Waiting collection', 'Waiting opening', 'Delivery']  # Esto puede ser problematico
     helpers = helpers[~helpers['todo_h'].isin(valores_excluir)]
@@ -789,8 +800,8 @@ def main_td():
     
     level_1_results, level_2_results = todolist_family_creation(df_citizens, pop_building)
     
-    level_1_results.to_excel(f"{paths['result']}/{study_area}_level_1.xlsx", index=False)
-    level_2_results.to_excel(f"{paths['result']}/{study_area}_level_2.xlsx", index=False)
+    level_1_results.to_excel(f"{paths['results']}/{study_area}_level_1.xlsx", index=False)
+    level_2_results.to_excel(f"{paths['results']}/{study_area}_level_2.xlsx", index=False)
 
 # Ejecución
 if __name__ == '__main__':
