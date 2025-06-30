@@ -75,13 +75,13 @@ def main_td():
     ##############################################################################
     print(f'docs readed')
     
-    testdf = level_2_results
+    testdf = level_1_results
     
     testdf['tot_time'] = testdf['out'] - testdf['in']
     
-    '''testdf['archetype'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'archetype'))
+    testdf['archetype'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'archetype'))
     testdf['family'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'family'))
-    testdf['family_archetype'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'family_archetype'))'''
+    testdf['family_archetype'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'family_archetype'))
 
     media_por_arch_ciudadano = (testdf.groupby(['archetype', 'todo'])['tot_time'].mean().reset_index())
     media_por_arch_ciudadano = media_por_arch_ciudadano.pivot(index='archetype', columns='todo', values='tot_time')

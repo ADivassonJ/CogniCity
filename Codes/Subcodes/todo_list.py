@@ -591,8 +591,8 @@ def todolist_family_creation(df_citizens, pop_building):
                                                                                           # Deberiamos leerlo del doc de system management
         todolist_family_original = todolist_family
         
-        '''print('LEVEL 1:')
-        print(todolist_family)'''
+        print('LEVEL 1:')
+        print(todolist_family)
         
         level_1_results = pd.concat([level_1_results, todolist_family], ignore_index=True).reset_index(drop=True)
         
@@ -616,14 +616,14 @@ def todolist_family_creation(df_citizens, pop_building):
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family)
         
-        '''print('LEVEL 2')
-        print(todolist_family)'''
+        print('LEVEL 2')
+        print(todolist_family)
         
         level_2_results = pd.concat([level_2_results, todolist_family], ignore_index=True).reset_index(drop=True)
         
         # plot_agents_in_split_map(todolist_family, pop_building, save_path="recorridos_todos.html")
         
-        '''input("#"*120)'''
+        input("#"*120)
     
     return level_1_results, level_2_results
     
@@ -750,6 +750,9 @@ def responsability_matrix_creation(todolist_family, pop_building_unique, todolis
         rest_not0 = todolist_family[todolist_family['todo_type'] != 0].iloc[1:].reset_index(drop=True).add_suffix('_d')
         # Retiramos del grupo el agente ya analizado
         rest_not0 = rest_not0[rest_not0['agent_d'] != dependent]
+
+        rest_not0['in_d'] = pd.to_numeric(rest_not0['in_d'], errors='coerce').astype('Int64')
+        
         # Nos quedamos con el primero de cada nuevo dependant    
         rest_not0 = rest_not0.loc[rest_not0.groupby(['agent_d'])['in_d'].idxmin()].reset_index(drop=True)
 
