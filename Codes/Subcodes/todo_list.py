@@ -65,14 +65,14 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
                 ## Sacamos los datos relevantes
                 if activity == 'WoS':
                     activity_re = 'work'
+                elif activity in ['Home_in', 'Home_out']:
+                    activity_re = 'Home'
                 else:
                     activity_re = activity
                 
                 opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
                 closing = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
-                
-                input(f"opening: {opening} closing: {closing}")
-                
+
                 try:
                     # En caso de que el agente tenga un tiempo requerido de actividad
                     time2spend = int(row_f_df[f'{activity}_time'])
