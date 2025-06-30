@@ -591,8 +591,8 @@ def todolist_family_creation(df_citizens, pop_building):
                                                                                           # Deberiamos leerlo del doc de system management
         todolist_family_original = todolist_family
         
-        """print('LEVEL 1:')
-        print(todolist_family)"""
+        '''print('LEVEL 1:')
+        print(todolist_family)'''
         
         level_1_results = pd.concat([level_1_results, todolist_family], ignore_index=True).reset_index(drop=True)
         
@@ -616,14 +616,14 @@ def todolist_family_creation(df_citizens, pop_building):
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family)
         
-        """print('LEVEL 2')
-        print(todolist_family)"""
+        '''print('LEVEL 2')
+        print(todolist_family)'''
         
         level_2_results = pd.concat([level_2_results, todolist_family], ignore_index=True).reset_index(drop=True)
         
         # plot_agents_in_split_map(todolist_family, pop_building, save_path="recorridos_todos.html")
         
-        """input("#"*120)"""
+        '''input("#"*120)'''
     
     return level_1_results, level_2_results
     
@@ -703,41 +703,70 @@ def resp_score_calculation(todolist_family, pop_building_unique, df_combinado, d
     return responsability_matrix
 
 def responsability_matrix_creation(todolist_family, pop_building_unique, todolist_family_original, not_feasible):
-    # Encuentra los agentes con alguna dependencia
-    dependents = todolist_family[todolist_family['todo_type'] != 0].add_suffix('_d')
-    # Saca la primera
-    first_not0 = dependents.iloc[0]
-    # Sacamos los valores relevantes
-    dependent = first_not0['agent_d']
-    in_d = first_not0['in_d']
-    
-    # Encuentra los agentes con independientes
-    helpers = todolist_family[(todolist_family["todo_type"] == 0) & (~todolist_family['agent'].isin(dependents['agent_d']))].add_suffix('_h')
-    # Eliminamos los valores de acciones por actividades previas
-    valores_excluir = ['Collect', 'Waiting collection', 'Waiting opening', 'Delivery']  # Esto puede ser problematico
-    helpers = helpers[~helpers['todo_h'].isin(valores_excluir)]
-
-    # Ahora miramos los siguientes por ver si existe la opcion de compatibilizar el recorrido
-    rest_not0 = todolist_family[todolist_family['todo_type'] != 0].iloc[1:].reset_index(drop=True).add_suffix('_d')
-    # Retiramos del grupo el agente ya analizado
-    rest_not0 = rest_not0[rest_not0['agent_d'] != dependent]
-    # Nos quedamos con el primero de cada nuevo dependant    
-    rest_not0 = rest_not0.loc[rest_not0.groupby(['agent_d'])['in_d'].idxmin()].reset_index(drop=True)
-
     # Retiramos los agentes 
-    correction = 1
+    correction = 0
+    df_combinado = pd.DataFrame()
     
-    # Retiramos los casos que superen la hora de diferencia entre la entrada de uno y del otro
-    deleted_rest_not0 = rest_not0[(rest_not0['in_d'] - in_d) > 10*correction]
-    rest_not0 = rest_not0[(rest_not0['in_d'] - in_d) <= 10*correction] # Issue 22
-    # Repetir la fila para que tenga el mismo número de filas que helper
-    feasible_not0 = pd.concat([pd.DataFrame([first_not0]), rest_not0], ignore_index=True)
-    # Producto cartesiano (todas las combinaciones posibles)
-    df_combinado = helpers.merge(feasible_not0, how='cross')
-    
-    # Filtramos en base a las rutas previamente provadas y no funcionales
-    df_combinado = df_combinado.merge(not_feasible, on=['agent_h', 'agent_d', 'todo_d'], how='left', indicator=True).query('_merge == "left_only"').drop(columns=['_merge'])
+    while df_combinado.empty:
+        # Actualizamos el multiplicador
+        correction += 1        
+        # Encuentra los agentes con alguna dependencia
+        dependents = todolist_family[todolist_family['todo_type'] != 0].add_suffix('_d')
+        # Saca la primera
+        first_not0 = dependents.iloc[0]
+        # Sacamos los valores relevantes
+        dependent = first_not0['agent_d']
+        in_d = first_not0['in_d']
+        
+        # Encuentra los agentes con independientes
+        helpers = todolist_family[(todolist_family["todo_type"] == 0) & (~todolist_family['agent'].isin(dependents['agent_d']))].add_suffix('_h')
+        # Eliminamos los valores de acciones por actividades previas
+        valores_excluir = ['Collect', 'Waiting collection', 'Waiting opening', 'Delivery']  # Esto puede ser problematico
+        helpers = helpers[~helpers['todo_h'].isin(valores_excluir)]
 
+        
+        test = pd.DataFrame()
+        for helper in helpers['agent_h'].unique():
+            new_row = {
+                'agent_h': helper,
+                'agent_d': first_not0['agent_d'],
+                'todo_d': first_not0['todo_d']
+            }
+            test = pd.concat([test, pd.DataFrame([new_row])], ignore_index=True)
+            
+        # Elimina filas de test que ya están en not_feasible_renamed
+        test_filtrado = test.merge(
+            not_feasible[['agent_h', 'agent_d', 'todo_d']],
+            on=['agent_h', 'agent_d', 'todo_d'],
+            how='left',
+            indicator=True
+        ).query('_merge == "left_only"').drop(columns=['_merge'])
+        
+        if test_filtrado.empty:
+            print(f"El agente '{first_not0['agent_d']} no podrá realizar nunca '{first_not0['todo_d']}'.")
+            return pd.DataFrame(), not_feasible
+        
+        # Ahora miramos los siguientes por ver si existe la opcion de compatibilizar el recorrido
+        rest_not0 = todolist_family[todolist_family['todo_type'] != 0].iloc[1:].reset_index(drop=True).add_suffix('_d')
+        # Retiramos del grupo el agente ya analizado
+        rest_not0 = rest_not0[rest_not0['agent_d'] != dependent]
+        # Nos quedamos con el primero de cada nuevo dependant    
+        rest_not0 = rest_not0.loc[rest_not0.groupby(['agent_d'])['in_d'].idxmin()].reset_index(drop=True)
+
+        # Retiramos los casos que superen la hora de diferencia entre la entrada de uno y del otro
+        deleted_rest_not0 = rest_not0[(rest_not0['in_d'] - in_d) > 30*correction]
+        rest_not0 = rest_not0[(rest_not0['in_d'] - in_d) <= 30*correction] # Issue 22
+        # Repetir la fila para que tenga el mismo número de filas que helper
+        feasible_not0 = pd.concat([pd.DataFrame([first_not0]), rest_not0], ignore_index=True)
+        # Producto cartesiano (todas las combinaciones posibles)
+        df_combinado = helpers.merge(feasible_not0, how='cross')
+        
+        # Filtramos en base a las rutas previamente provadas y no funcionales
+        df_combinado = df_combinado.merge(not_feasible, on=['agent_h', 'agent_d', 'todo_d'], how='left', indicator=True).query('_merge == "left_only"').drop(columns=['_merge'])
+
+        if df_combinado.empty:
+            print(f"SE HA REALIZADO UN NUEVO LOOP POR PROBLEMAS EN LA ASIGNACION (correction: {correction})")
+    
     # Calculamos todas las convinaciones
     responsability_matrix = resp_score_calculation(todolist_family, pop_building_unique, df_combinado, dependent)
     

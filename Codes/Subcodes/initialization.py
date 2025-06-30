@@ -493,6 +493,7 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
     
     # Asignar familia a cada ciudadano
     df_citizens['family'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'name'))
+    df_citizens['family_archetype'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'archetype'))
     
     # Asignar hogar a cada ciudadano
     df_citizens['Home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'Home'))
