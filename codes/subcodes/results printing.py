@@ -66,7 +66,7 @@ def main_td():
                 os.makedirs(paths[file_2], exist_ok=True)
     
     level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_level_1.xlsx")
-    level_2_results = pd.read_excel(f"{paths['results']}/{study_area}_level_2_v2.xlsx")
+    level_2_results = pd.read_excel(f"{paths['results']}/{study_area}_level_2.xlsx")
     
     df_citizens = pd.read_excel(f"{paths['population']}/pop_citizen.xlsx")
     
@@ -78,10 +78,6 @@ def main_td():
     testdf = level_2_results
     
     testdf['tot_time'] = testdf['out'] - testdf['in']
-    
-    '''testdf['archetype'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'archetype'))
-    testdf['family'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'family'))
-    testdf['family_archetype'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'family_archetype'))'''
 
     media_por_arch_ciudadano = (testdf.groupby(['archetype', 'todo'])['tot_time'].mean().reset_index())
     media_por_arch_ciudadano = media_por_arch_ciudadano.pivot(index='archetype', columns='todo', values='tot_time')
@@ -97,6 +93,19 @@ def main_td():
     print('media_por_arch_familiar:')
     print(media_por_arch_familiar)
     
+    media_por_arch_familiar = (testdf.groupby(['family_archetype', 'todo'])['in'].mean().reset_index())
+    media_por_arch_familiar = media_por_arch_familiar.pivot(index='family_archetype', columns='todo', values='in')
+
+    
+    print('in_media_por_arch_familiar:')
+    print(media_por_arch_familiar)
+    
+    media_por_arch_familiar = (testdf.groupby(['family_archetype', 'todo'])['out'].mean().reset_index())
+    media_por_arch_familiar = media_por_arch_familiar.pivot(index='family_archetype', columns='todo', values='out')
+
+    
+    print('out_media_por_arch_familiar:')
+    print(media_por_arch_familiar)
     
 
 def find_group(name, df_families, row_out):

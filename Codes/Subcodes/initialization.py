@@ -37,7 +37,7 @@ def Archetype_documentation_initialization(paths):
         files = [f for f in archetypes_folder.iterdir() if f.is_file() and f.name.startswith('pop_archetypes_') and f.suffix == '.xlsx']
 
         pop_archetypes = {
-            f.stem.replace('pop_archetypes_', ''): load_filter_sort_reset(f)
+            f.stem.replace('pop_archetypes_', ''): load_filter_sort_reset(f) # Issue 25
             for f in files
         }
     except Exception as e:

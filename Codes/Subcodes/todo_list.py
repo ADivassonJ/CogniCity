@@ -108,6 +108,7 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
                 if in_time < closing and out_time <= closing:
                     rew_row ={
                         'agent': row_f_df['name'],
+                        'archetype': row_f_df['archetype'],
                         'todo': activity, 
                         'osm_id': osm_id, 
                         'todo_type': todo_type, 
@@ -117,7 +118,9 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
                         'time2spend': time2spend, 
                         'in': in_time, 
                         'out': out_time,
-                        'conmutime': int(row_f_df['conmutime'])
+                        'conmutime': int(row_f_df['conmutime']),
+                        'family': row_f_df['family'],
+                        'family_archetype': row_f_df['family_archetype'],
                     }
                     # La añadimos    
                     todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
@@ -156,6 +159,7 @@ def time_adding(df_after_max, last_out):
         # Se crea la nueva fila
         rew_row ={
             'agent': df_a_row['agent'],
+            'archetype': df_a_row['archetype'],
             'todo': df_a_row['todo'], 
             'osm_id': df_a_row['osm_id'], 
             'todo_type': df_a_row['todo_type'], 
@@ -165,7 +169,9 @@ def time_adding(df_after_max, last_out):
             'time2spend': df_a_row['time2spend'], 
             'in': new_in, 
             'out': new_out,
-            'conmutime': int(df_a_row['conmutime'])
+            'conmutime': int(df_a_row['conmutime']),
+            'family': df_a_row['family'],
+            'family_archetype': df_a_row['family_archetype'],
         }
         # Se añade la fila al df
         df_after_max_adapted = pd.concat([df_after_max_adapted, pd.DataFrame([rew_row])], ignore_index=True)
@@ -337,9 +343,11 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
         previous_agents = new_new_list['agent'].unique()
         # Iniciamos con los agentes en movimiento
         for p_agent in previous_agents:
+            agent_data = new_new_list[new_new_list['agent'] == p_agent].iloc[0]
             # Nueva fila
             rew_row ={
                 'agent': p_agent,
+                'archetype': agent_data['archetype'],
                 'todo': 'Collect', 
                 'osm_id': name_group['osm_id'], 
                 'todo_type': 0, 
@@ -349,7 +357,9 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 'time2spend': 0, 
                 'in': group_out_time, 
                 'out': group_out_time,
-                'conmutime': group_conmutime
+                'conmutime': group_conmutime,
+                'family': agent_data['family'],
+                'family_archetype': agent_data['family_archetype'],
             }   
             # Suma a dataframe
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
@@ -362,6 +372,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 # Nueva fila
                 rew_row ={
                     'agent': agent['agent'],
+                    'archetype': agent['archetype'],
                     'todo': f'Waiting collection', 
                     'osm_id': agent['osm_id'],  # Issue 17
                     'todo_type': 0, 
@@ -371,7 +382,9 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                     'time2spend': waiting_time, 
                     'in': agent['out'], 
                     'out': group_out_time,
-                    'conmutime': agent['conmutime']
+                    'conmutime': agent['conmutime'],
+                    'family': agent['family'],
+                    'family_archetype': agent['family_archetype'],
                 }
                 # Suma a dataframe
                 new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
@@ -380,6 +393,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 if agent['agent'] in helper['agent'].to_list():
                     rew_row ={
                         'agent': agent['agent'],
+                        'archetype': agent['archetype'],
                         'todo': f'Collect', 
                         'osm_id': agent['osm_id'],  # Issue 17
                         'todo_type': 0, 
@@ -389,7 +403,9 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                         'time2spend': 0, 
                         'in': group_out_time, 
                         'out': group_out_time,
-                        'conmutime': group_conmutime
+                        'conmutime': group_conmutime,
+                        'family': agent['family'],
+                        'family_archetype': agent['family_archetype'],
                     }   
                     # Suma a dataframe
                     new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
@@ -398,6 +414,7 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
             # Actualización del caso original del agente
             rew_row ={
                 'agent': agent['agent'],
+                'archetype': agent['archetype'],
                 'todo': agent['todo'], 
                 'osm_id': agent['osm_id'], 
                 'todo_type': agent['todo_type'], 
@@ -407,7 +424,9 @@ def agent_collection(prev_matrix2cover, matrix2cover, helper):
                 'time2spend': agent['time2spend'], 
                 'in': agent['in'], 
                 'out': new_out,
-                'conmutime': agent['conmutime']
+                'conmutime': agent['conmutime'],
+                'family': agent['family'],
+                'family_archetype': agent['family_archetype'],
             }   
             # Suma a dataframe
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
@@ -464,9 +483,11 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
         previous_agents = new_new_list['agent'].unique()
         # Iniciamos con los agentes en movimiento
         for p_agent in previous_agents:
+            agent_data = new_new_list[new_new_list['agent'] == p_agent].iloc[0]
             # Nueva fila
             rew_row ={
                 'agent': p_agent,
+                'archetype': agent_data['archetype'],
                 'todo': 'Delivery', 
                 'osm_id': name_group['osm_id'], 
                 'todo_type': 0, 
@@ -476,7 +497,9 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                 'time2spend': 0, 
                 'in': group_in_time, 
                 'out': group_in_time,
-                'conmutime': group_conmutime
+                'conmutime': group_conmutime,
+                'family': agent_data['family'],
+                'family_archetype': agent_data['family_archetype'],
             }
             # Suma a dataframe
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
@@ -489,6 +512,7 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                 # Nueva fila
                 rew_row ={
                     'agent': agent['agent'],
+                    'archetype': agent['archetype'],
                     'todo': f'Waiting opening', 
                     'osm_id': agent['osm_id'], # Issue 17
                     'todo_type': 0, 
@@ -498,7 +522,9 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                     'time2spend': waiting_time, 
                     'in': group_in_time, 
                     'out': agent['in'],
-                    'conmutime': agent['conmutime']
+                    'conmutime': agent['conmutime'],
+                    'family': agent['family'],
+                    'family_archetype': agent['family_archetype'],
                 }   
                 # Suma a dataframe
                 new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
@@ -512,6 +538,7 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                 
             rew_row ={
                 'agent': agent['agent'],
+                'archetype': agent['archetype'],
                 'todo': agent['todo'], 
                 'osm_id': agent['osm_id'], 
                 'todo_type': 0, 
@@ -521,7 +548,9 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
                 'time2spend': agent['time2spend'], 
                 'in': in_time, 
                 'out': new_out,
-                'conmutime': agent['conmutime']
+                'conmutime': agent['conmutime'],
+                'family': agent['family'],
+                'family_archetype': agent['family_archetype'],
             }   
             # Suma a dataframe
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
@@ -591,8 +620,8 @@ def todolist_family_creation(df_citizens, pop_building):
                                                                                           # Deberiamos leerlo del doc de system management
         todolist_family_original = todolist_family
         
-        print('LEVEL 1:')
-        print(todolist_family)
+        '''print('LEVEL 1:')
+        print(todolist_family)'''
         
         level_1_results = pd.concat([level_1_results, todolist_family], ignore_index=True).reset_index(drop=True)
         
@@ -605,7 +634,7 @@ def todolist_family_creation(df_citizens, pop_building):
             if responsability_matrix.empty:
                 print(f"Se ha ejecutado el 'truquito'.")
                 print(f"Basicamente, no hay agentes helper disponibles para asistir en estos escenarios.")
-                input(f"No deberia haber pasado esto ...")
+                print(f"No deberia haber pasado esto ...")
                 # Encuentra índices donde 'todo_type' es distinto de 0
                 mask = todolist_family['todo_type'] != 0
                 # Si hay alguno, reemplaza el primero por 0
@@ -616,14 +645,14 @@ def todolist_family_creation(df_citizens, pop_building):
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family)
         
-        print('LEVEL 2')
-        print(todolist_family)
+        '''print('LEVEL 2')
+        print(todolist_family)'''
         
         level_2_results = pd.concat([level_2_results, todolist_family], ignore_index=True).reset_index(drop=True)
         
         # plot_agents_in_split_map(todolist_family, pop_building, save_path="recorridos_todos.html")
         
-        input("#"*120)
+        '''input("#"*120)'''
     
     return level_1_results, level_2_results
     

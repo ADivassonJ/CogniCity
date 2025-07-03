@@ -66,45 +66,117 @@ def main_td():
                 os.makedirs(paths[file_2], exist_ok=True)
     
     level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_level_1.xlsx")
-    level_2_results = pd.read_excel(f"{paths['results']}/{study_area}_level_2_v2.xlsx")
+    level_2_results = pd.read_excel(f"{paths['results']}/{study_area}_level_2.xlsx")
     
-    df_citizens = pd.read_excel(f"{paths['population']}/pop_citizen.xlsx")
+    pop_citizen = pd.read_excel(f"{paths['population']}/pop_citizen.xlsx")
     
     pop_building = pd.read_excel(f"{paths['population']}/pop_building.xlsx")
+    pop_transport = pd.read_excel(f"{paths['population']}/pop_transport.xlsx")
+    
+    pop_archetypes_transport = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_transport.xlsx")
     
     ##############################################################################
     print(f'docs readed')
     
-    testdf = level_1_results
     
-    testdf['tot_time'] = testdf['out'] - testdf['in']
+    level2_families = level_2_results.groupby(['family'])
     
-    testdf['archetype'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'archetype'))
-    testdf['family'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'family'))
-    testdf['family_archetype'] = testdf['agent'].apply(lambda name: find_group(name, df_citizens, 'family_archetype'))
+    for f_name, family in level2_families:
+        avail_vehicles = pop_transport[pop_transport['family'] == f_name]
+        
+        print(f"{f_name} has the following vehicles available")
+        print(avail_vehicles)
+        
+        level2_citizens = family.groupby(['agent'])
+        
+        for c_name, c_route in level2_citizens:
+            
+            citizen = pop_citizen[pop_citizen['name'] == c_name]
+            
+            avail_transport = add_walk_public(avail_vehicles, c_route['osm_id'].unique(), pop_archetypes_transport, citizen)
+            
+            score_calculation()
 
-    media_por_arch_ciudadano = (testdf.groupby(['archetype', 'todo'])['tot_time'].mean().reset_index())
-    media_por_arch_ciudadano = media_por_arch_ciudadano.pivot(index='archetype', columns='todo', values='tot_time')
 
-    print('media_por_arch_ciudadano:')
-    print(media_por_arch_ciudadano)
+def score_calculation(pop_building, avail_transport):
     
-    
-    media_por_arch_familiar = (testdf.groupby(['family_archetype', 'todo'])['tot_time'].mean().reset_index())
-    media_por_arch_familiar = media_por_arch_familiar.pivot(index='family_archetype', columns='todo', values='tot_time')
+    for _, transport in avail_transport.iterrows():
+        # Filtrar solo los que son 'private_transportation'
+        p1p2_options = pop_building[pop_building['archetype'] == 'charging_station']
 
+
+
+def add_walk_public(avail_vehicles, c_route, pop_archetypes_transport, citizen):
+    """_summary_
+
+    Args:
+        avail_vehicles (df): 
+        citizen (df): 
+    """
     
-    print('media_por_arch_familiar:')
-    print(media_por_arch_familiar)
     
+    
+    
+    
+    
+    
+    # Inicializamos el df de resultados
+    avail_transport = pd.DataFrame()
+    # Empezamos añadiendo 'walk' como opcion
+    new_row = {
+        'name': 'walk',
+        'archetype': None,
+        'family': None,
+        'ubication': None,
+        'v': citizen['walk_speed'],
+        'Ekm': None,
+        'enkm': None, 
+        'Emin': None,
+        'COkm': None,
+        'SoC': None,
+    }
+    # Lo añadimos el df de resultados
+    avail_transport = pd.concat([avail_vehicles, pd.DataFrame([new_row])], ignore_index=True)
+    # Repetimos proceso añadiendo 'public' como opcion
+    name = 'conb_public'
+    new_row = {
+        'name': name,
+        'archetype': None,
+        'family': None,
+        'ubication': obtain_P1P2(name, citizen, pop_archetypes_transport, c_route),
+        'v': 3,
+        'Ekm': 3,
+        'enkm': None, 
+        'Emin': None,
+        'COkm': 3,
+        'SoC': None,
+    }
+    # Lo añadimos el df de resultados
+    avail_transport = pd.concat([avail_vehicles, pd.DataFrame([new_row])], ignore_index=True)
+    
+    return avail_transport
+    
+    
+    
+def obtain_P1P2(archetype, citizen, transport_archetypes, c_route):
+    """_summary_
+
+    Args:
+        archetype (_type_): _description_
+        citizen (_type_): _description_
+    """
+    
+    
+    P1s = transport_archetypes[transport_archetypes['name'] == archetype]['P1s']
+    P2s = transport_archetypes[transport_archetypes['name'] == archetype]['P2s']
+    
+    find_closest(c_route, P1s)
+    find_closest(c_route, P2s)
     
 
-def find_group(name, df_families, row_out):
-    for idx, row in df_families.iterrows():
-        if name == row['name']:
-            return row[row_out]
-    return None
-
+def find_closest(c_route, P1s):
+    
+    input(f"osm_id_0:\n {c_route}")
 
 # Ejecución
 if __name__ == '__main__':
