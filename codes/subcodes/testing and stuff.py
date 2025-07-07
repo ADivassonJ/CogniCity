@@ -74,6 +74,8 @@ def main_td():
     level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_level_1.xlsx")
     level_2_results = pd.read_excel(f"{paths['results']}/{study_area}_level_2.xlsx")
     
+    vehicle_actions = pd.read_excel(f"{paths['results']}/{study_area}_level_2_(vehicles).xlsx")
+    
     pop_citizen = pd.read_excel(f"{paths['population']}/pop_citizen.xlsx")
     
     pop_building = pd.read_excel(f"{paths['population']}/pop_building.xlsx")
@@ -101,58 +103,82 @@ def main_td():
             # Creamos una lista en la que la route del agente sea más facil de usar
             clean_route = [(c_route['osm_id'].unique()[i], c_route['osm_id'].unique()[i+1]) for i in range(len(c_route['osm_id'].unique()) - 1)]
             # Calculamos la distime_matrix del agente
-            agent_distime_matrix = score_calculation(networks_map, avail_vehicles, clean_route, pop_archetypes_transport, citizen, pop_building)
+            agent_distime_matrix = score_calculation(vehicle_actions, networks_map, avail_vehicles, clean_route, pop_archetypes_transport, citizen, pop_building)
             # Lo sumamos al total
             distime_matrix = pd.concat([distime_matrix, agent_distime_matrix], ignore_index=True)
         
         input(distime_matrix)
 
 
-def score_calculation(networks_map, avail_vehicles, clean_route, pop_archetypes_transport, citizen, pop_building):
+def score_calculation(vehicle_actions, networks_map, avail_vehicles, clean_route, pop_archetypes_transport, citizen, pop_building):
     # Inicializamos el df de output
     distime_matrix = pd.DataFrame()
     # Evaluamos cada opcion de vehiculo
     for _, vehicle in avail_vehicles.iterrows():
         # Evaluamos este vehiculo en toda la rout (para ello vamos trip por trip)
-        for poi_A,poi_B in clean_route:
+        for poi_A, poi_B in clean_route:
             # Sacamos los datos del archetype con el que estamos trabajando
             vehicle_archdata = pop_archetypes_transport[pop_archetypes_transport['name']==vehicle['archetype']].iloc[0]
-            new_row = distime_matrix_calculation(networks_map, pop_building, vehicle_archdata, poi_A, poi_B)
-            
-            
-            
-            input(f"poi_A: {poi_A}, poi_B: {poi_B}")
+            new_row = distime_matrix_calculation(vehicle_actions, networks_map, pop_building, vehicle_archdata, poi_A, poi_B, vehicle)
+            # Sumamos la nueva fila al df de resultados
+            distime_matrix = pd.concat([distime_matrix, new_row], ignore_index=True)
+
+def find_last(vehicle_actions, vehicle_name):
+    list_actions = vehicle_actions[vehicle_actions['agent'] == vehicle_name]
+    max_osm_id = list_actions.loc[list_actions['in'].idxmax(), 'osm_id']
+    return max_osm_id
         
-            # Creamos los nuevos datos
-            new_row = {
-                'vehicle': vehicle['name'],
-                'walk_time': 0,
-                'travel_time': 0,
-                'waiting_time': 0,
-                'costs': 0,
-                'beneficts': 0,
-                'emissions': 0,
-            }
-            # La añadimos a la matriz de resultados
-            distime_matrix = pd.concat([distime_matrix, pd.DataFrame([new_row])], ignore_index=True)
-        
-        
-def distime_matrix_calculation(networks_map, pop_building, vehicle_archdata, poi_A, poi_B):
+def distime_matrix_calculation(vehicle_actions, networks_map, pop_building, vehicle_archdata, poi_A, poi_B, vehicle):
+    # Inicializamos la matriz de resultados
+    distime_matrix = pd.DataFrame()
     # Inicializamos el trip con el punto de inicio
     trip = [poi_A]
     # Miramos si el vehicle, por como es su archetype, tiene P1
     if vehicle_archdata['P1'] != 0:
         # Si lo tiene, añade la ubicación valida más cercana
-        trip.append(find_closest(pop_building, poi_A, vehicle_archdata['P1s']))
+        trip.append(find_last(vehicle_actions, vehicle['name']))
     # Miramos si el vehicle, por como es su archetype, tiene P2
     if vehicle_archdata['P2'] != 0:
         # Si lo tiene, añade la ubicación valida más cercana
-        trip.append(find_closest_p2(networks_map, pop_building, poi_A, vehicle_archdata['P2s']))
+        osm_id_new, km_new = find_closest_p2(networks_map, pop_building, poi_A, vehicle_archdata['P2s'])
+        trip.append(osm_id_new)
     # Sumamos la última ubicación del trip
     trip.append(poi_B)    
     # Evaluamos si el trip no requiere paradas
-    if len(trip) == 2:
-        1 == 1
+    if len(trip) != 2:
+        P_existance = True
+        for step in range(len(trip)):
+            if step == 0 or step == 2:
+                P_P = False
+            elif step == 1:
+                P_P = True
+            else:
+                continue
+            
+            input(trip)
+            
+            # Sacamos las coordenadas 
+            lat1, lon1 = pop_building[pop_building['osm_id'] == trip[step]][['lat', 'lon']].values[0]
+            lat2, lon2 = pop_building[pop_building['osm_id'] == trip[step+1]][['lat', 'lon']].values[0]
+            # Calculamos las distacias  
+            km = distancia_network(networks_map, lat1, lon1, lat2, lon2, P_existance, P_P = False)
+            
+            
+            input(vehicle)
+            
+            
+            
+            
+            # Creamos los nuevos datos
+            new_row = {
+                'vehicle': vehicle['name'],
+                'walk_time': 0 if P_P else km*1, # en vez de 1 meter la velocidad MINIMA del agente involucrado
+                'travel_time': 0 if not P_P else km*vehicle['speed'],
+                'waiting_time': 0,
+                'costs': 0,
+                'beneficts': 0,
+                'emissions': 0,
+            }
         
         
         
@@ -168,84 +194,57 @@ def find_closest_p2(networks_map, pop_building, poi, P_servicetype):
     feasible_P = pop_building[pop_building['archetype'] == P_servicetype].copy()
     # En caso de no encontrar servicios
     if feasible_P.empty:
-        input("Cosorro")
-    
-    
-    
-    
-    # Elimina los print/input si aún están en tu función
+        input(f"El caso de estudio analizado no cuenta con '{P_servicetype}', se tendrá que realizar algúna aproximación ...")
+    # Añade una columna 'distance' donde se muestra el valor (orientativo) de haversine
     feasible_P['distance'] = feasible_P.apply(
         lambda row: distancia_haversine(lat_poi, lon_poi, row['lat'], row['lon']), axis=1)
     # Ordenamos feasible_P por aquellos con menor distancia
-    input(feasible_P)
-    
+    feasible_P = feasible_P.sort_values(by='distance', ascending=True)
     # Encontrar el nodo más cercano al POI
     poi_node = ox.distance.nearest_nodes(networks_map['walk_map'], lon_poi, lat_poi)
-
-
-
-    
-    data = []
-
-
-
+    # Crear la columna 'km' si no existe
+    if 'km' not in feasible_P.columns:
+        feasible_P['km'] = None
     # Iterar sobre cada fila en df2 para encontrar el edificio más cercano
-    for row in feasible_P.iterrows():
-        lat2, lon2 = row.lat, row.lon
-        
-        # Calcular distancia euclidiana
-        euc_dist = distancia_haversine(lat_poi, lon_poi, lat2, lon2)
-        if euc_dist > max_distance:  # Filtrar por distancia máxima
-            continue
-
+    for index, row in feasible_P.head().iterrows():
+        # Sacamos las coordenadas del nuevo punto a ha analizar
+        lat2, lon2 = row['lat'], row['lon']
         try:
-            # Encuentra el nodo más cercano en G
-            nodo_df2 = ox.distance.nearest_nodes(G, lon2, lat2)
-
-            # Encuentra la ruta más corta entre nodo_df1 y nodo_df2
-            route = ox.shortest_path(G, nodo_df1, nodo_df2, weight='length')
-            distance = nx.path_weight(G, route, weight="length")
-            if distance > max_distance:
-                continue
-            # Inicializar rise y fall
-            rise, fall = 0, 0
-
-            # Calcular desniveles a lo largo de la ruta
-            for n, node in enumerate(route):
-                actual_elevation = G.nodes[node].get('elevation', 0)
-                if n > 0:  # Comparar con el nodo anterior
-                    last_elevation = G.nodes[route[n - 1]].get('elevation', 0)
-                    rise += max(actual_elevation - last_elevation, 0)
-                    fall += max(last_elevation - actual_elevation, 0)
-
-            # Obtener tipo de edificio
-            building_type = getattr(row, 'building_type_name', "N/A")
-
-            # Agregar los datos al listado
-            data.append({
-                'building_type': building_type,
-                'osmid': getattr(row, 'osm_id', None),
-                'coord': (lat2, lon2),
-                'distance': distance,
-                'rise': rise,
-                'fall': fall,
-            })
+            # Encuentra el nodo más cercano en el mapa
+            P_node = ox.distance.nearest_nodes(networks_map['drive_map'], lon2, lat2)
+            # Encuentra la ruta más corta entre poi_node y P_node
+            route = ox.shortest_path(networks_map['walk_map'], poi_node, P_node, weight='length')
+            distance = nx.path_weight(networks_map['walk_map'], route, weight="length")
+            # Guardar el valor de distancia en la fila correspondiente
+            feasible_P.at[index, 'km'] = distance/1000
         except Exception as e:
             print(f"Error al procesar ({lat2}, {lon2}): {e}")
-            continue  # Si ocurre un error, continuar con la siguiente iteración
+            continue
+    # Ordenamos feasible_P por aquellos con menor distancia
+    feasible_P = feasible_P.sort_values(by='km', ascending=True)
+    # Devolvemos los datos del 'osm_id' y distancia en 'km' del mejor caso (menor valor en 'km')
+    return feasible_P['osm_id'].iloc[0], feasible_P['km'].iloc[0]
 
-    # Verificar si se recopilaron datos
-    if not data:
-        return
-    
-    # Convertir la lista de datos a un DataFrame antes de exportar
-    data_df = pd.DataFrame(data)
-    
-    # Ordenar por distancia
-    if 'distance' in data_df.columns:
-        data_df = data_df.sort_values(by='distance', ascending=True)
-    
-    return data_df['osm_id'].iloc[0]
+def distancia_network(networks_map, lat1, lon1, lat2, lon2, P_existance=False, P_P = False):
+    # Encontrar el nodo más cercano
+    node_1 = ox.distance.nearest_nodes(networks_map['walk_map'], lon1, lat1)
+    # Si tenemos P_existance significa que tenemos algún tipo de parada en el trip
+    if P_existance:
+        network_map = 'drive_map'
+    else:
+        network_map = 'walk_map'
+    # Encontramos el segundo nodo (dependiente de que que red queramos)
+    node_2 = ox.distance.nearest_nodes(networks_map[network_map], lon2, lat2) 
+    # Si tenemos P_P significa que la interacción es entre las dos P (P1P2)
+    if P_P:
+        network_map_2 = 'drive_map'
+    else:
+        network_map_2 = 'walk_map'
+    # Encuentra la ruta más corta entre poi_node y P_node
+    route = ox.shortest_path(networks_map[network_map_2], node_1, node_2, weight='length')
+    distance = nx.path_weight(networks_map[network_map_2], route, weight="length")/1000
+    # Devuelve los datos de distancia en km
+    return distance
 
 def distancia_haversine(lat1, lon1, lat2, lon2):
     # Convertir las coordenadas de grados a radianes
