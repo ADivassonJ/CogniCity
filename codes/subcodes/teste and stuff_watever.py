@@ -109,12 +109,13 @@ def main():
             # Calculamos la vehicle_score_matrix
             vehicle_score_matrix, past_dist_calculations, distime_matrix = VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map, past_dist_calculations)
             # Decidimos el transporte
-            best_transport_name = vehicle_chosing(vehicle_score_matrix)
+            best_transport_name, trans_modal = vehicle_chosing(vehicle_score_matrix)
+
             
+            print(f"best_transport_name: {best_transport_name}")
+            print(f"trans_modal")
+            input(trans_modal)
             
-            input(distime_matrix)
-            print(f"best_transport:")
-            input(distime_matrix[distime_matrix['t'] == best_transport_name])
             
             # Actualizamos el schedule 
             new_family_schedule = update_citizen_schedule(best_transport_name, avail_vehicles, level2_families, c_name)
@@ -132,8 +133,32 @@ def vehicle_chosing(vehicle_score_matrix):
     """
     
     simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False)['score'].sum()
+    
+    public_walk = vehicle_score_matrix[vehicle_score_matrix['vehicle'].isin(['walk', 'conb_public'])]
+    
+    # Índices de filas con mínimo score por trip
+    idx = public_walk.groupby('trip')['score'].idxmin()  
+    score_public_walk = public_walk.loc[idx, ['trip', 'score']].reset_index(drop=True)
+    
+    walk_score = simplified_df[simplified_df['vehicle'] == 'walk']['score'].iloc[0]
+    public_score = simplified_df[simplified_df['vehicle'] == 'conb_public']['score'].iloc[0]
+    
+    if (score_public_walk['score'].sum() != walk_score) & (score_public_walk['score'].sum() != public_score):
+        new_row = {
+            'vehicle': 'public_walk',
+            'score': score_public_walk['score'].sum(),
+        }
+        simplified_df = pd.concat([simplified_df, pd.DataFrame([new_row])], ignore_index=True)
+    
     best_transport_name = simplified_df.loc[simplified_df['score'].idxmin(),'vehicle']
-    return best_transport_name
+    
+    if best_transport_name == 'public_walk':
+        # Sacamos el medio de transporte por trip para public_walk
+        trans_modal = public_walk.loc[idx, 'vehicle'].tolist()
+    else:
+        trans_modal = None
+    
+    return best_transport_name, trans_modal
 
 def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map, past_dist_calculations):
     # Inicializamos la vehicle_score_matrix
@@ -184,10 +209,17 @@ def score_algorithm(distime_matrix):
     """
     
     distime_matrix = distime_matrix.iloc[0]
-    
+    # Asegurarse de que distime_matrix está desconectado de slices
+    distime_matrix = distime_matrix.copy()
+    # Calculamos el conmu_time
     conmu_time = distime_matrix['walk_time'] + distime_matrix['travel_time'] + distime_matrix['wait_time']
-    
-    distime_matrix['score'] = conmu_time + distime_matrix['cost'] - distime_matrix['benefits'] + distime_matrix['emissions']
+    # Calcular score de forma robusta
+    distime_matrix['score'] = (
+        conmu_time +
+        distime_matrix['cost'] -
+        distime_matrix['benefits'] +
+        distime_matrix['emissions']
+    )
     
     return distime_matrix
 
@@ -195,6 +227,8 @@ def score_algorithm(distime_matrix):
 def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop_building, citizen_data, transport):
     # Inicializamos el df de salida
     distime_matrix = pd.DataFrame()
+    # Sacamos el trip
+    trip = (complete_trip[0][0], complete_trip[-1][-1])
     # Inicializamos la variable map_type
     map_type = 'drive'
     for step_0, step_1 in complete_trip:
@@ -230,6 +264,7 @@ def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop
         new_row = {
             'citizen': citizen_data['name'],
             'vehicle': transport['name'],
+            'trip': trip,
             'walk_time': citizen_data['walk_speed']*distance if map_type == 'walk' else 0,
             'travel_time': transport['v']*distance if map_type == 'drive' else 0,
             'wait_time': waiting_time,
@@ -239,15 +274,14 @@ def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop
             }
         
         distime_matrix = pd.concat([distime_matrix, pd.DataFrame([new_row])], ignore_index=True)
-        # sumar solo la parte numérica
+        # Sumar solo la parte numérica
         summed_numeric = distime_matrix.select_dtypes(include='number').sum().to_frame().T
-
-        # por ejemplo, nos quedamos con el primer valor (o cualquier otro criterio)
+        # Añadir columnas no numéricas de forma segura
         summed_df = summed_numeric.assign(
-            citizen = distime_matrix.loc[0, 'citizen'],
-            vehicle = distime_matrix.loc[0, 'vehicle']
-        )
-        
+            citizen=distime_matrix.iloc[0]['citizen'],   
+            vehicle=distime_matrix.iloc[0]['vehicle'],
+            trip=[distime_matrix.iloc[0]['trip']],
+        ) 
     return summed_df, past_dist_calculations
 
 def waiting_time_calculation(distance, step_1, transport):
