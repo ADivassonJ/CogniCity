@@ -5,7 +5,7 @@ import osmnx as ox
 import pandas as pd
 import networkx as nx
 from pathlib import Path
-
+from itertools import groupby
 
 
 
@@ -107,58 +107,81 @@ def main():
             # Añadimos los trips a la lista de trips evaluados
             eval_trips.append(citizen_route)
             # Calculamos la vehicle_score_matrix
-            vehicle_score_matrix, past_dist_calculations, distime_matrix = VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map, past_dist_calculations)
+            distime_matrix, past_dist_calculations = VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map, past_dist_calculations)
             # Decidimos el transporte
-            best_transport_name, trans_modal = vehicle_chosing(vehicle_score_matrix)
-
-            
-            print(f"best_transport_name: {best_transport_name}")
-            print(f"trans_modal")
-            input(trans_modal)
-            
-            
+            best_transport_distime_matrix = vehicle_chosing(distime_matrix)
             # Actualizamos el schedule 
-            new_family_schedule = update_citizen_schedule(best_transport_name, avail_vehicles, level2_families, c_name)
+            new_family_schedule = update_citizen_schedule(best_transport_distime_matrix, c_name, level1_schedule, family)
             # Lo sumamos al total
             new_level2_schedules = pd.concat([new_level2_schedules, new_family_schedule], ignore_index=True)
             # Sumamos el vehiculo al vehicles_actions
-            vehicles_actions = update_vehicles_actions(new_family_schedule, c_name, best_transport_name, avail_vehicles)
+            vehicles_actions = update_vehicles_actions(vehicles_actions, new_family_schedule, best_transport_distime_matrix, avail_vehicles)
             # Actualizamos la lista de vehiculos disponibles, para que el resto no tomen este
             if not best_transport_name in ['walk', 'conb_public']:
                 avail_vehicles.remove(best_transport_name)
-            
-def vehicle_chosing(vehicle_score_matrix):
+
+def update_citizen_schedule(best_transport_distime_matrix, c_name, level1_schedule, level2_families):
     """
-    Esta super simplificado, en verdad deberia hacer public y walk por trip, mirar el minimo y crear uno nuevo que fuera eso
+    Bypassed:
+    
+    Deberiamos ver lo que hace el agente y cambiarle las entradas y salidas en base a 
+    sus nuevos tiempos de conmutacion, diponibles en best_transport_distime_matrix
     """
     
-    simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False)['score'].sum()
+    l2_citizen_schedule = level2_families[level2_families['agent'] == c_name].reset_index(drop=True)
+
+    return l2_citizen_schedule
+
+def update_vehicles_actions(vehicles_actions, new_family_schedule, best_transport_distime_matrix, avail_vehicles):
     
-    public_walk = vehicle_score_matrix[vehicle_score_matrix['vehicle'].isin(['walk', 'conb_public'])]
-    
-    # Índices de filas con mínimo score por trip
-    idx = public_walk.groupby('trip')['score'].idxmin()  
-    score_public_walk = public_walk.loc[idx, ['trip', 'score']].reset_index(drop=True)
-    
-    walk_score = simplified_df[simplified_df['vehicle'] == 'walk']['score'].iloc[0]
-    public_score = simplified_df[simplified_df['vehicle'] == 'conb_public']['score'].iloc[0]
-    
-    if (score_public_walk['score'].sum() != walk_score) & (score_public_walk['score'].sum() != public_score):
+    for idx, row in new_family_schedule.iterrows():
+        
+        # Si estamos en la primera situacion, simplemente copiamos
+        if idx == 0:
+            b_idx = 0
+        else:
+            # ASIER estoy en este apartado
+            # Basicamente hai que mirar la columna trip de best_transport_distime_matrix para
+            # saber cual le toca de tiempos y tal
+            print(best_transport_distime_matrix)
+            print(row['osm_id'])
+
+        
+        # Creamos la nueva linea
         new_row = {
-            'vehicle': 'public_walk',
-            'score': score_public_walk['score'].sum(),
+            'agent': best_transport_distime_matrix['vehicle'].iloc[b_idx],
+            'archetype': best_transport_distime_matrix['archetype'].iloc[b_idx],
+            'osm_id': row['osm_id'],
+            'in': row['in'],
+            'out': row['out'],
+            'family': row['family'],
+            'family_archetype': row['family_archetype'],
         }
-        simplified_df = pd.concat([simplified_df, pd.DataFrame([new_row])], ignore_index=True)
+        # Añadimos la nueva fila al df
+        vehicles_actions = pd.concat([vehicles_actions, pd.DataFrame([new_row])], ignore_index=True)
     
-    best_transport_name = simplified_df.loc[simplified_df['score'].idxmin(),'vehicle']
+    print(new_family_schedule)
+    input(vehicles_actions)
     
-    if best_transport_name == 'public_walk':
-        # Sacamos el medio de transporte por trip para public_walk
-        trans_modal = public_walk.loc[idx, 'vehicle'].tolist()
-    else:
-        trans_modal = None
     
-    return best_transport_name, trans_modal
+
+def vehicle_chosing(vehicle_score_matrix):   
+    # Sumamos los scores por transporte
+    simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False)['score'].sum()
+    # Sacamos el transporte con menos score
+    best_transport = simplified_df.loc[simplified_df['score'].idxmin()]
+    # Sacamos del original walk y public transport
+    public_walk = vehicle_score_matrix[vehicle_score_matrix['vehicle'].isin(['walk', 'conb_public'])]
+    # Índices de filas con mínimo score por trip
+    idx = public_walk.groupby('trip')['score'].idxmin() 
+    # Sacamos el score de elegir el minimo entre walk y public por cada trip (model split)
+    score_public_walk = public_walk.loc[idx, ['trip', 'score']].reset_index(drop=True)
+    # Evaluamos se el modal split es mejor que lo previo    
+    if score_public_walk['score'].sum() < best_transport['score']:
+        # Si es mejor, devolvemos esto como resultado
+        return public_walk.loc[idx]
+    # Si no es mejor, devuelve el anteriormente definido como mejor
+    return vehicle_score_matrix[vehicle_score_matrix['vehicle'] == best_transport['vehicle']].reset_index(drop=True)
 
 def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map, past_dist_calculations):
     # Inicializamos la vehicle_score_matrix
@@ -177,20 +200,16 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
         for trip in citizen_route:
             # Calculamos el score de este trip
             distime_matrix, last_P, past_dist_calculations = score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, past_dist_calculations, citizen_data)
-            # Creamos la nueva fila
-            new_row = {
-                'citizen': citizen_data['name'],
-                'vehicle': transport['name'],
-                'trip': trip,
-                'score': distime_matrix['score'],
-            }
+            # Añadimos info relevante
+            distime_matrix['citizen'] = citizen_data['name']
+            distime_matrix['vehicle'] = transport['name']
             # La añadimos al df de resultados
-            transport_VSM = pd.concat([transport_VSM, pd.DataFrame([new_row])], ignore_index=True)
+            transport_VSM = pd.concat([transport_VSM, pd.DataFrame([distime_matrix])], ignore_index=True)
             full_distime_matrix = pd.concat([full_distime_matrix, pd.DataFrame([distime_matrix])], ignore_index=True)
         # Añadimos el nuevo transport_VSM a vehicle_score_matrix
         vehicle_score_matrix = pd.concat([vehicle_score_matrix, transport_VSM], ignore_index=True)
 
-    return vehicle_score_matrix, past_dist_calculations, full_distime_matrix
+    return full_distime_matrix, past_dist_calculations
             
             
 def score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, past_dist_calculations, citizen_data):
@@ -264,9 +283,10 @@ def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop
         new_row = {
             'citizen': citizen_data['name'],
             'vehicle': transport['name'],
+            'archetype': transport['archetype'],
             'trip': trip,
-            'walk_time': citizen_data['walk_speed']*distance if map_type == 'walk' else 0,
-            'travel_time': transport['v']*distance if map_type == 'drive' else 0,
+            'walk_time': (citizen_data['walk_speed']/distance) if map_type == 'walk' and distance > 0 else 0,
+            'travel_time': transport['v']/distance if map_type == 'drive' else 0,
             'wait_time': waiting_time,
             'cost': transport['Ekm']*distance if map_type == 'drive' else 0,
             'benefits': benefits, 
@@ -280,6 +300,7 @@ def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop
         summed_df = summed_numeric.assign(
             citizen=distime_matrix.iloc[0]['citizen'],   
             vehicle=distime_matrix.iloc[0]['vehicle'],
+            archetype=distime_matrix.iloc[0]['archetype'],
             trip=[distime_matrix.iloc[0]['trip']],
         ) 
     return summed_df, past_dist_calculations
@@ -319,7 +340,7 @@ def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     steps.append(poi_B)
     # Inicializamos la lista de resultados
     complete_trip = []
-    # Adaptamos para que sea máws comoda de usar
+    # Adaptamos para que sea más comoda de usar
     for step in range(len(steps)-1):
         complete_trip.append((steps[step], steps[step+1]))    
     
@@ -436,7 +457,8 @@ def route_creation(citizen_schedule):
     # Inicializamos la lista de resultados
     route = []
     # Sacamos los osm_id en los que actua
-    simpl_route = citizen_schedule['osm_id'].unique()
+    osm_id_route = citizen_schedule['osm_id']
+    simpl_route = [k for k, _ in groupby(osm_id_route)]
     # Lo organizamos por trips
     for idx in range(len(simpl_route)):
         # Si es el último osm_id de la lista, no calcula nada
