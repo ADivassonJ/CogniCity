@@ -1,5 +1,6 @@
 import os
 import sys
+from tqdm import tqdm
 import numpy as np
 import osmnx as ox
 import pandas as pd
@@ -81,7 +82,7 @@ def main():
     new_level2_schedules = pd.DataFrame()
     vehicles_actions = pd.DataFrame()
     # Pasamos por los datos de cada una de las familias
-    for f_name, family in level2_families:
+    for f_name, family in tqdm(level2_families, desc="Procesando familias"):
         # Logramos los vehiculos asignados a cada miembro familiar
         avail_vehicles = transport_families.get_group(f_name)
         # Sacamos el schedule de level1 tambien
@@ -117,9 +118,13 @@ def main():
             # Sumamos el vehiculo al vehicles_actions
             vehicles_actions = update_vehicles_actions(vehicles_actions, new_family_schedule, best_transport_distime_matrix, avail_vehicles)
             # Actualizamos la lista de vehiculos disponibles, para que el resto no tomen este
-            if not best_transport_name in ['walk', 'conb_public']:
-                avail_vehicles.remove(best_transport_name)
-
+            if not best_transport_distime_matrix['vehicle'].iloc[0] in ['walk', 'conb_public']:
+                avail_vehicles.remove(best_transport_distime_matrix['vehicle'])
+                
+    vehicles_actions.to_excel(f"{paths['results']}/{study_area}_vehicles_actions.xlsx", index=False)
+    new_level2_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_2.xlsx", index=False)    
+        
+        
 def update_citizen_schedule(best_transport_distime_matrix, c_name, level1_schedule, level2_families):
     """
     Bypassed:
@@ -133,37 +138,67 @@ def update_citizen_schedule(best_transport_distime_matrix, c_name, level1_schedu
     return l2_citizen_schedule
 
 def update_vehicles_actions(vehicles_actions, new_family_schedule, best_transport_distime_matrix, avail_vehicles):
+    # El objetivo es tener un df que de los datos de consumo relevante para cada actividad
     
-    for idx, row in new_family_schedule.iterrows():
-        
-        # Si estamos en la primera situacion, simplemente copiamos
-        if idx == 0:
-            b_idx = 0
-        else:
-            # ASIER estoy en este apartado
-            # Basicamente hai que mirar la columna trip de best_transport_distime_matrix para
-            # saber cual le toca de tiempos y tal
-            print(best_transport_distime_matrix)
-            print(row['osm_id'])
-
-        
-        # Creamos la nueva linea
-        new_row = {
-            'agent': best_transport_distime_matrix['vehicle'].iloc[b_idx],
-            'archetype': best_transport_distime_matrix['archetype'].iloc[b_idx],
-            'osm_id': row['osm_id'],
-            'in': row['in'],
-            'out': row['out'],
-            'family': row['family'],
-            'family_archetype': row['family_archetype'],
-        }
-        # Añadimos la nueva fila al df
-        vehicles_actions = pd.concat([vehicles_actions, pd.DataFrame([new_row])], ignore_index=True)
+    ''' Deshabilitado para poder evaluar el resto de funciones
     
-    print(new_family_schedule)
-    input(vehicles_actions)
+    # Antes de iniciar, aseguramos que no sea walk o publico o walk_public
+    if best_transport_distime_matrix['vehicle'].iloc[0] in ['walk', 'public']:
+        # Devolvemos el df sin modificaciones
+        return vehicles_actions
+    '''
     
+    # Simplificamos el 'new_family_schedule', para guardar la info como lo hariamos para el output
+    simple_schedule = schedule_simplification(new_family_schedule)
+    # Ahora duplicamos pero metemos el vehiculo en vez de la persona
+    simple_schedule['agent'] = best_transport_distime_matrix['vehicle'].iloc[0]
+    simple_schedule['archetype'] = best_transport_distime_matrix['archetype'].iloc[0]
+    # Eliminamos las columnas innecesarias
+    simple_schedule = simple_schedule.drop(['todo', 'todo_type', 'opening', 'closing', 'fixed', 'time2spend', 'conmutime'], axis=1)
+    # Agregamos la nueva schedule a 'vehicles_actions'
+    vehicles_actions = pd.concat([vehicles_actions, simple_schedule], ignore_index=True)
+    # Devolvemos el df modificado
+    return vehicles_actions    
     
+def schedule_simplification(new_family_schedule):
+    # Inicializamos el df de salida
+    simple_schedule = pd.DataFrame()
+    # Filtramos el df quitando las actividades 'not-time-related'
+    filtered = new_family_schedule[abs(new_family_schedule['in']-new_family_schedule['out']) != 0]
+    # Agrupamos por 'osm_id' para simplificar
+    filtered_grouped = filtered.groupby('osm_id')
+    # Evaluamos los grupos
+    for name, group in filtered_grouped:
+        # Si el grupo no tiene duplicados, no nos va a dar problemas
+        if len(group) == 1:
+            simple_schedule = pd.concat([simple_schedule, group], ignore_index=True)
+            continue
+        # Inicializamos 'def_in' (para tener como memoria del 'in' del grupo)
+        def_in = float('inf')
+        # Actualizamos los indices para evitar problematicas
+        group_n = group.reset_index(drop=True)
+        # En caso de tener más de una actividad 'time-related' en el mismo 'osm_id' 
+        for idx, row in group_n.iterrows():
+            # Nos saltamos el último row
+            if idx == len(group_n)-1:
+                continue
+            # Evaluamos cuales estan concatenados
+            if group_n.loc[idx, 'out'] == group_n.loc[idx+1, 'in']:
+                # Asignamos las variables
+                def_in = group_n.loc[idx, 'in']
+                def_out = group_n.loc[idx+1, 'out']
+        # Si no se han identificado concatenaciones
+        if def_in == float('inf'):
+            simple_schedule = pd.concat([simple_schedule, group_n], ignore_index=True)
+            continue
+        # Copiamos los datos del grupo
+        new_row = group_n.iloc[0].copy()
+        # Añadimos los nuevos datos
+        new_row['in'] = def_in
+        new_row['out'] = def_out
+        # Anadimos la nueva fila al schedule simplificado
+        simple_schedule = pd.concat([simple_schedule, pd.DataFrame([new_row])], ignore_index=True)
+    return simple_schedule.sort_values(by='in', ascending=True).reset_index(drop=True)
 
 def vehicle_chosing(vehicle_score_matrix):   
     # Sumamos los scores por transporte
@@ -210,7 +245,6 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
         vehicle_score_matrix = pd.concat([vehicle_score_matrix, transport_VSM], ignore_index=True)
 
     return full_distime_matrix, past_dist_calculations
-            
             
 def score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, past_dist_calculations, citizen_data):
     # Completamos el trip en caso de que tenga que acudir a algún punto P
@@ -285,12 +319,13 @@ def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop
             'vehicle': transport['name'],
             'archetype': transport['archetype'],
             'trip': trip,
+            'distance': distance,
             'walk_time': (citizen_data['walk_speed']/distance) if map_type == 'walk' and distance > 0 else 0,
-            'travel_time': transport['v']/distance if map_type == 'drive' else 0,
+            'travel_time': transport['v']/distance if map_type == 'drive'and distance > 0 else 0,
             'wait_time': waiting_time,
-            'cost': transport['Ekm']*distance if map_type == 'drive' else 0,
+            'cost': transport['Ekm']*distance if map_type == 'drive'and distance > 0 else 0,
             'benefits': benefits, 
-            'emissions': transport['COkm']*distance if map_type == 'drive' else 0,
+            'emissions': transport['COkm']*distance if map_type == 'drive'and distance > 0 else 0,
             }
         
         distime_matrix = pd.concat([distime_matrix, pd.DataFrame([new_row])], ignore_index=True)
