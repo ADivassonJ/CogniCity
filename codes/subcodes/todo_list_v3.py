@@ -665,9 +665,18 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
     # Calculamos las responsabilidades
     responsability_matrix = create_responsability_matrix(dependents, independents, pop_building, family_level_1_schedule)
     
+    Adaptamos y usamos
+    get_previous_action
+    para guardar los datos no afectados en cada agente
+    
+    print('responsability_matrix')
+    input(responsability_matrix)
+    
     return family_level_2_schedule
 
 def create_responsability_matrix(dependents, independents, pop_building, family_level_1_schedule):
+    # Inicializamos el df de mejores opciones porposible helper
+    best_helpers_activity = pd.DataFrame()
     # Producto cartesiano (todas las combinaciones posibles)
     cartesian = independents.merge(dependents, how='cross')
     for idx_car, row_car in cartesian.iterrows():
@@ -677,9 +686,43 @@ def create_responsability_matrix(dependents, independents, pop_building, family_
         cartesian.loc[idx_car, 'soc_dist']  = soc_dist_calculate(row_car)
         # Score calculation
         cartesian.loc[idx_car, 'score']  = score_calculate(cartesian.loc[idx_car])
+    # Agrupamos por agente dependiente y actividad ('todo_y' y 'osm_id_y' al mismo tiempo para evitar problemas)
+    cartesian_filtered = cartesian.groupby(['agent_y', 'todo_y', 'osm_id_y'])
     
-    cartesian.to_excel(f"C:/Users/asier.divasson/Documents/GitHub/CogniCity/results/testes.xlsx", index=False)
-    input(f" 'cartesian' saved!")
+    # Inicializamos el condicionante para reiterar el modelo
+    repeat = True
+    # Mientras no se detecte el modelo bien constituido
+    while repeat:
+        # Evitamos volver en caso de que el sistema no detecte cambios en 'repeat'
+        repeat = False
+        # Con esto sacamos el valor minimo para cada accion (best score)
+        cartesian_filtered = cartesian.loc[cartesian.groupby(['agent_y', 'todo_y', 'osm_id_y'])['score'].idxmin()].sort_values(by=['in_y', 'in_x']).reset_index(drop=True)
+        
+        ## Verificamos que no haya una misma accion de un agente afectada (su lo hubiera el agente se quedaria esperando desde la entrega asta la siguiente recogida, sin hacer ninguna accion)
+        # Agrupamos por actividad de cada independent
+        best_helpers_activity = cartesian_filtered.groupby(['agent_x', 'todo_x', 'osm_id_x'])
+        # Miramos grupo a grupo
+        for cart_n, cart in best_helpers_activity:
+            # Si un independent ayuda dos veces a un mismo dependent, significa que se da el caso de la espera mazo larga
+            if cart['agent_y'].duplicated().any():
+                
+                cartesian_filtered.to_excel(f"C:/Users/asier.divasson/Documents/GitHub/CogniCity/results/cartesian_filtered.xlsx", index=False)
+                cart.to_excel(f"C:/Users/asier.divasson/Documents/GitHub/CogniCity/results/cart.xlsx", index=False)
+                print('cart.xlsx and cartesian_filtered.xlsx created')
+                input('duplicated found')
+                
+                # Identificar los índices de los valores mínimos por cada grupo duplicado de 'agent_y'
+                idx_to_drop = cart.loc[cart.duplicated('agent_y', keep=False)].groupby('agent_y')['in_y'].idxmin()
+                # Eliminar esos índices del DataFrame
+                cart = cart.drop(index=idx_to_drop)
+                # Le pedimos que repita el ciclo
+                repeat = True
+                # Eliminamos el caso del 'cartesian' para no volver a sufrir el mismo problema
+                cartesian = pd.concat([cartesian, cart]).drop_duplicates(keep=False).reset_index(drop=True)
+                break
+
+    # Devolvemos la matrix
+    return cartesian_filtered
 
 def time_dist_calculate(row_car):
     return abs(row_car['in_x'] - row_car['in_y'])
@@ -687,12 +730,12 @@ def time_dist_calculate(row_car):
 def geo_dist_calculate(row_car, pop_building, family_level_1_schedule):
     ## Trip 0
     # Previous osm_id data gathering
-    prev_osm_h = get_previous_action(family_level_1_schedule, row_car['agent_x'], row_car['in_x'])['osm_id'].iloc[0]
-    prev_osm_d = get_previous_action(family_level_1_schedule, row_car['agent_y'], row_car['in_y'])['osm_id'].iloc[0]
+    prev_row_h, prev_idxh = get_previous_action(family_level_1_schedule, row_car['agent_x'], row_car['in_x'])
+    prev_row_d, prev_idxd = get_previous_action(family_level_1_schedule, row_car['agent_y'], row_car['in_y'])
     
     # Data gathering
-    lat_h, lon_h = pop_building.loc[pop_building['osm_id'] == prev_osm_h, ['lat', 'lon']].values[0]
-    lat_d, lon_d = pop_building.loc[pop_building['osm_id'] == prev_osm_d, ['lat', 'lon']].values[0]
+    lat_h, lon_h = pop_building.loc[pop_building['osm_id'] == prev_row_h['osm_id'], ['lat', 'lon']].values[0]
+    lat_d, lon_d = pop_building.loc[pop_building['osm_id'] == prev_row_d['osm_id'], ['lat', 'lon']].values[0]
     # Trip distance calculation
     trip_0 = haversine(lat_h, lon_h, lat_d, lon_d)
     
@@ -712,14 +755,31 @@ def score_calculate(row_car):
     return (row_car['time_dist']/1000)*10 + row_car['geo_dist'] + row_car['soc_dist'] #le ponemos 10 como heuristica
 
 def get_previous_action(family_level_1_schedule, data_agent, data_in):
-    # Sacamos los datos del agenet a analizar del schedule familiar
-    agents_actions = family_level_1_schedule[family_level_1_schedule['agent'] == data_agent]
-    # Filtramos para lograr las acciones anteriores a la dada
-    agents_previos_actions = agents_actions[agents_actions['in'] < data_in]
-    # Sacamos de las previas la última
-    previous_action = agents_previos_actions.loc[[agents_previos_actions['in'].idxmax()]]
-    # Devolvemos este valor
-    return previous_action
+    """
+    Devuelve la acción previa más reciente realizada por un agente
+    antes de un tiempo específico (`data_in`).
+
+    Parámetros:
+        family_level_1_schedule (pd.DataFrame): tabla de acciones.
+        data_agent (str o int): ID o nombre del agente.
+        data_in (int o float): tiempo actual de análisis.
+
+    Retorna:
+        previous_action (pd.DataFrame): la última acción previa.
+        index (int): índice de esa acción en el DataFrame original.
+    """
+    # Filtramos las acciones del agente
+    agent_actions = family_level_1_schedule[family_level_1_schedule['agent'] == data_agent]
+    # Filtramos acciones previas a 'data_in'
+    previous_actions = agent_actions[agent_actions['in'] < data_in]
+    # Si no hay acciones previas, devolvemos None
+    if previous_actions.empty:
+        return None, None
+    # Tomamos la acción previa más reciente (con mayor 'in')
+    idx = previous_actions['in'].idxmax()
+    previous_action = previous_actions.loc[[idx]]
+    return previous_action.iloc[0], idx
+
 
 # Función de distancia haversine
 def haversine(lat1, lon1, lat2, lon2):
@@ -730,154 +790,6 @@ def haversine(lat1, lon1, lat2, lon2):
     a = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
     c = 2*np.arcsin(np.sqrt(a))
     return R * c   
-
-def resp_score_calculation(todolist_family, pop_building_unique, df_combinado, dependent):
-    # Creamos la matriz de los resultados
-    responsability_matrix = pd.DataFrame()
-    # Calculamos todas las convinaciones
-    for idx_df_conb, row_df_conb in df_combinado.iterrows():
-        # Si la entrada es 0, sera la actividad de Home_out, por lo que lo ignoramos, no se plantean actividades previas a esta
-        if row_df_conb['in_h'] == 0:
-            continue
-        # Sacamos las latitudes y longitudes de las posiciones de helper y dependant
-        lat_h, lon_h = pop_building_unique.loc[pop_building_unique['osm_id'] == row_df_conb['osm_id_h'], ['lat', 'lon']].values[0]
-        lat_d, lon_d = pop_building_unique.loc[pop_building_unique['osm_id'] == row_df_conb['osm_id_d'], ['lat', 'lon']].values[0]
-        ## Sacamos los valores de las distancias
-        # Distancia geografica
-        geo_dist = haversine(lat_h, lon_h, lat_d, lon_d)
-        # Distancia temporal
-        time_dist = row_df_conb['in_d'] - row_df_conb['in_h'] # si esto da negativo, el agente helper tiene más tiempo para gestionar al dependant
-        # Distancia social
-        soc_dist = 1 # Aqui habrá que poner algo estadistico o algo
-        # Calculamos la puntuación
-        score = geo_dist + abs(time_dist)/100 + soc_dist # quizas cada uno entre el maximo?
-        # Sacamos los schedule y step previo del helper
-        try: 
-            h_schedule = todolist_family[(todolist_family['agent'] == row_df_conb['agent_h']) & (todolist_family['out'] <= row_df_conb['in_h'])]            
-            h_pre_step = h_schedule[h_schedule['out'] == max(h_schedule['out'])]
-        except Exception:
-            input('sa petao')
-        
-        # Sacamos los schedule y step previo del dependant
-        d_schedule = todolist_family[(todolist_family['agent'] == row_df_conb['agent_d']) & (todolist_family['out'] <= row_df_conb['in_d'])] 
-        d_pre_step = d_schedule[d_schedule['out'] == max(d_schedule['out'])]
-        
-        # Creamos la nueva fila
-        new_row = {
-            'helper': row_df_conb['agent_h'],
-            'dependent': row_df_conb['agent_d'],
-            'todo_h0':h_pre_step['todo'].iloc[0],
-            'todo_h1':row_df_conb['todo_h'],
-            'todo_d0': d_pre_step['todo'].iloc[0],
-            'todo_d1': row_df_conb['todo_d'],
-            'osm_id_h0': h_pre_step['osm_id'].iloc[0],
-            'osm_id_d0': d_pre_step['osm_id'].iloc[0],
-            'osm_id_h1': row_df_conb['osm_id_h'],            
-            'osm_id_d1': row_df_conb['osm_id_d'],
-            'geo_dist': geo_dist,
-            'time_dist': time_dist,
-            'soc_dist': soc_dist,
-            'score': score,
-            'out_h': h_pre_step['out'].iloc[0],
-            'in_h': row_df_conb['in_h'],
-            'out_d': d_pre_step['out'].iloc[0],
-            'in_d': row_df_conb['in_d']
-        }
-        # La añadimos a la matriz de responsabilidad
-        responsability_matrix = pd.concat([responsability_matrix, pd.DataFrame([new_row])], ignore_index=True)
-    responsability_matrix = responsability_matrix.loc[responsability_matrix.groupby(['dependent'])['score'].idxmin()].reset_index(drop=True)
-    
-    ## Nos aseguramos que las acciona a acometer se realizan por el mismo agente
-    # Logramos el helper del dependent principal
-    helper = responsability_matrix[responsability_matrix['dependent'] == dependent]['helper'].iloc[0]
-    # Quitamos las acciones no realizadas por este helper
-    responsability_matrix = responsability_matrix[responsability_matrix['helper'] == helper]
-    
-    return responsability_matrix
-
-def responsability_matrix_creation(todolist_family, pop_building_unique, todolist_family_original, not_feasible):
-    # Retiramos los agentes 
-    correction = 0
-    df_combinado = pd.DataFrame()
-    
-    while df_combinado.empty:
-        # Actualizamos el multiplicador
-        correction += 1        
-        # Encuentra los agentes con alguna dependencia
-        dependents = todolist_family[todolist_family['todo_type'] != 0].add_suffix('_d')
-        # Saca la primera
-        first_not0 = dependents.iloc[0]
-        # Sacamos los valores relevantes
-        dependent = first_not0['agent_d']
-        in_d = first_not0['in_d']
-        
-        # Encuentra los agentes con independientes
-        helpers = todolist_family[(todolist_family["todo_type"] == 0) & (~todolist_family['agent'].isin(dependents['agent_d']))].add_suffix('_h')
-        # Eliminamos los valores de acciones por actividades previas
-        valores_excluir = ['Collect', 'Waiting collection', 'Waiting opening', 'Delivery']  # Esto puede ser problematico
-        helpers = helpers[~helpers['todo_h'].isin(valores_excluir)]
-
-        
-        test = pd.DataFrame()
-        for helper in helpers['agent_h'].unique():
-            new_row = {
-                'agent_h': helper,
-                'agent_d': first_not0['agent_d'],
-                'todo_d': first_not0['todo_d']
-            }
-            test = pd.concat([test, pd.DataFrame([new_row])], ignore_index=True)
-            
-        # Elimina filas de test que ya están en not_feasible_renamed
-        test_filtrado = test.merge(
-            not_feasible[['agent_h', 'agent_d', 'todo_d']],
-            on=['agent_h', 'agent_d', 'todo_d'],
-            how='left',
-            indicator=True
-        ).query('_merge == "left_only"').drop(columns=['_merge'])
-        
-        if test_filtrado.empty:
-            print(f"El agente '{first_not0['agent_d']} no podrá realizar nunca '{first_not0['todo_d']}'.")
-            return pd.DataFrame(), not_feasible
-        
-        # Ahora miramos los siguientes por ver si existe la opcion de compatibilizar el recorrido
-        rest_not0 = todolist_family[todolist_family['todo_type'] != 0].iloc[1:].reset_index(drop=True).add_suffix('_d')
-        # Retiramos del grupo el agente ya analizado
-        rest_not0 = rest_not0[rest_not0['agent_d'] != dependent]
-
-        rest_not0['in_d'] = pd.to_numeric(rest_not0['in_d'], errors='coerce').astype('Int64')
-        
-        # Nos quedamos con el primero de cada nuevo dependant    
-        rest_not0 = rest_not0.loc[rest_not0.groupby(['agent_d'])['in_d'].idxmin()].reset_index(drop=True)
-
-        # Retiramos los casos que superen la hora de diferencia entre la entrada de uno y del otro
-        deleted_rest_not0 = rest_not0[(rest_not0['in_d'] - in_d) > 30*correction]
-        rest_not0 = rest_not0[(rest_not0['in_d'] - in_d) <= 30*correction] # Issue 22
-        # Repetir la fila para que tenga el mismo número de filas que helper
-        feasible_not0 = pd.concat([pd.DataFrame([first_not0]), rest_not0], ignore_index=True)
-        # Producto cartesiano (todas las combinaciones posibles)
-        df_combinado = helpers.merge(feasible_not0, how='cross')
-        
-        # Filtramos en base a las rutas previamente provadas y no funcionales
-        df_combinado = df_combinado.merge(not_feasible, on=['agent_h', 'agent_d', 'todo_d'], how='left', indicator=True).query('_merge == "left_only"').drop(columns=['_merge'])
-
-        if df_combinado.empty:
-            print(f"SE HA REALIZADO UN NUEVO LOOP POR PROBLEMAS EN LA ASIGNACION (correction: {correction})")
-    
-    # Calculamos todas las convinaciones
-    responsability_matrix = resp_score_calculation(todolist_family, pop_building_unique, df_combinado, dependent)
-    
-    for depend in deleted_rest_not0['agent_d'].unique():
-        if depend in responsability_matrix['dependent'].unique():
-            continue
-        new_row = {
-            'agent_h': responsability_matrix['helper'].iloc[0],
-            'agent_d': depend,
-            'todo_d': deleted_rest_not0[deleted_rest_not0['agent_d'] == depend]['todo_d'].iloc[0]
-        }
-        
-        not_feasible = pd.concat([not_feasible, pd.DataFrame([new_row])], ignore_index=True)
-    
-    return responsability_matrix, not_feasible
 
 def load_filter_sort_reset(filepath):
     """
