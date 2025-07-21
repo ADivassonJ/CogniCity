@@ -7,7 +7,8 @@ import pandas as pd
 import networkx as nx
 from pathlib import Path
 from itertools import groupby
-
+import matplotlib.pyplot as plt
+import networkx as nx
 
 
 
@@ -118,7 +119,7 @@ def main():
             # Sumamos el vehiculo al vehicles_actions
             vehicles_actions = update_vehicles_actions(vehicles_actions, new_family_schedule, best_transport_distime_matrix, avail_vehicles)
             # Actualizamos la lista de vehiculos disponibles, para que el resto no tomen este
-            if not best_transport_distime_matrix['vehicle'].iloc[0] in ['walk', 'conb_public']:
+            if not best_transport_distime_matrix['vehicle'].iloc[0] in ['walk', 'UB_diesel']:
                 avail_vehicles.remove(best_transport_distime_matrix['vehicle'])
                 
     vehicles_actions.to_excel(f"{paths['results']}/{study_area}_vehicles_actions.xlsx", index=False)
@@ -206,7 +207,7 @@ def vehicle_chosing(vehicle_score_matrix):
     # Sacamos el transporte con menos score
     best_transport = simplified_df.loc[simplified_df['score'].idxmin()]
     # Sacamos del original walk y public transport
-    public_walk = vehicle_score_matrix[vehicle_score_matrix['vehicle'].isin(['walk', 'conb_public'])]
+    public_walk = vehicle_score_matrix[vehicle_score_matrix['vehicle'].isin(['walk', 'UB_diesel'])]
     # Índices de filas con mínimo score por trip
     idx = public_walk.groupby('trip')['score'].idxmin() 
     # Sacamos el score de elegir el minimo entre walk y public por cada trip (model split)
@@ -303,6 +304,50 @@ def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop
             node_1 = ox.distance.nearest_nodes(networks_map[f'{map_type}_map'], lon_1, lat_1)
             # Encuentra la ruta más corta entre poi_node y P_node
             route = ox.shortest_path(networks_map[f'{map_type}_map'], node_0, node_1, weight='length')
+            
+            if route is None:
+                print(f"step_0: {step_0}, step_1: {step_1}")
+                print(f"node_0: {node_0}, node_1: {node_1}")
+                if node_0 not in networks_map[f'{map_type}_map'].nodes:
+                    input("node_0 no existe")
+                if node_1 not in networks_map[f'{map_type}_map'].nodes:
+                    input("node_1 no existe")
+                if not nx.has_path(networks_map[f'{map_type}_map'], node_0, node_1):
+                    print("No hay camino entre los nodos")
+                    G = networks_map[f'{map_type}_map']
+
+                    pos = nx.get_node_attributes(G, 'pos')  # Asegúrate de que los nodos tengan atributo 'pos' (x, y)
+
+                    plt.figure(figsize=(10, 10))
+                    nx.draw(G, pos, node_size=10, node_color='lightgray', edge_color='gray', alpha=0.5)
+
+                    # Dibujar node_0 en rojo y node_1 en azul
+                    if node_0 in pos:
+                        nx.draw_networkx_nodes(G, pos, nodelist=[node_0], node_color='red', node_size=100, label='node_0')
+                    else:
+                        print("Advertencia: node_0 no tiene posición asignada")
+
+                    if node_1 in pos:
+                        nx.draw_networkx_nodes(G, pos, nodelist=[node_1], node_color='blue', node_size=100, label='node_1')
+                    else:
+                        print("Advertencia: node_1 no tiene posición asignada")
+
+                    plt.legend()
+                    plt.title(f"Mapa sin camino entre {node_0} y {node_1}")
+                    plt.axis("equal")
+                    plt.show()
+                    
+                    
+                    
+                    
+                input(f"node_0: {node_0}, node_1: {node_1}")
+                
+                # Maneja el error: puede ser que no haya camino disponible
+                distance = float('inf')  # o 0, o algún valor sentinela, según el contexto
+            else:
+                distance = nx.path_weight(networks_map[f'{map_type}_map'], route, weight="length") / 1000
+            
+            
             distance = nx.path_weight(networks_map[f'{map_type}_map'], route, weight="length")/1000
             
             past_dist_calculations = pd.concat([past_dist_calculations, pd.DataFrame([{'step': (step_0, step_1), 'map': map_type, 'km': distance}])], ignore_index=True)
@@ -325,7 +370,7 @@ def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop
             'wait_time': waiting_time,
             'cost': transport['Ekm']*distance if map_type == 'drive'and distance > 0 else 0,
             'benefits': benefits, 
-            'emissions': transport['COkm']*distance if map_type == 'drive'and distance > 0 else 0,
+            'emissions': transport['CO2km']*distance if map_type == 'drive'and distance > 0 else 0,
             }
         
         distime_matrix = pd.concat([distime_matrix, pd.DataFrame([new_row])], ignore_index=True)
@@ -384,6 +429,14 @@ def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_bui
 def find_p2(poi_B, transport, p2s, pop_building, networks_map):
     # Sacamos los datos de los posibles P
     available_P = pop_building[pop_building['archetype'] == p2s].copy()
+    # En caso de que no se detecte ningun POI available para actuar como P, se notifica al usuario #ISSUE 32
+    if available_P.empty:
+        print(f"Ha ocurrido un error. No se ha detectado el servicio '{p2s}' entre los disponibles en pop_building.")
+        print(f"Esto puede deberse a dos razones:")
+        print(f"    1. No hay ningun POI con esta etiqueta en el territorio de analisis.")
+        print(f"    2. Al generar la poblacion 'pop_archetypes_building' tenia la opción del servicio '{p2s}' deshabilitado.")
+        input(f"Revisa ambas opciones y vuelve a correr el codigo. Gracias.")
+    
     # Sacamos los datos del POI B
     poi_B_data = pop_building[pop_building['osm_id'] == poi_B].copy()
     # Cálculo vectorizado de distancia entre un punto fijo (poi_B_data) y todos los puntos en available_P
@@ -459,28 +512,29 @@ def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
         'ubication': citizen_data['Home'],
         'v': citizen_data['walk_speed'], # No es del citizen, si no del mas lento del grupo!!!! ISSUE 28
         'Ekm': 0,
-        'enkm': 0,
+        'mjkm': 0,
         'Emin': 0,
-        'COkm': 0,
+        'CO2km': 0,
         'SoC': 0,
     }
     # La añadimos al df de resultados
     avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([new_row])], ignore_index=True)
     ## Public transport
     # Sacamos las caracteristicas con valores estadisticos
-    variables = ['v', 'Ekm', 'enkm', 'Emin', 'COkm', 'SoC']
-    values = get_vehicle_stats('conb_public', pop_archetypes_transport, variables)
+    variables = ['v', 'Ekm', 'mjkm', 'Emin', 'CO2km', 'SoC']
+    values = get_vehicle_stats('UB_diesel', pop_archetypes_transport, variables)
+    
     # Creamos la nueva fila
     new_row = {
-        'name': 'conb_public',
-        'archetype': 'conb_public',
+        'name': 'UB_diesel',
+        'archetype': 'UB_diesel',
         'family': citizen_data['family'],
         'ubication': citizen_data['Home'], # ISSUE 29 esto deberia ser la parada de publico más cercana
         'v': values['v'],
         'Ekm': values['Ekm'],
-        'enkm': values['enkm'],
+        'mjkm': values['mjkm'],
         'Emin': values['Emin'],
-        'COkm': values['COkm'],
+        'CO2km': values['CO2km'],
         'SoC': values['SoC'],
     }
     # La añadimos al df de resultados
@@ -533,6 +587,8 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
     row = transport_archetypes[transport_archetypes['name'] == archetype]
     if row.empty:
         print(f"Strange mistake happend")
+        print(archetype)
+        input(transport_archetypes)
         return {}
 
     row = row.iloc[0]  # Extrae la primera (y única esperada) fila como Series

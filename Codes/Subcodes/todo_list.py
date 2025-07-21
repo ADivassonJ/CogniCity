@@ -1,26 +1,27 @@
 import os
 import sys
 import random
-import folium
-import itertools
 import osmnx as ox
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import networkx as nx
 from pathlib import Path
-import matplotlib.pyplot as plt 
-from folium.plugins import AntPath
-from geopy.distance import geodesic
-from collections import defaultdict
-from datetime import datetime, timedelta
-'''# Configura pandas para mostrar todo sin truncar
-pd.set_option('display.max_columns', None)  # muestra todas las columnas
-pd.set_option('display.max_rows', None)     # muestra todas las filas
-pd.set_option('display.width', None)        # desactiva el límite de ancho
-pd.set_option('display.max_colwidth', None) # no recorta contenido de celdas'''
 
-def todolist_family_initialization(pop_building, family_df, activities): # esta funcion necesita tambien relacion de familias y arquetipos
+
+def family_level_1_schedule(pop_building, family_df, activities):
+    """
+      Summary: Crea la version inicial de los schedules de cada familia (level 1), 
+    donde los agentes pueden realizar las actividades tal y como les apetezca, 
+    independiente de si son o no capaces de hacerlo sin ayuda.
+
+    Args:
+        pop_building (DataFrame): Describe la poblacion de EDIFICIOS disponible, junto a sus caracteristicas.
+        family_df (DataFrame): Describe las caracteristicas de cada agente CIUDADANO participe en una familia especifica.
+        activities (list): Describe las actividades diarias a acometer por los agentes.
+
+    Returns:
+        todolist_family (DataFrame): Descripcion de level 1 del daily schedule de los agentes.
+    """
     # No puede trabajarse sin ningun tipo de actividades asignadas
     if activities == []:
         activities = ['WoS', 'Dutties', 'Entertainment']
@@ -30,25 +31,25 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
     # Inicializamos el df en el que meteremos los schedules
     todolist_family = pd.DataFrame()
     # Pasamos por cada agente que constitulle la familia 
-    for idx_f_df, row_f_df in family_df.iterrows():             
+    for idx_f_df, row_f_df in family_df.iterrows(): 
+        # Vamos actividad por actividad            
         for activity in activities:
+            # Miramos si tenemos alguna cantidad de esta tarea a realizar (solo existe si la cantidad es != 1)
             try:
                 activity_amount = row_f_df[f'{activity}_amount']
             except Exception:
                 activity_amount = 1
-            
+            # Hacemos un loop para realizar la suma de tareas la X cantidad de veces necesaria
             for _ in range(int(activity_amount)):
-                
                 try:
                     # En caso de que el agente cuente ya con un edificio especifico para realizar la accion acude a él
                     osm_id = row_f_df[activity.split('_')[0]]
                 except Exception:
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
-                    # [Aqui habrá que meter una funcion de verdad, que valore en base a estadistica]                  
-                    available_options = pop_building[pop_building['archetype'] == activity]['osm_id'].tolist()
+                    available_options = pop_building[pop_building['archetype'] == activity]['osm_id'].tolist() # ISSUE 33
                     # Elegimos uno aleatorio del grupo de validos
-                    osm_id = random.choice(available_options)    
+                    osm_id = random.choice(available_options)
                 try:
                     # En caso de que el agente tenga una hora especifica de accceso y salida
                     fixed = row_f_df[f'{activity}_fixed'] != 1
@@ -62,17 +63,16 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
                     # En caso de que el agente NO tenga una hora especifica de accceso y salida
                     fixed = False
                     fixed_word = 'Service'
-                ## Sacamos los datos relevantes
+                # Los casos de work y home son distintos. En el documento a referenciar tienen etiquetas distintas a su nombre de actividad
                 if activity == 'WoS':
                     activity_re = 'work'
                 elif activity in ['Home_in', 'Home_out']:
                     activity_re = 'Home'
                 else:
                     activity_re = activity
-                
+                # Buscamos las horas de apertura y cierre del servicio/WoS
                 opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
                 closing = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
-
                 try:
                     # En caso de que el agente tenga un tiempo requerido de actividad
                     time2spend = int(row_f_df[f'{activity}_time'])
@@ -91,7 +91,7 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
                     in_time = 0
                     row_out = filtered[filtered['in'] == min(filtered['in'])]
                     out_time = row_out['in'].iloc[0] - row_out['conmutime'].iloc[0] # Mira al tiempo de entrada de la primera acción y le resta el tiempo de conmutación
-                    todo_type = 0 # No necesitan que nadie les acompañe, porqueempiezan el día ahí
+                    todo_type = 0 # No necesitan que nadie les acompañe, porque empiezan el día ahí
                 # El resto de acciones
                 else:
                     try:
@@ -134,9 +134,9 @@ def todolist_family_initialization(pop_building, family_df, activities): # esta 
     if (len(helpers) == 0) and (len(dependent) != 0):
         print(f"The family '{family_df['family'].iloc[0]}' has no responsables for its dependants. For LEVEL 2 analisys, we will consider their need somehow fulfilled, but it is an aproximation.")
         todolist_family['todo_type'] = 0
-    
+    # Ordenamos la schedule por hora de 'in' 
     todolist_family = todolist_family.sort_values(by='in', ascending=True).reset_index(drop=True)
-    
+    # Devolvemos el df de salida
     return todolist_family
 
 def time_adding(df_after_max, last_out):
@@ -556,7 +556,9 @@ def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):
             new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
     
     # Paso 1: Filtrar la fila deseada (como ya haces)
-    filtered_nnl = new_new_list[new_new_list['todo'] == 'Delivery']
+    filtered_nnl = new_new_list[new_new_list['todo'] == 'Delivery'] 
+    filtered_nnl = filtered_nnl.copy()
+    filtered_nnl['out'] = pd.to_numeric(filtered_nnl['out'], errors='coerce')
     filtered_nnl = filtered_nnl.loc[filtered_nnl.groupby(['agent'])['out'].idxmax()]
     filtered_nnl = filtered_nnl[filtered_nnl['agent'] == helper['agent'].iloc[0]]
     # Asegurarse de que solo hay una fila
@@ -608,24 +610,40 @@ def matrix2cover_creation(todolist_family, responsability_matrix):
     return matrix2cover, prev_matrix2cover
   
 
-def todolist_family_creation(df_citizens, pop_building):
+def todolist_family_creation(df_citizens, pop_building, system_management):
+    """
+    Summary: Esta funcion crea las daily schedule de los agentes, tanto de level 1 como de level 2
+
+    Args:
+        df_citizens (DataFrame): Describe la poblacion de CIUDADANOS disponible, junto a sus caracteristicas
+        pop_building (DataFrame): Describe la poblacion de EDIFIOS disponible, junto a sus caracteristicas
+        system_management (DataFrame): Describe caracteristicas principales del sistema
+
+    Returns:
+        level_1_results (DataFrame): daily schedule (level 1) de ciudadanos
+        level_2_results (DataFrame): daily schedule (level 2) de ciudadanos
+    """
+    
+    # Simplificamos la población de edificios, para tener datos basicos
     pop_building_unique = pop_building.drop_duplicates(subset='osm_id')
+    # Inicializamos los df de resultados
     level_1_results = pd.DataFrame()
     level_2_results = pd.DataFrame()
+    # Agrupamos la poblacion de ciudadanos en familias
     df_citizens_families = df_citizens.groupby('family')
-    # Recorrer cada familia
+    # Recorremos cada familia
     for family_name, family_df in tqdm(df_citizens_families, desc="Procesando familias"):
+        # Sacamos la lista de actividades del archivo system_management
+        activities = system_management['activities'].tolist()
+        # Filtrar elementos que no sean NaN
+        activities = [a for a in activities if pd.notna(a)]  
         # Creamos una lista de tareas con sus recorridos para cada agente de forma independiente
-        todolist_family = todolist_family_initialization(pop_building, family_df, [])  # Aqui el '[]' se debe meter los servicios a analizar (pueden ser 'WoS', 'Dutties' y/o 'Entertainment')
-                                                                                          # Deberiamos leerlo del doc de system management
+        todolist_family = family_level_1_schedule(pop_building, family_df, activities)
+        # Actualizamos el 'todolist_family_original' para guardarlo (en proximas actividades 'todolist_family' se actualizará).
         todolist_family_original = todolist_family
-        
-        '''print('LEVEL 1:')
-        print(todolist_family)'''
-        
+        # Sumamos los datos a la lista de resultados de level 1
         level_1_results = pd.concat([level_1_results, todolist_family], ignore_index=True).reset_index(drop=True)
-        
-        # Historial de actuaciones no compatibles
+        # Inicializamos historial de actuaciones no compatibles
         not_feasible = pd.DataFrame(columns=['agent_h', 'agent_d', 'todo_d'])
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         while max(todolist_family['todo_type']) > 0:
@@ -644,18 +662,10 @@ def todolist_family_creation(df_citizens, pop_building):
                 continue
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family)
-        
-        '''print('LEVEL 2')
-        print(todolist_family)'''
-        
+        # Sumamos los datos a la lista de resultados de level 1
         level_2_results = pd.concat([level_2_results, todolist_family], ignore_index=True).reset_index(drop=True)
-        
-        # plot_agents_in_split_map(todolist_family, pop_building, save_path="recorridos_todos.html")
-        
-        '''input("#"*120)'''
-    
+    # Devolvemos los resultados
     return level_1_results, level_2_results
-    
 
 # Función de distancia haversine
 def haversine(lat1, lon1, lat2, lon2):
@@ -879,7 +889,7 @@ def main_td():
     ##############################################################################
     print(f'docs readed')
     
-    level_1_results, level_2_results = todolist_family_creation(df_citizens, pop_building)
+    level_1_results, level_2_results = todolist_family_creation(df_citizens, pop_building, system_management)
     
     level_1_results.to_excel(f"{paths['results']}/{study_area}_level_1.xlsx", index=False)
     level_2_results.to_excel(f"{paths['results']}/{study_area}_level_2.xlsx", index=False)
