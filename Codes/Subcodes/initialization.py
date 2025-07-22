@@ -508,7 +508,7 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
         
         df_citizens = assign_data(list_citizen_variables, list_citizen_values, df_citizens, idx)
 
-        if df_citizens['WoS_action_type'][idx] == 1:
+        if df_citizens['WoS_fixed'][idx] == 1:
             WoS_id = random.choice(work_ids)
         else:
             WoS_id = random.choice(study_ids)

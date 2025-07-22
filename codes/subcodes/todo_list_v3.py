@@ -51,18 +51,13 @@ def create_family_level_1_schedule(pop_building, family_df, activities):
                     # Elegimos uno aleatorio del grupo de validos
                     osm_id = random.choice(available_options)
                 try:
-                    # En caso de que el agente tenga una hora especifica de accceso y salida
-                    fixed = row_f_df[f'{activity}_fixed'] != 1
-                    if fixed:
-                        # Si tienen algún tipo de dependencia, no van a ir a trabajar, si no a estudiar, por lo que usan el horario de servicio
-                        fixed_word = 'Service'
-                    else:
-                        # En caso de no depender es probable que vayan a trabajar, por lo que entrar en WoS
-                        fixed_word = 'WoS'
+                    # Si el agente tiene una hora de accion especifica fixed True, si no False
+                    fixed = True if row_f_df[f'{activity}_fixed'] == 1 else False
                 except Exception:
                     # En caso de que el agente NO tenga una hora especifica de accceso y salida
                     fixed = False
-                    fixed_word = 'Service'
+                # Si la actividad es el curro fixed sera WoS, si no Service 
+                fixed_word = 'WoS' if activity == 'WoS' else 'Service'
                 # Los casos de work y home son distintos. En el documento a referenciar tienen etiquetas distintas a su nombre de actividad
                 if activity == 'WoS':
                     activity_re = 'work'
@@ -654,6 +649,8 @@ def todolist_family_creation(df_citizens, pop_building, system_management):
     return level_1_schedule, level_2_schedule
 
 def create_family_level_2_schedule(pop_building, family_level_1_schedule):
+    # Inicializamos el df de resultados
+    family_level_2_schedule = pd.DataFrame()
     # Identificamos las actividades que requieren asistencia
     dependents = family_level_1_schedule[family_level_1_schedule['todo_type'] != 0]
     # Logramos los datos de los independents
@@ -665,14 +662,82 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
     # Calculamos las responsabilidades
     responsability_matrix = create_responsability_matrix(dependents, independents, pop_building, family_level_1_schedule)
     
+    ## Sacamos los schedule de los independents
+    # Sacamos los nombres de los independents
+    independents_names = independents['agent'].unique()
+    # Filtramos family_level_1_schedule
+    independents_schedule = family_level_1_schedule[family_level_1_schedule['agent'].isin(independents_names)]
+    
+    # Guardamos los datos en el df de resultado en dicho caso
+    new_rows =  independents_schedule[~independents_schedule['agent'].isin(responsability_matrix['agent_x'].unique())]
+    family_level_2_schedule = pd.concat([family_level_2_schedule, new_rows], ignore_index=True).reset_index(drop=True)
+    # Actualizamos 'independents_schedule' eliminando el agente non-helper
+    independents_schedule = independents_schedule[independents_schedule['agent'].isin(responsability_matrix['agent_x'].unique())]
+    
+    # Agrupamos por agent
+    independents_schedule = independents_schedule.groupby(['agent'])
+    # Actuamos sobre los independent
+    for _, independent_data in independents_schedule:
+        # Reseteamos el indice (just in case)
+        independent_data = independent_data.reset_index(drop=True)
+        
+        previous_actions = get_unaffected_actions(independent_data, family_level_1_schedule, responsability_matrix)
+        
+        input(independent_data)
+    
+    
+    """
     Adaptamos y usamos
     get_previous_action
     para guardar los datos no afectados en cada agente
+    """
+    
+    
     
     print('responsability_matrix')
     input(responsability_matrix)
     
     return family_level_2_schedule
+
+
+def get_unaffected_actions(independent_data, family_level_1_schedule, responsability_matrix):
+    
+    # Sacamos el nombre del helper
+    helper_name = independent_data['agent'].iloc[0]
+    # Sacamos las actuaciones del helper en la matriz de responsabilidades
+    helpers_responsabilities = responsability_matrix[responsability_matrix['agent_x'] == helper_name]
+    # Encontrar el valor mínimo de out_x
+    min_out_x = helpers_responsabilities['out_x'].min()
+    # Crear nueva lista sin el que tiene ese valor mínimo y reseteamos el indice (just in case)
+    first_help = helpers_responsabilities[helpers_responsabilities['out_x'] == min_out_x].reset_index(drop=True)
+    prev_action, idx = get_previous_action(independent_data, first_help['agent_x'].iloc[0], first_help['in_x'].iloc[0])
+    # Evaluamos si la actividad previa sera o no afectada (si ningún agente que requiere asistencia en esta primera accion es tipo fixed
+    # el helper puede ayudar a los dependents cuando sea necesario, es decir, que los dependents pueden esperar a que el helper acabe su
+    # actividad previa).
+    if not first_help['fixed_y'].any() and prev_action['todo'] != 'Entertainment':
+        # Si el previo es idx, el actual será idx+1
+        idx += 1
+    # Retiramos la accion anterior, porque igaul tiene que salir antes de lo que estubiese haciendo (se observará en la siguiente uncion, no en esta)
+    unaffected_actions = independent_data.loc[:idx-1].copy()
+    # Sacamos las lineas afectadas por las asistencias (tecnicamente, la .iloc[0] aun no sabemos si esta o no afectada)
+    affected_actions = independent_data.loc[idx:].copy()
+    
+    
+    print(family_level_1_schedule)
+    print(f" first_help:\ntodo_x: {first_help['todo_x'].iloc[0]}, todo_y: {first_help['todo_y'].iloc[0]}, todo_type_y: {first_help['fixed_y'].unique()}")
+    print(independent_data)
+    print(unaffected_actions)
+    input(affected_actions)
+    
+    # Devolvemos los datos que no seran y los que si serán afectados por las actividades de asistencia
+    return unaffected_actions, affected_actions
+    
+
+    
+
+
+
+
 
 def create_responsability_matrix(dependents, independents, pop_building, family_level_1_schedule):
     # Inicializamos el df de mejores opciones porposible helper
