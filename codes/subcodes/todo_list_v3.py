@@ -680,10 +680,14 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
     for _, independent_data in independents_schedule:
         # Reseteamos el indice (just in case)
         independent_data = independent_data.reset_index(drop=True)
+        # Sacamos las partes afectadas y no afectadas
+        unaffected_actions, affected_actions = get_unaffected_actions(independent_data, family_level_1_schedule, responsability_matrix)
+        # La no afectada la guardamos en el 'family_level_2_schedule'
         
-        previous_actions = get_unaffected_actions(independent_data, family_level_1_schedule, responsability_matrix)
+        family_level_2_schedule
         
-        input(independent_data)
+        print(unaffected_actions)
+        input(affected_actions)
     
     
     """
@@ -706,9 +710,10 @@ def get_unaffected_actions(independent_data, family_level_1_schedule, responsabi
     helper_name = independent_data['agent'].iloc[0]
     # Sacamos las actuaciones del helper en la matriz de responsabilidades
     helpers_responsabilities = responsability_matrix[responsability_matrix['agent_x'] == helper_name]
+    
     # Encontrar el valor mínimo de out_x
     min_out_x = helpers_responsabilities['out_x'].min()
-    # Crear nueva lista sin el que tiene ese valor mínimo y reseteamos el indice (just in case)
+    # Crear nueva lista con el que tiene ese valor mínimo y reseteamos el indice (just in case)
     first_help = helpers_responsabilities[helpers_responsabilities['out_x'] == min_out_x].reset_index(drop=True)
     prev_action, idx = get_previous_action(independent_data, first_help['agent_x'].iloc[0], first_help['in_x'].iloc[0])
     # Evaluamos si la actividad previa sera o no afectada (si ningún agente que requiere asistencia en esta primera accion es tipo fixed
@@ -722,12 +727,25 @@ def get_unaffected_actions(independent_data, family_level_1_schedule, responsabi
     # Sacamos las lineas afectadas por las asistencias (tecnicamente, la .iloc[0] aun no sabemos si esta o no afectada)
     affected_actions = independent_data.loc[idx:].copy()
     
+    for idx_ind, row in first_help.iterrows():
+        
+        BUENAS!
+        Estoy haciendo para que me mire los no afectados de los dependenst tambien :)
+        Chao!
+        Asier
     
-    print(family_level_1_schedule)
-    print(f" first_help:\ntodo_x: {first_help['todo_x'].iloc[0]}, todo_y: {first_help['todo_y'].iloc[0]}, todo_type_y: {first_help['fixed_y'].unique()}")
-    print(independent_data)
-    print(unaffected_actions)
-    input(affected_actions)
+        prev_action, idx = get_previous_action(family_level_1_schedule, row['agent_x'], row['in_x'])
+        # Evaluamos si la actividad previa sera o no afectada (si ningún agente que requiere asistencia en esta primera accion es tipo fixed
+        # el helper puede ayudar a los dependents cuando sea necesario, es decir, que los dependents pueden esperar a que el helper acabe su
+        # actividad previa).
+        if not first_help['fixed_y'].any() and prev_action['todo'] != 'Entertainment':
+            # Si el previo es idx, el actual será idx+1
+            idx += 1
+        # Retiramos la accion anterior, porque igaul tiene que salir antes de lo que estubiese haciendo (se observará en la siguiente uncion, no en esta)
+        unaffected_actions = independent_data.loc[:idx-1].copy()
+        # Sacamos las lineas afectadas por las asistencias (tecnicamente, la .iloc[0] aun no sabemos si esta o no afectada)
+        affected_actions = independent_data.loc[idx:].copy()
+    
     
     # Devolvemos los datos que no seran y los que si serán afectados por las actividades de asistencia
     return unaffected_actions, affected_actions
