@@ -662,32 +662,75 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
     # Calculamos las responsabilidades
     responsability_matrix = create_responsability_matrix(dependents, independents, pop_building, family_level_1_schedule)
     
-    ## Sacamos los schedule de los independents
-    # Sacamos los nombres de los independents
-    independents_names = independents['agent'].unique()
-    # Filtramos family_level_1_schedule
-    independents_schedule = family_level_1_schedule[family_level_1_schedule['agent'].isin(independents_names)]
-    
-    # Guardamos los datos en el df de resultado en dicho caso
-    new_rows =  independents_schedule[~independents_schedule['agent'].isin(responsability_matrix['agent_x'].unique())]
+    ### Simplificamos los df de trabajo
+    ## Quitamos los non-helpin independents 
+    # Sacamos los schedule de los independents non-helpers
+    new_rows, independents_schedule =  non_helpers(independents, family_level_1_schedule, responsability_matrix)
+    # Como no van a molestar, los copiamos en el final
     family_level_2_schedule = pd.concat([family_level_2_schedule, new_rows], ignore_index=True).reset_index(drop=True)
-    # Actualizamos 'independents_schedule' eliminando el agente non-helper
-    independents_schedule = independents_schedule[independents_schedule['agent'].isin(responsability_matrix['agent_x'].unique())]
     
-    # Agrupamos por agent
-    independents_schedule = independents_schedule.groupby(['agent'])
-    # Actuamos sobre los independent
-    for _, independent_data in independents_schedule:
-        # Reseteamos el indice (just in case)
-        independent_data = independent_data.reset_index(drop=True)
-        # Sacamos las partes afectadas y no afectadas
-        unaffected_actions, affected_actions = get_unaffected_actions(independent_data, family_level_1_schedule, responsability_matrix)
-        # La no afectada la guardamos en el 'family_level_2_schedule'
+    """ No se si me convence, igual es mejor hacerlo al final, rollo cubrir huecos en comparacion de las actividades realizadas en level 1 con las de level 2
+    ## Quitamos las secciones unnafected
+    new_rows, affected_actions = get_unaffected_actions(family_level_1_schedule, responsability_matrix)
+    # Como no van a molestar, los copiamos en el final
+    family_level_2_schedule = pd.concat([family_level_2_schedule, new_rows], ignore_index=True).reset_index(drop=True)
+    """
+    
+    
+    
+    # Agrupamos por ['agent_x', 'todo_x', 'osm_id_x'] para ver si el mismo agente recoge a mas de una persona
+    grouped_responsability_matrix = responsability_matrix.groupby(['agent_x', 'todo_x', 'osm_id_x'])
+    # Paso 1: Crear un DataFrame con un valor 'out_x' representativo por grupo
+    group_keys_with_out = responsability_matrix.groupby(['agent_x', 'todo_x', 'osm_id_x'])['out_x'].first().reset_index()
+    # Paso 2: Ordenar esos grupos por 'out_x'
+    group_keys_with_out_sorted = group_keys_with_out.sort_values('out_x')
+    # Paso 3: Recorrer los grupos en ese orden
+    for _, row in group_keys_with_out_sorted.iterrows():
+        # Recuperamos los datos 
+        key = (row['agent_x'], row['todo_x'], row['osm_id_x'])
+        df_grm = grouped_responsability_matrix.get_group(key)
         
-        family_level_2_schedule
         
-        print(unaffected_actions)
-        input(affected_actions)
+        
+                
+        ### Recogida
+        
+        
+        
+        # Creamos el df 'data' que nos da info relevante de los agentes
+        data = data_creation(df_grm)
+        # Inicializamos el df de actividad previa
+        previous_actions = pd.DataFrame()
+        # Miramos los agentes
+        for _, row_data in data.iterrows():
+            # Sacamos su previa actividad
+            new_row, _ = get_previous_action(family_level_1_schedule, row_data['agent'], row_data['in'])
+            # La guardamos
+            previous_actions = pd.concat([previous_actions, pd.DataFrame([new_row])], ignore_index=True).reset_index(drop=True)
+        # Sacamos los nombres 
+        helper_name= df_grm['agent_x'].unique()
+        # Sacamos el data del prev
+        prev_data = prev_data_creation(previous_actions, helper_name)
+        # Adaptamos el schedule de los agentes implicados
+        new_schedule = schedule_adaptation(prev_data, data)
+        
+        
+        
+        
+        
+        
+        # Reparto
+        
+        # Sacamos el último in
+        row_max_in = df_grm.loc[[df_grm['in_y'].idxmax()]].iloc[0]
+        
+        input(row_max_in['agent_x'])
+        
+        # La primera fila se cumple igual, por lo que se saca del 'family_level_1_schedule'
+        copuie=family_level_1_schedule[(family_level_1_schedule['agent']==row_max_in['agent_y']) &
+                                (family_level_1_schedule['todo']==row_max_in['todo_y']) &
+                                (family_level_1_schedule['in']==row_max_in['in_y'])]
+        input(copuie)
     
     
     """
@@ -698,43 +741,173 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
     
     
     
-    print('responsability_matrix')
-    input(responsability_matrix)
     
     return family_level_2_schedule
 
 
-def get_unaffected_actions(independent_data, family_level_1_schedule, responsability_matrix):
+def prev_data_creation(previous_actions, helper_name):
+    # Sacamos los datos del helper
+    new_row_data = previous_actions[previous_actions['agent'].isin(helper_name)].iloc[0]
+    # Creamos el df de los resultados
+    prev_data = [{
+        'agent': new_row_data['agent'],
+        'type': 'helper',
+        'fixed': new_row_data['fixed'],
+        'time2spend': new_row_data['time2spend'],
+        'in': new_row_data['in'],
+        'out': new_row_data['out'],
+        'osm_id': new_row_data['osm_id'],
+        'conmutime': new_row_data['conmutime'],
+    }]
+    # Convertimos prev_data en df
+    prev_data = pd.DataFrame(prev_data)
+    # Sacamos los datos del helper
+    new_row_data = previous_actions[~previous_actions['agent'].isin(helper_name)]
+    # Sumamos todos los datos
+    for _, row in new_row_data.iterrows():
+        new_row = [{
+            'agent': row['agent'],
+            'type': 'dependent',
+            'fixed': row['fixed'],
+            'time2spend': row['time2spend'],
+            'in': row['in'],
+            'out': row['out'],
+            'osm_id': row['osm_id'],
+            'conmutime': row['conmutime'],
+        }]
+        prev_data = pd.concat([prev_data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
+    return prev_data
+
+
+def data_creation(df_grm):
+    # Sacamos la lista de los nombres de los agentes participantes en esta accion
+    data_names = np.unique(np.concatenate([df_grm['agent_x'].unique(), df_grm['agent_y'].unique()]))
+    # Inicializamos el df de data
+    data = pd.DataFrame()
+    # Creamos el df 'data' 
+    for agent in data_names:
+        if agent in df_grm['agent_x'].unique():
+            new_row = [{
+                'agent': df_grm['agent_x'].iloc[0],
+                'type': 'helper',
+                'fixed': df_grm['fixed_x'].iloc[0],
+                'time2spend': df_grm['time2spend_x'].iloc[0],
+                'in': df_grm['in_x'].iloc[0],
+                'out': df_grm['out_x'].iloc[0],
+                'osm_id': df_grm['osm_id_x'].iloc[0],
+                'conmutime': df_grm['conmutime_x'].iloc[0],
+            }]
+            data = pd.concat([data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
+        else:
+            info_row = df_grm[df_grm['agent_y']==agent]
+            new_row = [{
+                'agent': info_row['agent_y'].iloc[0],
+                'type': 'dependent',
+                'fixed': info_row['fixed_y'].iloc[0],
+                'time2spend': info_row['time2spend_y'].iloc[0],
+                'in': info_row['in_y'].iloc[0],
+                'out': info_row['out_y'].iloc[0],
+                'osm_id': info_row['osm_id_y'].iloc[0],
+                'conmutime': info_row['conmutime_y'].iloc[0],
+            }]
+            data = pd.concat([data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
+    # Devolvemos data como resultado
+    return data
+
+
+
+
+
+
+
+
+
+
+
+
+def schedule_adaptation(prev_data, data):
+    # Realizamos el delivery de los agentes por parte del helper
+    delivery_schedule = delivery(prev_data, data)
+    # Realizamos el collection de los agentes por parte del helper
+    collection_schedule = collection(collection_schedule, data)
+    # Sumamos ambas matrices
+    new_schedule = pd.concat([collection_schedule, delivery_schedule], ignore_index=True).reset_index(drop=True)
+    # Devolvemos el resultado
+    return new_schedule
+
+def collection(prev_data, data):
+    1. Asignamos conmutimes			
+    helper	510	990	26
+    dependent	480	900	26
+    dependent	540	900	26
+    dependent	560	900	26
+
+    2. Ordenamos y quitamos helper			
+                
+    dependent	480	900	26
+    dependent	540	900	26
+    dependent	560	900	26
+
+    3. Calculamos tiempos						
+    dependent	480	900	26	480
+    dependent	540	900	26	60
+    dependent	560	900	26	20
+
+    4. Verificamos que es posible							
+    dependent	480	900	26	454	True
+    dependent	540	900	26	34	True
+    dependent	560	900	26	-6	False
+
+    5. Corregimos	(si hay fallos)	                          
+    dependent	480	900	26	454	True		480	900	26	454
+    dependent	540	900	26	34	True		534	900	26	28
+    dependent	560	900	26	-6	False		560	900	26	0
+
+    7. Calculamos los verdaderos 'in'				
+    454	900	26	454
+    508	900	26	28
+    560	900	26	0
+
+    8. Añadimos el helper			
+            508		
+            534		
+            560		
+    helper	586		26
+
     
-    # Sacamos el nombre del helper
-    helper_name = independent_data['agent'].iloc[0]
-    # Sacamos las actuaciones del helper en la matriz de responsabilidades
-    helpers_responsabilities = responsability_matrix[responsability_matrix['agent_x'] == helper_name]
+    return collection_schedule
     
-    # Encontrar el valor mínimo de out_x
-    min_out_x = helpers_responsabilities['out_x'].min()
-    # Crear nueva lista con el que tiene ese valor mínimo y reseteamos el indice (just in case)
-    first_help = helpers_responsabilities[helpers_responsabilities['out_x'] == min_out_x].reset_index(drop=True)
-    prev_action, idx = get_previous_action(independent_data, first_help['agent_x'].iloc[0], first_help['in_x'].iloc[0])
-    # Evaluamos si la actividad previa sera o no afectada (si ningún agente que requiere asistencia en esta primera accion es tipo fixed
-    # el helper puede ayudar a los dependents cuando sea necesario, es decir, que los dependents pueden esperar a que el helper acabe su
-    # actividad previa).
-    if not first_help['fixed_y'].any() and prev_action['todo'] != 'Entertainment':
-        # Si el previo es idx, el actual será idx+1
-        idx += 1
-    # Retiramos la accion anterior, porque igaul tiene que salir antes de lo que estubiese haciendo (se observará en la siguiente uncion, no en esta)
-    unaffected_actions = independent_data.loc[:idx-1].copy()
-    # Sacamos las lineas afectadas por las asistencias (tecnicamente, la .iloc[0] aun no sabemos si esta o no afectada)
-    affected_actions = independent_data.loc[idx:].copy()
+def non_helpers(independents, family_level_1_schedule, responsability_matrix):   
+    # Sacamos los nombres de los independents
+    independents_names = independents['agent'].unique()
+    # Filtramos family_level_1_schedule
+    independents_schedule = family_level_1_schedule[family_level_1_schedule['agent'].isin(independents_names)]
+    # Guardamos los datos en el df de resultado en dicho caso
+    new_rows =  independents_schedule[~independents_schedule['agent'].isin(responsability_matrix['agent_x'].unique())]
+    # Actualizamos 'independents_schedule' eliminando el agente non-helper
+    independents_schedule = independents_schedule[independents_schedule['agent'].isin(responsability_matrix['agent_x'].unique())]
+    # Devolvemos las nuevas filas y 'independents_schedule' actualizado
+    return new_rows, independents_schedule
+
+def get_unaffected_actions(family_level_1_schedule, responsability_matrix):
+    # Inicializamos los df de resultados
+    all_unaffected_actions = pd.DataFrame()
+    all_affected_actions = pd.DataFrame()
+    # Sacamos los nombres de los independent agent
+    indep_agents = responsability_matrix['agent_x'].unique()
+    # Sacamos los nombres de los dependent agent
+    depend_agents = responsability_matrix['agent_y'].unique()
     
-    for idx_ind, row in first_help.iterrows():
-        
-        BUENAS!
-        Estoy haciendo para que me mire los no afectados de los dependenst tambien :)
-        Chao!
-        Asier
-    
-        prev_action, idx = get_previous_action(family_level_1_schedule, row['agent_x'], row['in_x'])
+    for indep in indep_agents:
+        # Sacamos las reposnability matrix del agente de analisis
+        helper_responsabilities = responsability_matrix[responsability_matrix['agent_x'] == indep]
+        # Sacamos tambien la schedule del agente
+        helper_schedule = family_level_1_schedule[family_level_1_schedule['agent'] == indep]
+        # Encontrar el valor mínimo de out_x
+        min_out_x = helper_responsabilities['out_x'].min()
+        # Crear nueva lista con el que tiene ese valor mínimo y reseteamos el indice (just in case)
+        first_help = helper_responsabilities[helper_responsabilities['out_x'] == min_out_x].reset_index(drop=True)
+        prev_action, idx = get_previous_action(helper_schedule, first_help['agent_x'].iloc[0], first_help['in_x'].iloc[0])
         # Evaluamos si la actividad previa sera o no afectada (si ningún agente que requiere asistencia en esta primera accion es tipo fixed
         # el helper puede ayudar a los dependents cuando sea necesario, es decir, que los dependents pueden esperar a que el helper acabe su
         # actividad previa).
@@ -742,13 +915,16 @@ def get_unaffected_actions(independent_data, family_level_1_schedule, responsabi
             # Si el previo es idx, el actual será idx+1
             idx += 1
         # Retiramos la accion anterior, porque igaul tiene que salir antes de lo que estubiese haciendo (se observará en la siguiente uncion, no en esta)
-        unaffected_actions = independent_data.loc[:idx-1].copy()
+        unaffected_actions = helper_schedule.loc[:idx-1].copy()
+        # Lo sumamos al total
+        all_unaffected_actions = pd.concat([all_unaffected_actions, unaffected_actions], ignore_index=True).reset_index(drop=True)
         # Sacamos las lineas afectadas por las asistencias (tecnicamente, la .iloc[0] aun no sabemos si esta o no afectada)
-        affected_actions = independent_data.loc[idx:].copy()
-    
-    
+        affected_actions = helper_schedule.loc[idx:].copy()   
+        # Lo sumamos al total
+        all_affected_actions = pd.concat([all_affected_actions, affected_actions], ignore_index=True).reset_index(drop=True)
+        
     # Devolvemos los datos que no seran y los que si serán afectados por las actividades de asistencia
-    return unaffected_actions, affected_actions
+    return all_unaffected_actions, all_affected_actions
     
 
     
@@ -788,12 +964,7 @@ def create_responsability_matrix(dependents, independents, pop_building, family_
         for cart_n, cart in best_helpers_activity:
             # Si un independent ayuda dos veces a un mismo dependent, significa que se da el caso de la espera mazo larga
             if cart['agent_y'].duplicated().any():
-                
-                cartesian_filtered.to_excel(f"C:/Users/asier.divasson/Documents/GitHub/CogniCity/results/cartesian_filtered.xlsx", index=False)
-                cart.to_excel(f"C:/Users/asier.divasson/Documents/GitHub/CogniCity/results/cart.xlsx", index=False)
-                print('cart.xlsx and cartesian_filtered.xlsx created')
-                input('duplicated found')
-                
+                print(F"\nSe ha detectado que una misma actividad tenia más de una actividad para el mismo agente y se ha cambiado")
                 # Identificar los índices de los valores mínimos por cada grupo duplicado de 'agent_y'
                 idx_to_drop = cart.loc[cart.duplicated('agent_y', keep=False)].groupby('agent_y')['in_y'].idxmin()
                 # Eliminar esos índices del DataFrame
@@ -803,7 +974,6 @@ def create_responsability_matrix(dependents, independents, pop_building, family_
                 # Eliminamos el caso del 'cartesian' para no volver a sufrir el mismo problema
                 cartesian = pd.concat([cartesian, cart]).drop_duplicates(keep=False).reset_index(drop=True)
                 break
-
     # Devolvemos la matrix
     return cartesian_filtered
 
