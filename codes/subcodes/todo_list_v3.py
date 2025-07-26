@@ -712,7 +712,7 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
         # Sacamos el data del prev
         prev_data = prev_data_creation(previous_actions, helper_name)
         # Adaptamos el schedule de los agentes implicados
-        new_schedule = schedule_adaptation(prev_data, data)
+        new_schedule = schedule_adaptation(prev_data, data, family_level_1_schedule)
         
         
         
@@ -757,6 +757,7 @@ def prev_data_creation(previous_actions, helper_name):
         'in': new_row_data['in'],
         'out': new_row_data['out'],
         'osm_id': new_row_data['osm_id'],
+        'todo': new_row_data['todo'],
         'conmutime': new_row_data['conmutime'],
     }]
     # Convertimos prev_data en df
@@ -773,6 +774,7 @@ def prev_data_creation(previous_actions, helper_name):
             'in': row['in'],
             'out': row['out'],
             'osm_id': row['osm_id'],
+            'todo': row['todo'],
             'conmutime': row['conmutime'],
         }]
         prev_data = pd.concat([prev_data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
@@ -795,6 +797,7 @@ def data_creation(df_grm):
                 'in': df_grm['in_x'].iloc[0],
                 'out': df_grm['out_x'].iloc[0],
                 'osm_id': df_grm['osm_id_x'].iloc[0],
+                'todo': df_grm['todo_x'].iloc[0],
                 'conmutime': df_grm['conmutime_x'].iloc[0],
             }]
             data = pd.concat([data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
@@ -808,6 +811,7 @@ def data_creation(df_grm):
                 'in': info_row['in_y'].iloc[0],
                 'out': info_row['out_y'].iloc[0],
                 'osm_id': info_row['osm_id_y'].iloc[0],
+                'todo': info_row['todo_y'].iloc[0],
                 'conmutime': info_row['conmutime_y'].iloc[0],
             }]
             data = pd.concat([data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
@@ -825,9 +829,9 @@ def data_creation(df_grm):
 
 
 
-def schedule_adaptation(prev_data, data):
+def schedule_adaptation(prev_data, data, family_level_1_schedule):
     # Realizamos el delivery de los agentes por parte del helper
-    delivery_schedule = delivery(prev_data, data)
+    delivery_schedule = delivery(prev_data, data, family_level_1_schedule)
     # Realizamos el collection de los agentes por parte del helper
     collection_schedule = collection(collection_schedule, data)
     # Sumamos ambas matrices
@@ -835,48 +839,97 @@ def schedule_adaptation(prev_data, data):
     # Devolvemos el resultado
     return new_schedule
 
-def collection(prev_data, data):
-    1. Asignamos conmutimes			
-    helper	510	990	26
-    dependent	480	900	26
-    dependent	540	900	26
-    dependent	560	900	26
+def delivery(prev_data, data, family_level_1_schedule):
+    
+    # Ordenamos la lista y asignamos conmutimes adecuados a las interacciones por grupo
+    data = comnutime_assignment(data)
+    # Adaptamos los 'in' para que los agentes llegen a tiempo (o antes de tiempo, pero no tarde)
+    data = in_times_calculation(data)
+    
+    delivery_schedule = delivery_schedule_creation(data, family_level_1_schedule)
+    
+    return delivery_schedule
 
-    2. Ordenamos y quitamos helper			
+
+def delivery_schedule_creation(data, family_level_1_schedule):
+    
+    Vale, pues ahora toca sacar los datos del familischedule level 1
+    y cambiar sus in y outs
+    
+    Yeeeiii!!
+    
+    
+    print(f"\n{data}")
+    input(family_level_1_schedule)
+    
+    
+    
+
+def in_times_calculation(data):
+    # El resto del DataFrame, sin la fila 'helper'
+    other_rows = data[data['type'] != 'helper'].sort_values(by='in', ascending=False).reset_index(drop=True)
+    
+    df = pd.DataFrame()
+    
+    for idx, row in other_rows.iterrows():
+        
+        
+        in_v = row['in']
+        if idx == 0:
+            rin_v = in_v
+        else:
+            rin_v = last_in_v - row['conmutime']
+        
+        last_in_v = rin_v
                 
-    dependent	480	900	26
-    dependent	540	900	26
-    dependent	560	900	26
+        diff_v = in_v - rin_v
+        
+        new_row = [{
+            'agent': row['agent'],
+            'in': in_v,
+            'rin': rin_v,
+            'diff': diff_v,
+        }]
 
-    3. Calculamos tiempos						
-    dependent	480	900	26	480
-    dependent	540	900	26	60
-    dependent	560	900	26	20
-
-    4. Verificamos que es posible							
-    dependent	480	900	26	454	True
-    dependent	540	900	26	34	True
-    dependent	560	900	26	-6	False
-
-    5. Corregimos	(si hay fallos)	                          
-    dependent	480	900	26	454	True		480	900	26	454
-    dependent	540	900	26	34	True		534	900	26	28
-    dependent	560	900	26	-6	False		560	900	26	0
-
-    7. Calculamos los verdaderos 'in'				
-    454	900	26	454
-    508	900	26	28
-    560	900	26	0
-
-    8. Añadimos el helper			
-            508		
-            534		
-            560		
-    helper	586		26
-
+        df = pd.concat([df, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
     
-    return collection_schedule
+    df['rin'] = df['rin'] + df['diff'].min() if df['diff'].min() < 0 else 0
     
+    # Hacemos merge para incorporar la columna 'rin' desde df al DataFrame other_rows
+    other_rows_updated = other_rows.merge(df[['agent', 'in', 'rin']], on=['agent', 'in'], how='left')
+    # Sustituimos 'in' por 'rin' donde exista
+    other_rows_updated['in'] = other_rows_updated['rin'].combine_first(other_rows_updated['in'])
+    # Eliminamos la columna 'rin' si ya no la necesitamos
+    other_rows_updated = other_rows_updated.drop(columns=['rin']).sort_values(by='in', ascending=True).reset_index(drop=True)
+    
+    helper_row = data[data['type'] == 'helper'].copy()
+    helper_row['in'] = other_rows_updated['in'].max() + helper_row['conmutime']
+    
+    data = pd.concat([other_rows_updated, helper_row], ignore_index=True).reset_index(drop=True)
+    
+    return data
+    
+    
+
+
+def comnutime_assignment(data):
+    ## Ordenamos para poder trabajar
+    # Separar la fila que contiene 'helper'
+    helper_row = data[data['type'] == 'helper']
+    # El resto del DataFrame, sin la fila 'helper'
+    other_rows = data[data['type'] != 'helper'].sort_values(by='in')
+    # Concatenar: primero la fila 'helper', luego el resto
+    data_sorted = pd.concat([other_rows,helper_row], ignore_index=True).reset_index(drop=True)
+    
+    ## Asignamos los tiempos de conmutacion maximo por recorrido
+    for idx in range(len(data_sorted)):
+        max_from_idx = data_sorted['conmutime'].iloc[idx:].max()
+        data_sorted.loc[idx, 'conmutime'] = max_from_idx
+    
+    # Devolvemos el df con los conmutime bien
+    return data_sorted    
+
+
 def non_helpers(independents, family_level_1_schedule, responsability_matrix):   
     # Sacamos los nombres de los independents
     independents_names = independents['agent'].unique()
