@@ -662,6 +662,9 @@ def todolist_family_creation(df_citizens, pop_building, system_management):
                 continue
             # Tras esto, la matriz todo de esta familia es adaptada a las responsabilidades asignadas
             todolist_family = todolist_family_adaptation(responsability_matrix, todolist_family)
+        print(f"\ntodolist_family")
+        input(todolist_family)    
+        
         # Sumamos los datos a la lista de resultados de level 1
         level_2_results = pd.concat([level_2_results, todolist_family], ignore_index=True).reset_index(drop=True)
     # Devolvemos los resultados

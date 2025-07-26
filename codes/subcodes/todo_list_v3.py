@@ -833,92 +833,209 @@ def schedule_adaptation(prev_data, data, family_level_1_schedule):
     # Realizamos el delivery de los agentes por parte del helper
     delivery_schedule = delivery(prev_data, data, family_level_1_schedule)
     # Realizamos el collection de los agentes por parte del helper
-    collection_schedule = collection(collection_schedule, data)
+    collection_schedule = collection(delivery_schedule, prev_data, family_level_1_schedule)
     # Sumamos ambas matrices
     new_schedule = pd.concat([collection_schedule, delivery_schedule], ignore_index=True).reset_index(drop=True)
     # Devolvemos el resultado
     return new_schedule
 
-def delivery(prev_data, data, family_level_1_schedule):
-    
+def collection(delivery_schedule, prev_data, family_level_1_schedule):
     # Ordenamos la lista y asignamos conmutimes adecuados a las interacciones por grupo
-    data = comnutime_assignment(data)
+    prev_data = comnutime_assignment(prev_data, 'collection')   
     # Adaptamos los 'in' para que los agentes llegen a tiempo (o antes de tiempo, pero no tarde)
-    data = in_times_calculation(data)
+    prev_data = action_times_calculation(prev_data, 'collection', delivery_schedule)
+    # Adaptamos family_level_1_schedule para las necesidades de collection
+    collection_schedule = collection_schedule_creation(prev_data, family_level_1_schedule)
+    return collection_schedule
+
+def action_times_calculation(data, action, schedule):
+    # Evaluamos el tipo de accion a acometer y asignamos el 'word' en base a esto
+    if action == 'delivery':
+        word = 'in'
+        order = False
+    else:
+        word = 'out'
+        order = True
+    # El resto del DataFrame, sin la fila 'helper' y lo ordenamos
+    other_rows = data[data['type'] != 'helper'].sort_values(by=word, ascending=order).reset_index(drop=True)    
     
+    Estamos trabajando en esto
+    
+    POIs2go = other_rows.groupby(['osm_id'])
+    
+    for _, POI_data in POIs2go:
+    
+    # Inicializamos el df de resultados
+    df = pd.DataFrame()
+    # Pasamos por todas las filas de datos relativos a dependents
+    for idx, row in other_rows.iterrows():
+        # Asignamos el valor real de word
+        in_v = row[word]        
+        # Si es el primer caso (el que deberia provocar dependencias en el resto)
+        if idx == 0:
+            # Mantenemos igual el in
+            rin_v = in_v
+        else:
+            # Adaptamos a lo que antes teniamos menos el tiempo de conmutacion
+            if action == 'delivery':
+                rin_v = last_in_v - row['conmutime']
+            else:
+                rin_v = last_in_v + row['conmutime']
+        # Actualizamos el valor historico de rin
+        last_in_v = rin_v
+        # Calculamos la diferrencia entre intencio y real
+        diff_v = in_v - rin_v
+        # Creamos la nueva linea
+        new_row = [{
+            'agent': row['agent'],
+            word: in_v,
+            f'r{word}': rin_v,
+            'diff': diff_v,
+        }]
+        # Añadimos la nueva fila
+        df = pd.concat([df, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)    
+    # Recalculamos el in de cada accion
+    if action == 'delivery':
+        df[f'r{word}'] = df[f'r{word}'] + (df['diff'].min() if df['diff'].min() < 0 else 0)
+    else:
+        df[f'r{word}'] = df[f'r{word}'] - (df['diff'].min() if df['diff'].min() < 0 else 0)        
+    # Hacemos merge para incorporar la columna f'r{word}' desde df al DataFrame other_rows
+    other_rows_updated = other_rows.merge(df[['agent', word, f'r{word}']], on=['agent', word], how='left')
+    # Sustituimos word por f'r{word}' donde exista
+    other_rows_updated[word] = other_rows_updated[f'r{word}'].combine_first(other_rows_updated[word])
+    # Eliminamos la columna f'r{word}' si ya no la necesitamos
+    other_rows_updated = other_rows_updated.drop(columns=[f'r{word}']).reset_index(drop=True)
+    # Sacamos los datos de helper
+    helper_row = data[data['type'] == 'helper'].copy()
+    # Actualizamos su in (deberá ser despues de llevar a todos los agentes)
+    if action == 'delivery':
+        helper_row[word] = other_rows_updated[word].max() + helper_row['conmutime']
+    else:
+        helper_row[word] = other_rows_updated[word].min() - helper_row['conmutime']
+    # Lo añadimos el df de salida
+    data = pd.concat([helper_row, other_rows_updated], ignore_index=True).sort_values(by=['out', 'in'], ascending=True).reset_index(drop=True) # siempre asi, para que quede txukun
+    # Devolvemos el df de salida
+    return data
+
+
+def delivery(prev_data, data, family_level_1_schedule):
+    # Ordenamos la lista y asignamos conmutimes adecuados a las interacciones por grupo
+    data = comnutime_assignment(data, 'delivery')
+    # Adaptamos los 'in' para que los agentes llegen a tiempo (o antes de tiempo, pero no tarde)
+    data = action_times_calculation(data, 'delivery', family_level_1_schedule)
+    # Adaptamos family_level_1_schedule para las necesidades de Delivery
     delivery_schedule = delivery_schedule_creation(data, family_level_1_schedule)
-    
     return delivery_schedule
 
 
 def delivery_schedule_creation(data, family_level_1_schedule):
-    
-    Vale, pues ahora toca sacar los datos del familischedule level 1
-    y cambiar sus in y outs
-    
-    Yeeeiii!!
-    
-    
-    print(f"\n{data}")
-    input(family_level_1_schedule)
-    
-    
-    
+    # Inicializamos el df de resultados
+    delivery_df = pd.DataFrame()
+    # Pasamos por todas las filas de data
+    for idx, row in data.iterrows():
+        # Sacamos los valores originales para dicha accion
+        new_row = family_level_1_schedule[(family_level_1_schedule['agent'] == row['agent']) &
+                                          (family_level_1_schedule['osm_id'] == row['osm_id']) &
+                                          (family_level_1_schedule['todo'] == row['todo'])].iloc[0]
+        # Miramos los agentes que quedan (estos son los que realizan la entrega)
+        for agent in data['agent'].iloc[idx+1:]:
+            # Sacamos la info de cada agente
+            agent_info = family_level_1_schedule[family_level_1_schedule['agent'] == agent].iloc[0]
+            # Modificamos sus lineas
+            new_action = new_row.copy()
+            new_action['agent'] = agent
+            new_action['archetype'] = agent_info['archetype']
+            new_action['todo'] = 'Delivery'
+            new_action['todo_type'] = 0
+            new_action['fixed'] = True
+            new_action['time2spend'] = 0
+            new_action['in'] = row['in']
+            new_action['out'] = row['in']
+            new_action['conmutime'] = row['conmutime']
+            # La añadimos
+            delivery_df = pd.concat([delivery_df, pd.DataFrame([new_action])], ignore_index=True).reset_index(drop=True)
+        # En caso de que el agente llegue antes de tiempo, deberá esperar
+        if row['in'] < new_row['opening']:
+            # Modificamos la linea de acción para realizar la espera
+            new_action = new_row.copy()
+            new_action['todo'] = 'Waiting opening'
+            new_action['todo_type'] = 0
+            new_action['fixed'] = True
+            new_action['time2spend'] = new_row['opening'] - row['in']
+            new_action['in'] = row['in']
+            new_action['out'] = new_row['opening']
+            new_action['conmutime'] = row['conmutime']
+            # La añadimos
+            delivery_df = pd.concat([delivery_df, pd.DataFrame([new_action])], ignore_index=True).reset_index(drop=True)
+        # Modificamos la acción a su nuevo in
+        new_row['todo_type'] = 0
+        new_row['in'] = max([row['in'], new_row['opening']])
+        new_row['out'] = row['in'] + row['time2spend'] if new_row['todo'] != 'Entertainment' else new_row['closing']
+        new_row['conmutime'] = row['conmutime']
+        # Lo añadimos
+        delivery_df = pd.concat([delivery_df, pd.DataFrame([new_row])], ignore_index=True).reset_index(drop=True)
+    # Devolvemos los resultados
+    return delivery_df
 
 def in_times_calculation(data):
-    # El resto del DataFrame, sin la fila 'helper'
+    # El resto del DataFrame, sin la fila 'helper' y lo ordenamos descendente
     other_rows = data[data['type'] != 'helper'].sort_values(by='in', ascending=False).reset_index(drop=True)
-    
+    # Inicializamos el df de resultados
     df = pd.DataFrame()
-    
+    # Pasamos por todas las filas de datos relativos a dependents
     for idx, row in other_rows.iterrows():
-        
-        
+        # Asignamos el valor real de 'in'
         in_v = row['in']
+        # Si es el primer caso (el que deberia provocar dependencias en el resto)
         if idx == 0:
+            # Mantenemos igual el in
             rin_v = in_v
         else:
+            # Adaptamos a lo que antes teniamos menos el tiempo de conmutacion
             rin_v = last_in_v - row['conmutime']
-        
+        # Actualizamos el valor historico de rin
         last_in_v = rin_v
-                
+        # Calculamos la diferrencia entre intencio y real
         diff_v = in_v - rin_v
-        
+        # Creamos la nueva linea
         new_row = [{
             'agent': row['agent'],
             'in': in_v,
             'rin': rin_v,
             'diff': diff_v,
         }]
-
+        # Añadimos la nueva fila
         df = pd.concat([df, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
-    
+    # Recalculamos el in de cada accion
     df['rin'] = df['rin'] + df['diff'].min() if df['diff'].min() < 0 else 0
-    
     # Hacemos merge para incorporar la columna 'rin' desde df al DataFrame other_rows
     other_rows_updated = other_rows.merge(df[['agent', 'in', 'rin']], on=['agent', 'in'], how='left')
     # Sustituimos 'in' por 'rin' donde exista
     other_rows_updated['in'] = other_rows_updated['rin'].combine_first(other_rows_updated['in'])
     # Eliminamos la columna 'rin' si ya no la necesitamos
     other_rows_updated = other_rows_updated.drop(columns=['rin']).sort_values(by='in', ascending=True).reset_index(drop=True)
-    
+    # Sacamos los datos de helper
     helper_row = data[data['type'] == 'helper'].copy()
+    # Actualizamos su in (deberá ser despues de llevar a todos los agentes)
     helper_row['in'] = other_rows_updated['in'].max() + helper_row['conmutime']
-    
+    # Lo añadimos el df de salida
     data = pd.concat([other_rows_updated, helper_row], ignore_index=True).reset_index(drop=True)
-    
+    # Devolvemos el df de salida
     return data
     
     
-
-
-def comnutime_assignment(data):
+def comnutime_assignment(data, action):
     ## Ordenamos para poder trabajar
     # Separar la fila que contiene 'helper'
     helper_row = data[data['type'] == 'helper']
     # El resto del DataFrame, sin la fila 'helper'
-    other_rows = data[data['type'] != 'helper'].sort_values(by='in')
-    # Concatenar: primero la fila 'helper', luego el resto
+    other_rows = data[data['type'] != 'helper']
+    # Ordenamos distinto dependiendo de la accion a realizar
+    if action == 'delivery':
+        other_rows.sort_values(by='in', ascending=True)
+    else:
+        other_rows.sort_values(by='out', ascending=False)
+    # Concatenar: primero el resto, luego la fila 'helper'
     data_sorted = pd.concat([other_rows,helper_row], ignore_index=True).reset_index(drop=True)
     
     ## Asignamos los tiempos de conmutacion maximo por recorrido
