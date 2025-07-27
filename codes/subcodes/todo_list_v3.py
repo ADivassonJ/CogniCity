@@ -849,6 +849,8 @@ def collection(delivery_schedule, prev_data, family_level_1_schedule):
     return collection_schedule
 
 def action_times_calculation(data, action, schedule):
+    # Inicializamos el df de resultados
+    df = pd.DataFrame()
     # Evaluamos el tipo de accion a acometer y asignamos el 'word' en base a esto
     if action == 'delivery':
         word = 'in'
@@ -859,20 +861,27 @@ def action_times_calculation(data, action, schedule):
     # El resto del DataFrame, sin la fila 'helper' y lo ordenamos
     other_rows = data[data['type'] != 'helper'].sort_values(by=word, ascending=order).reset_index(drop=True)    
     
-    Estamos trabajando en esto
-    
     POIs2go = other_rows.groupby(['osm_id'])
     
-    for _, POI_data in POIs2go:
-    
-    # Inicializamos el df de resultados
-    df = pd.DataFrame()
-    # Pasamos por todas las filas de datos relativos a dependents
-    for idx, row in other_rows.iterrows():
-        # Asignamos el valor real de word
-        in_v = row[word]        
-        # Si es el primer caso (el que deberia provocar dependencias en el resto)
-        if idx == 0:
+    for osm_id in other_rows['osm_id'].unique():
+        
+        POI_data = POIs2go.get_group(osm_id)
+        
+        if action == 'delivery':
+        
+            if POI_data['fixed'].any():
+                
+                in_v = POI_data[POI_data['fixed']==True][word].min()
+            else:
+                in_v = POI_data[word].max()
+                
+        else:
+            if (POI_data['time2spend']!=0).any():
+                in_v = POI_data[POI_data['time2spend']!=0][word].max()
+            else:
+                in_v = POI_data[word].max()
+        
+        if osm_id == other_rows['osm_id'].iloc[0]:
             # Mantenemos igual el in
             rin_v = in_v
         else:
@@ -885,35 +894,55 @@ def action_times_calculation(data, action, schedule):
         last_in_v = rin_v
         # Calculamos la diferrencia entre intencio y real
         diff_v = in_v - rin_v
-        # Creamos la nueva linea
-        new_row = [{
-            'agent': row['agent'],
-            word: in_v,
-            f'r{word}': rin_v,
-            'diff': diff_v,
-        }]
-        # Añadimos la nueva fila
-        df = pd.concat([df, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)    
+        # Creamos las nuevas filas para los agentes implicados en el grupo del osm_id
+        for _, row in POI_data.iterrows():
+            # Creamos la nueva linea
+            new_row = [{
+                'agent': row['agent'],
+                word: in_v,
+                f'r{word}': rin_v,
+                'diff': diff_v,
+            }]
+            # Añadimos la nueva fila
+            df = pd.concat([df, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)     
     # Recalculamos el in de cada accion
     if action == 'delivery':
         df[f'r{word}'] = df[f'r{word}'] + (df['diff'].min() if df['diff'].min() < 0 else 0)
     else:
-        df[f'r{word}'] = df[f'r{word}'] - (df['diff'].min() if df['diff'].min() < 0 else 0)        
+        df[f'r{word}'] = df[f'r{word}'] - (df['diff'].min() if df['diff'].min() < 0 else 0) 
+    
+    print(f" df recalculado:")
+    input(df) 
+           
     # Hacemos merge para incorporar la columna f'r{word}' desde df al DataFrame other_rows
-    other_rows_updated = other_rows.merge(df[['agent', word, f'r{word}']], on=['agent', word], how='left')
+    other_rows_updated = other_rows.merge(df[['agent', f'r{word}']], on=['agent'], how='left')    
     # Sustituimos word por f'r{word}' donde exista
     other_rows_updated[word] = other_rows_updated[f'r{word}'].combine_first(other_rows_updated[word])
     # Eliminamos la columna f'r{word}' si ya no la necesitamos
     other_rows_updated = other_rows_updated.drop(columns=[f'r{word}']).reset_index(drop=True)
     # Sacamos los datos de helper
-    helper_row = data[data['type'] == 'helper'].copy()
+    helper_row = data[data['type'] == 'helper'].iloc[0].copy()
     # Actualizamos su in (deberá ser despues de llevar a todos los agentes)
     if action == 'delivery':
-        helper_row[word] = other_rows_updated[word].max() + helper_row['conmutime']
+        max_row = other_rows_updated.loc[other_rows_updated[word].idxmax()]        
+        if helper_row['osm_id'] != max_row['osm_id']:
+            helper_row[word] = max_row[word] + helper_row['conmutime']
+        else:
+            helper_row[word] = max_row[word]
     else:
-        helper_row[word] = other_rows_updated[word].min() - helper_row['conmutime']
+        min_row = other_rows_updated.loc[other_rows_updated[word].idxmin()]
+        if helper_row['osm_id'] != min_row['osm_id']:
+            helper_row[word] = min_row[word] - helper_row['conmutime']
+        else:
+            helper_row[word] = min_row[word]
     # Lo añadimos el df de salida
-    data = pd.concat([helper_row, other_rows_updated], ignore_index=True).sort_values(by=['out', 'in'], ascending=True).reset_index(drop=True) # siempre asi, para que quede txukun
+    data = pd.concat([pd.DataFrame([helper_row]), other_rows_updated], ignore_index=True).sort_values(by=['out', 'in'], ascending=True).reset_index(drop=True) # siempre asi, para que quede txukun
+    
+    
+    
+    print(f"final data:")
+    input(data)            
+    
     # Devolvemos el df de salida
     return data
 
