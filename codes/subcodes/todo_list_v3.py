@@ -839,17 +839,16 @@ def dc_action(data, family_level_1_schedule, action, condition_time=0):
     data = comnutime_assignment(data, action)
     # Adaptamos los 'in' para que los agentes llegen a tiempo (o antes de tiempo, pero no tarde)
     
-    print(family_level_1_schedule)
-    
     data, condition_time = action_times_calculation(data, action, condition_time)
 
+    print(f"return de action_times_calculation")
     input(data)
     
     # Adaptamos family_level_1_schedule para las necesidades de Delivery
     delivery_schedule = new_schedule_creation(data, family_level_1_schedule, action)
     return delivery_schedule, condition_time
 
-def action_times_calculation(data, action, condition_time):
+def action_times_calculation(data, l_action, condition_time):
     """
       Summary: Calcula en un df simplificado (data), los tiempos de 'in' o 'out' para 'Delivery' o 
     'Collection', en base a las necesidades de las actuaciones de los agentes, es decir, si cuentan
@@ -858,7 +857,7 @@ def action_times_calculation(data, action, condition_time):
     
     Args:
         data (DataFrame): _description_
-        action (str): _description_
+        l_action (str): _description_
         condition_time (int): Define el tiempo en el que se ejecuta la accion contraria a action (si 
       action es 'Collection', define el momento en el que se debe realizar el primer 'in' de Delivery).
 
@@ -866,8 +865,8 @@ def action_times_calculation(data, action, condition_time):
         _type_: _description_
     """
     
-    print(f"{action}")
-    
+    # Copiamos el l_action en action 'just in case' que luego 'jugamos' un poco con ello
+    action = l_action
     # Inicializamos el df de resultados
     df = pd.DataFrame()
     # Evaluamos el tipo de accion a acometer y asignamos el 'word' en base a esto
@@ -875,95 +874,67 @@ def action_times_calculation(data, action, condition_time):
         word = 'in'
     else:
         word = 'out'
-    
     # Sacamos los datos de helper
     helper_row = data[data['type'] == 'helper'].iloc[0].copy()
     # El resto del DataFrame, sin la fila 'helper' y lo ordenamos
     other_rows = data[data['type'] != 'helper'].sort_values(by=word, ascending=True).reset_index(drop=True)
-    
+    # Ordenamos el df distinto dependiendo de si es entrega o recoleccion
     if action == 'Delivery':
         analis_rows = pd.concat([other_rows, pd.DataFrame([helper_row])], ignore_index=True).reset_index(drop=True)
     else:
         analis_rows = pd.concat([pd.DataFrame([helper_row]), other_rows], ignore_index=True).reset_index(drop=True)
-    
-    Aqui estamos. Creo que lo mejor que podemos hacer es reconstruir esta parte, ahora que sabemos como hacerlo.
-    mira la hoja 4 del excel nuva hoja (2) en el escritorio
-    
-    
-    '''# Agrupamos por osm_id para los casos donde distintos agentes esten o vayan al mismo POI
-    POIs2go = analis_rows.groupby(['osm_id'])
-    # Analizamos cada POI (lo hacemos de este modo para respetar el orden de la lista)
-    for osm_id in analis_rows['osm_id'].unique():
-        # Sacamos los datos de la agrupación relativa a este POI
-        POI_data = POIs2go.get_group(osm_id)
-        # Si la acción es Delivery
+    # Si tenemos algún tiempo de condicion
+    if condition_time != 0:
+        # Copiamos el valor más restrictivo
+        analis_rows[word] = analis_rows[word].apply(lambda x: min(x, condition_time))
+        # Asignamos valores de restriccion para que el posterior algoritmo los considere
+        analis_rows['fixed'] = True
+        analis_rows['time2spend'] = 1
+        # El funcionamiento de la actuacion se invierte 
         if action == 'Delivery':
-            # Miramos si algún destino tiene el 'in' fixed (es decir, que debe entrar a esa hora sí o sí)
-            if POI_data['fixed'].any():
-                # En ese caso, buscamos el valor que tenga el menor valor (si alguno llega antes pues espera, pero asi nadie llega tarde)
-                in_v = POI_data[POI_data['fixed']==True][word].min()
-            else:
-                # Si no existen ningún fixed en el grupo, sacamos el valor maximo de entrada (asi tenemos más tiempo para trabajar en el resto de conmutaciones)
-                in_v = POI_data[word].max()
-        # Si la acción es Collection
+            action = 'Collection'
         else:
-            # Miramos si las acciones tienen un tiempo especifico de ejecucion
-            if (POI_data['time2spend']!=0).any():
-                # Si tienen, buscamos el último valor (para asegurarnos que todos los agentes acaban la acción)
-                in_v = POI_data[POI_data['time2spend']!=0][word].max()
-            else:
-                # Si no tienen, sacamos el valor minimo de salida (asi tenemos más tiempo para trabajar en el resto de conmutaciones)
-                in_v = POI_data[word].min()
-        # Si es la primera actividad la mantenemos igual
-        if osm_id == analis_rows['osm_id'].iloc[0]:
-            # Miramos si contamos con un 'condition_time'
-            if condition_time == 0:
-                # Mantenemos igual el in
-                rin_v = in_v
-            else:
-                # Añadimos el condition time
-                rin_v = condition_time
-        # Si no es la primera actividad de sumamos/restamos el tiempo de conmutacion
+            action = 'Delivery'
+    # Pasamos por las filas para crear una columna de tiempo real de la actuación
+    for idx, row in analis_rows.iterrows():
+        if idx == 0:
+            analis_rows.at[idx, f'r{word}'] = row[word]
         else:
-            # Adaptamos a lo que antes teniamos menos el tiempo de conmutacion
-            if action == 'Delivery':
-                rin_v = last_in_v - POI_data['conmutime'].iloc[0]
-            else:
-                rin_v = last_in_v + POI_data['conmutime'].iloc[0]
-        # Actualizamos el valor historico de rin
-        last_in_v = rin_v
-        # Calculamos la diferrencia entre intencio y real
-        diff_v = in_v - rin_v
-        # Creamos las nuevas filas para los agentes implicados en el grupo del osm_id
-        for _, row in POI_data.iterrows():
-            # Creamos la nueva linea
-            new_row = [{
-                'agent': row['agent'],
-                word: in_v,
-                f'r{word}': rin_v,
-                'diff': diff_v,
-            }]
-            # Añadimos la nueva fila
-            df = pd.concat([df, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)     
-    # Recalculamos el in de cada accion
+            analis_rows.at[idx, f'r{word}'] = last_rword + row['conmutime']
+        last_rword = analis_rows.at[idx, f'r{word}']
+    # Por comodida, lo ponemos como int
+    analis_rows[f'r{word}'] = analis_rows[f'r{word}'].astype(int)
+    # Sacamos la diferencia de lo real y de lo que debería ser originalmente
+    analis_rows['diff'] = analis_rows[f'r{word}'] - analis_rows[word]
+    # Actuamos diferente dependiendo de la accion
     if action == 'Delivery':
-        df[f'r{word}'] = df[f'r{word}'] + (df['diff'].min() if df['diff'].min() < 0 else 0)
+        # Filtramos el df a aquellos que pueden provocar una dependencia
+        filtered_rows = analis_rows[analis_rows['fixed']]
+        # Buscamos el valor que coharta al resto
+        act_diff = filtered_rows['diff'].max()
+        # Evaluamos la condicion
+        condition = act_diff > 0
     else:
-        df[f'r{word}'] = df[f'r{word}'] - (df['diff'].min() if df['diff'].min() < 0 else 0)            
-    # Hacemos merge para incorporar la columna f'r{word}' desde df al DataFrame analis_rows
-    analis_rows_updated = analis_rows.merge(df[['agent', f'r{word}']], on=['agent'], how='left')    
+        # Filtramos el df a aquellos que pueden provocar una dependencia
+        filtered_rows = analis_rows[analis_rows['time2spend']!=0]
+        # Buscamos el valor que coharta al resto
+        act_diff = analis_rows['diff'].min()
+        # Evaluamos la condicion
+        condition = act_diff < 0
+    # Si se da la condición, es necesario actualizar las horas de actuacion
+    if condition:
+        analis_rows[f'r{word}'] = analis_rows[f'r{word}'] - act_diff
     # Sustituimos word por f'r{word}' donde exista
-    analis_rows_updated[word] = analis_rows_updated[f'r{word}'].combine_first(analis_rows_updated[word])
+    analis_rows[word] = analis_rows[f'r{word}'].combine_first(analis_rows[word])
     # Eliminamos la columna f'r{word}' si ya no la necesitamos
-    analis_rows_updated = analis_rows_updated.drop(columns=[f'r{word}']).reset_index(drop=True)
-    
-    if action == 'Delivery':
-        condition_time = data[word].iloc[0] - data['conmutime'].iloc[0]
+    analis_rows = analis_rows.drop(columns=[f'r{word}', 'diff']).reset_index(drop=True)
+    # Calculamos el 'condition_time' de un posible caso posterior
+    if action == 'Delivery':        
+        condition_time = analis_rows[word].iloc[0] - analis_rows['conmutime'].iloc[0]
     else:
-        condition_time = data[word].iloc[-1] + data['conmutime'].iloc[0]'''
-    
+        condition_time = analis_rows[word].iloc[-1] + analis_rows['conmutime'].iloc[-1]
     # Devolvemos el df de salida
-    return analis_rows_updated, condition_time
+    return analis_rows, condition_time
 
 
 
