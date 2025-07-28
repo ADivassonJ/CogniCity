@@ -837,10 +837,8 @@ def schedule_adaptation(prev_data, data, family_level_1_schedule):
 def dc_action(data, family_level_1_schedule, action, condition_time=0):
     # Ordenamos la lista y asignamos conmutimes adecuados a las interacciones por grupo
     data = comnutime_assignment(data, action)
-    # Adaptamos los 'in' para que los agentes llegen a tiempo (o antes de tiempo, pero no tarde)
-    
+    # Adaptamos los 'in' o 'out' para que los agentes llegen a tiempo (o antes de tiempo, pero no tarde)
     data, condition_time = action_times_calculation(data, action, condition_time)
-
     print(f"return de action_times_calculation")
     input(data)
     
@@ -867,8 +865,6 @@ def action_times_calculation(data, l_action, condition_time):
     
     # Copiamos el l_action en action 'just in case' que luego 'jugamos' un poco con ello
     action = l_action
-    # Inicializamos el df de resultados
-    df = pd.DataFrame()
     # Evaluamos el tipo de accion a acometer y asignamos el 'word' en base a esto
     if action == 'Delivery':
         word = 'in'
@@ -881,8 +877,41 @@ def action_times_calculation(data, l_action, condition_time):
     # Ordenamos el df distinto dependiendo de si es entrega o recoleccion
     if action == 'Delivery':
         analis_rows = pd.concat([other_rows, pd.DataFrame([helper_row])], ignore_index=True).reset_index(drop=True)
-    else:
+    else: 
         analis_rows = pd.concat([pd.DataFrame([helper_row]), other_rows], ignore_index=True).reset_index(drop=True)
+    # En caso de que existan osm_id compartidos, agrupamos por osm_id
+    POI_groups = analis_rows.groupby(by='osm_id')
+    # Inicializamos unos df de trabajo
+    new_analis_rows = pd.DataFrame()
+    rest_rows = pd.DataFrame()
+    # Pasamos por cada grupo en orden 
+    for osm_id in analis_rows['osm_id'].unique():
+        # Sacamos los datos de cada grupo
+        group = POI_groups.get_group(osm_id).reset_index(drop=True)
+        # Casos distintos para cada actuacion
+        if action == 'Delivery':
+            # Sacamos la fila más cohartante del grupo y las demás
+            cohart = group[group['fixed']].reset_index(drop=True)
+            # Si no hay cohartantes pues copiamos group
+            if cohart.empty:
+                cohart = group
+            # De los cohartantes, sacamos el valor más cohartante
+            row = cohart.iloc[0]
+            new_row = group[group['agent']!=row['agent']]            
+        else:
+            # Sacamos la fila más cohartante del grupo y las demás
+            cohart = group[group['time2spend']!=0].reset_index(drop=True)
+            # Si no hay cohartantes pues copiamos group
+            if cohart.empty:
+                cohart = group
+            # De los cohartantes, sacamos el valor más cohartante
+            row = cohart.iloc[-1]
+            new_row = group[group['agent']!=row['agent']]
+        # Sumamos las filas a los df de trabajo
+        new_analis_rows = pd.concat([new_analis_rows, pd.DataFrame([row])], ignore_index=True).reset_index(drop=True)
+        rest_rows = pd.concat([rest_rows, new_row], ignore_index=True).reset_index(drop=True)
+    # Actualizamos el df 'analis_rows'
+    analis_rows = new_analis_rows
     # Si tenemos algún tiempo de condicion
     if condition_time != 0:
         # Copiamos el valor más restrictivo
@@ -894,15 +923,15 @@ def action_times_calculation(data, l_action, condition_time):
         if action == 'Delivery':
             action = 'Collection'
         else:
-            action = 'Delivery'
+            action = 'Delivery'    
     # Pasamos por las filas para crear una columna de tiempo real de la actuación
     for idx, row in analis_rows.iterrows():
         if idx == 0:
             analis_rows.at[idx, f'r{word}'] = row[word]
         else:
             analis_rows.at[idx, f'r{word}'] = last_rword + row['conmutime']
-        last_rword = analis_rows.at[idx, f'r{word}']
-    # Por comodida, lo ponemos como int
+        last_rword = analis_rows.at[idx, f'r{word}']      
+    # Por comodidad, lo ponemos como int
     analis_rows[f'r{word}'] = analis_rows[f'r{word}'].astype(int)
     # Sacamos la diferencia de lo real y de lo que debería ser originalmente
     analis_rows['diff'] = analis_rows[f'r{word}'] - analis_rows[word]
@@ -933,8 +962,20 @@ def action_times_calculation(data, l_action, condition_time):
         condition_time = analis_rows[word].iloc[0] - analis_rows['conmutime'].iloc[0]
     else:
         condition_time = analis_rows[word].iloc[-1] + analis_rows['conmutime'].iloc[-1]
+    # Inicializamos el df de resultados
+    results = analis_rows
+    # Añadimos, con los mismos tiempos, los rows previamente ignorados por compartir osm_id
+    for _, row in analis_rows.iterrows():
+        # Sacamos los coincidentes
+        rows2add = rest_rows[rest_rows['osm_id'] == row['osm_id']]
+        # Les cambiamos el action time
+        rows2add[word] = row[word]
+        # Los añadimos al df de resultados
+        results = pd.concat([results, rows2add], ignore_index=True).reset_index(drop=True)
+    # Ordenamos los resultados
+    results = results.sort_values(by=[word], ascending=True).reset_index(drop=True)
     # Devolvemos el df de salida
-    return analis_rows, condition_time
+    return results, condition_time
 
 
 
