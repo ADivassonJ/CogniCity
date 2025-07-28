@@ -812,6 +812,10 @@ def schedule_adaptation(prev_data, data, family_level_1_schedule):
         delivery_schedule,_ = dc_action(data, family_level_1_schedule, 'Delivery', condition_time)
     # Sumamos ambas matrices
     new_schedule = pd.concat([collection_schedule, delivery_schedule], ignore_index=True).sort_values(by=['in','out']).reset_index(drop=True)
+    
+    print(f"\nNew Schedule:")
+    input(new_schedule)
+    
     # Devolvemos el resultado
     return new_schedule
 
