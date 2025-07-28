@@ -794,24 +794,10 @@ def data_creation(df_grm):
     # Devolvemos data como resultado
     return data
 
-
-
-
-
-
-
-
-
-
-
-
 def schedule_adaptation(prev_data, data, family_level_1_schedule):
     # Sacamos las condiciones que afectan en el orden de uso y condiciones de las actividades
     c_condition = (prev_data['time2spend'] != 0).any()
     d_condition = (data['fixed']).any()
-    
-    print(f"c_condition {c_condition}, d_condition: {d_condition}")
-    
     # Si se cumple el caso cd01
     if not c_condition and d_condition:
         # Realizamos el delivery de los agentes por parte del helper
@@ -824,13 +810,8 @@ def schedule_adaptation(prev_data, data, family_level_1_schedule):
         collection_schedule, condition_time = dc_action(prev_data, family_level_1_schedule, 'Collection')
         # Realizamos el collection de los agentes por parte del helper
         delivery_schedule,_ = dc_action(data, family_level_1_schedule, 'Delivery', condition_time)
-    
-        
     # Sumamos ambas matrices
     new_schedule = pd.concat([collection_schedule, delivery_schedule], ignore_index=True).sort_values(by=['in','out']).reset_index(drop=True)
-    
-    input(new_schedule)
-    
     # Devolvemos el resultado
     return new_schedule
 
@@ -839,9 +820,6 @@ def dc_action(data, family_level_1_schedule, action, condition_time=0):
     data = comnutime_assignment(data, action)
     # Adaptamos los 'in' o 'out' para que los agentes llegen a tiempo (o antes de tiempo, pero no tarde)
     data, condition_time = action_times_calculation(data, action, condition_time)
-    print(f"return de action_times_calculation")
-    input(data)
-    
     # Adaptamos family_level_1_schedule para las necesidades de Delivery
     delivery_schedule = new_schedule_creation(data, family_level_1_schedule, action)
     return delivery_schedule, condition_time
@@ -854,13 +832,17 @@ def action_times_calculation(data, l_action, condition_time):
     posible que ningún agente inclumpla las normas de fixed y time2spend.
     
     Args:
-        data (DataFrame): _description_
-        l_action (str): _description_
+        data (DataFrame): Presenta datos relevantes de los agentes implicados en la actuacion a realizar
+        l_action (str): Describe la acción que se realiza, es decir, 'Delivery' o 'Collection'.
         condition_time (int): Define el tiempo en el que se ejecuta la accion contraria a action (si 
       action es 'Collection', define el momento en el que se debe realizar el primer 'in' de Delivery).
 
     Returns:
-        _type_: _description_
+        results (DataFrame): Similar a data, pero con los tiempos de la accion adapatdos a las necesidades
+      del conjunto de agentes participantes.
+        condition_time (int): Minuto del que depende el conjunto para posteriores actividades (ej. si la 
+      entrega de los agentes debe empezar a las 400 sera 400-conmutime, para que la accion de collection 
+      sepa cuando debe haberse completado).
     """
     
     # Copiamos el l_action en action 'just in case' que luego 'jugamos' un poco con ello
