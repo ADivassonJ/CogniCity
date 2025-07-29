@@ -999,7 +999,6 @@ def new_schedule_creation_v2(data, family_level_1_schedule, action):
         ## Actualizamos algunos datos
         new_row['todo_type'] = 0 # Como ya hemos saciado la necesidad, ya no es dependiente
         new_row[word] = row[word] 
-        new_row[wordnt] = '-' # Para simplificarnos el trabajo de suma despues
         new_row['conmutime'] = row['conmutime']
         
         
@@ -1050,9 +1049,6 @@ def new_schedule_creation_v2(data, family_level_1_schedule, action):
             alt_new_row['time2spend'] = 0 # Estan en operaciones de asistencia, por lo que es no-time related
             # Añadimos la accion original modificada
             new_schedule = pd.concat([new_schedule, pd.DataFrame([alt_new_row])], ignore_index=True).reset_index(drop=True)
-        
-        
-    '''waiting openings???'''
     
     new_schedule = new_schedule.sort_values(by=['in', 'out'], ascending=True).reset_index(drop=True)
     
