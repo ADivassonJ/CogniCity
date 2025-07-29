@@ -659,6 +659,10 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
         (~family_level_1_schedule['agent'].isin(dependents['agent'])) &
         (family_level_1_schedule['in'] != 0)
     ]
+    # Si no hay dependents en la familia, level 1 y level 2 serán iguales
+    if dependents.empty:
+        return family_level_1_schedule
+    
     # Calculamos las responsabilidades
     responsability_matrix = create_responsability_matrix(dependents, independents, pop_building, family_level_1_schedule)
     
@@ -678,7 +682,7 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
     family_level_2_schedule = pd.concat([family_level_2_schedule, new_rows], ignore_index=True).reset_index(drop=True)
     """
     
-    
+    all_new_schedules = pd.DataFrame()
     
     # Agrupamos por ['agent_x', 'todo_x', 'osm_id_x'] para ver si el mismo agente recoge a mas de una persona
     grouped_responsability_matrix = responsability_matrix.groupby(['agent_x', 'todo_x', 'osm_id_x'])
@@ -707,19 +711,59 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
         prev_data = prev_data_creation(previous_actions, helper_name)
         # Adaptamos el schedule de los agentes implicados
         new_schedule = schedule_adaptation(prev_data, data, family_level_1_schedule)
+
+        all_new_schedules = pd.concat([all_new_schedules, new_schedule], ignore_index=True).sort_values(by=['in','out']).reset_index(drop=True)
     
-    
-    """
-    Adaptamos y usamos
-    get_previous_action
-    para guardar los datos no afectados en cada agente
-    """
-    
+    adapted_schedule = schedules_compatibilisation(all_new_schedules, family_level_1_schedule)   
     
     
     
     return family_level_2_schedule
 
+def schedules_compatibilisation(all_new_schedules, family_level_1_schedule):
+    
+    groups = all_new_schedules.groupby(['agent', 'todo', 'osm_id'])
+    
+    rows2add = pd.DataFrame()
+    rows2delete = pd.DataFrame()
+    
+    for name, group in groups:
+        # Si no existen duplicidades
+        if len(group) == 1:
+            continue
+        
+        rows2delete = pd.concat([rows2delete, group], ignore_index=False)
+        
+        
+        new_row = group.iloc[0].copy()
+        new_row['in'] = group['in'].max()
+        new_row['out'] = group['out'].min()
+        
+        rows2add = pd.concat([rows2add, pd.DataFrame([new_row])], ignore_index=True)
+        
+    # Paso 1: Eliminar las filas de all_new_schedules usando los índices de rows2delete
+    updated_df = all_new_schedules.drop(rows2delete.index)
+
+    # Paso 2: Agregar las nuevas filas
+    updated_df = pd.concat([updated_df, rows2add], ignore_index=True).sort_values(by=['in','out']).reset_index(drop=True)
+    
+    # Paso 1: Filtramos las columnas clave
+    cols_to_check = ['agent', 'todo', 'osm_id']
+
+    # Paso 2: Hacemos una comparación para encontrar las filas de family_level_1_schedule que no están en updated_df
+    mask = ~family_level_1_schedule[cols_to_check].apply(tuple, axis=1).isin(
+        updated_df[cols_to_check].apply(tuple, axis=1)
+    )
+
+    # Paso 3: Obtenemos solo las filas que faltan
+    missing_rows = family_level_1_schedule[mask]
+
+    # Paso 4: Añadimos esas filas a updated_df
+    final_df = pd.concat([updated_df, missing_rows], ignore_index=True).sort_values(by=['in','out']).reset_index(drop=True)
+    
+    
+    print('all_new_schedules:')
+    input(final_df)
 
 def prev_data_creation(previous_actions, helper_name):
     # Sacamos los datos del helper
@@ -812,10 +856,6 @@ def schedule_adaptation(prev_data, data, family_level_1_schedule):
         delivery_schedule,_ = dc_action(data, family_level_1_schedule, 'Delivery', condition_time)
     # Sumamos ambas matrices
     new_schedule = pd.concat([collection_schedule, delivery_schedule], ignore_index=True).sort_values(by=['in','out']).reset_index(drop=True)
-    
-    print(f"\nNew Schedule:")
-    input(new_schedule)
-    
     # Devolvemos el resultado
     return new_schedule
 
@@ -826,9 +866,6 @@ def dc_action(data, family_level_1_schedule, action, condition_time=0):
     data, condition_time = action_times_calculation(data, action, condition_time)    
     # Adaptamos family_level_1_schedule para las necesidades de Delivery
     delivery_schedule = new_schedule_creation(data, family_level_1_schedule, action)
-    
-    
-    
     return delivery_schedule, condition_time
 
 def action_times_calculation(data, l_action, condition_time):
