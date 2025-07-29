@@ -825,7 +825,7 @@ def dc_action(data, family_level_1_schedule, action, condition_time=0):
     # Adaptamos los 'in' o 'out' para que los agentes llegen a tiempo (o antes de tiempo, pero no tarde)
     data, condition_time = action_times_calculation(data, action, condition_time)    
     # Adaptamos family_level_1_schedule para las necesidades de Delivery
-    delivery_schedule = new_schedule_creation_v2(data, family_level_1_schedule, action)
+    delivery_schedule = new_schedule_creation(data, family_level_1_schedule, action)
     
     
     
@@ -969,8 +969,23 @@ def action_times_calculation(data, l_action, condition_time):
     return results, condition_time
 
 
-def new_schedule_creation_v2(data, family_level_1_schedule, action):
+def new_schedule_creation(data, family_level_1_schedule, action):
+    """
+      Summary: Modifica, en base al df 'data' los datos originales del schedule, para adaptarlos
+    a las necesidades especificadas en el df en cuestion, añadiendo las acciones intermedias como 
+    'Delivery' o 'Collect' y 'Waiting' del tipo que sea.
+
+    Args:
+      data (DataFrame): Presenta datos relevantes de los agentes implicados en la actuacion a realizar
+      family_level_1_schedule (DataFrame): Descripcion de los daily schedule de los agentes, de level 
+    1, es decir, independientes entre sí, sin interacciones familiares.
+      action (str):  Describe la acción que se realiza, es decir, 'Delivery' o 'Collection'.
+
+    Returns:
+      new_schedule (DataFrame): Describe las acciones a realizar por los agentes para cada actuacion
+    """
     
+    # Inicializamos unos datos especificos para cada escenario
     if action == 'Delivery':
         word = 'in'
         wordnt = 'out'
@@ -979,30 +994,21 @@ def new_schedule_creation_v2(data, family_level_1_schedule, action):
         word = 'out'
         wordnt = 'in'
         order = True
-    
+    # Ordenamos los datos
     data = data.sort_values(by=word, ascending=order).reset_index(drop=True)
-    
+    # Inicializamos el df de resultados
     new_schedule = pd.DataFrame()
-    
-    print(data)
-    
+    # Pasamos por todas las lineas de data (en orden)
     for idx, row in data.iterrows():
         # Sacamos los valores originales para dicha accion
         new_row = family_level_1_schedule[(family_level_1_schedule['agent'] == row['agent']) &
                                           (family_level_1_schedule['osm_id'] == row['osm_id']) &
                                           (family_level_1_schedule['todo'] == row['todo'])].iloc[0]
-        
-        
-            
-            
-        
         ## Actualizamos algunos datos
         new_row['todo_type'] = 0 # Como ya hemos saciado la necesidad, ya no es dependiente
         new_row[word] = row[word] 
         new_row['conmutime'] = row['conmutime']
-        
-        
-        
+        # Diferentes casos
         if action == 'Delivery':
             condition = row[word] < new_row['opening']
             new_time = new_row['opening']
@@ -1011,11 +1017,11 @@ def new_schedule_creation_v2(data, family_level_1_schedule, action):
             condition = row[word] > new_row['closing']
             new_time = new_row['closing']
             wait_action = 'collection'
-            
+        # Si se cumple la condicion significa que el agente requerira de esperar
         if condition:
             # Actualizamos el word de la accion principal
             new_row[word] = new_time
-            
+            # Cambiamos los datos para ajustarlo al row de espera
             alt_new_row = new_row.copy()
             alt_new_row['todo'] = f'Waiting {wait_action}'
             alt_new_row['time2spend'] = abs(row[word]-new_time)
@@ -1023,23 +1029,18 @@ def new_schedule_creation_v2(data, family_level_1_schedule, action):
             alt_new_row[wordnt] = new_time
             # Añadimos la accion original modificada
             new_schedule = pd.concat([new_schedule, pd.DataFrame([alt_new_row])], ignore_index=True).reset_index(drop=True)
-            
-   
         # Añadimos la accion original modificada
         new_schedule = pd.concat([new_schedule, pd.DataFrame([new_row])], ignore_index=True).reset_index(drop=True)    
-            
-        
-        
+        # Miramos los agentes que ya estan en la flota
         agents_acting = new_schedule['agent'].unique()
-        
+        # Pasamos por cada uno de ellos
         for agent in agents_acting:
-            
+            # Copiamos los datos
             alt_new_row = new_row.copy()
             rox = new_schedule[new_schedule['agent']==agent].iloc[0].copy()
-            
+            # Si es el mismo evaluado en este loop, nos saltamos este paso
             if agent == new_row['agent'] or rox['osm_id'] == new_row['osm_id']:
                 continue
-            
             ## Actualizamos algunos datos
             alt_new_row['agent'] = rox['agent']
             alt_new_row['archetype'] = rox['archetype']
@@ -1049,102 +1050,10 @@ def new_schedule_creation_v2(data, family_level_1_schedule, action):
             alt_new_row['time2spend'] = 0 # Estan en operaciones de asistencia, por lo que es no-time related
             # Añadimos la accion original modificada
             new_schedule = pd.concat([new_schedule, pd.DataFrame([alt_new_row])], ignore_index=True).reset_index(drop=True)
-    
+    # Añadimos el acto original al final, para evitar fallos entre wait y action (delivery o collection)
     new_schedule = new_schedule.sort_values(by=['in', 'out'], ascending=True).reset_index(drop=True)
-    
-    print(data)
-    input(new_schedule)
-    
-    
+    # Devolvemos el df de resultados
     return new_schedule
-
-
-
-def new_schedule_creation(data, family_level_1_schedule, action):
-    
-    if action == 'Delivery':
-        
-        word = 'in'
-    else:
-        
-        word = 'out'
-    
-    # Inicializamos el df de resultados
-    new_schedule = pd.DataFrame()
-    # Pasamos por todas las filas de data
-    for idx, row in data.iterrows():
-        # Sacamos los valores originales para dicha accion
-        new_row = family_level_1_schedule[(family_level_1_schedule['agent'] == row['agent']) &
-                                          (family_level_1_schedule['osm_id'] == row['osm_id']) &
-                                          (family_level_1_schedule['todo'] == row['todo'])].iloc[0]
-        # Miramos los agentes que quedan (estos son los que realizan la entrega)
-        for agent in data['agent'].iloc[idx+1:]:
-            # Sacamos la info de cada agente
-            agent_info = family_level_1_schedule[family_level_1_schedule['agent'] == agent].iloc[0]
-            if agent_info['osm_id'] == row['osm_id']:
-                continue
-            # Modificamos sus lineas
-            new_action = new_row.copy()
-            new_action['agent'] = agent
-            new_action['archetype'] = agent_info['archetype']
-            new_action['todo'] = action
-            new_action['todo_type'] = 0
-            new_action['fixed'] = True
-            new_action['time2spend'] = 0
-            new_action['in'] = row[word]
-            new_action['out'] = row[word]
-            new_action['conmutime'] = row['conmutime']
-            # La añadimos
-            new_schedule = pd.concat([new_schedule, pd.DataFrame([new_action])], ignore_index=True).reset_index(drop=True)
-        # En caso de que el agente llegue antes de tiempo, deberá esperar
-        
-        if action == 'Delivery':
-        
-            condition = row[word] < new_row['opening']
-            
-            todo = 'Waiting opening'
-            
-            time2spend = new_row['opening'] - row[word]
-            
-            in_t = row[word]
-            out_t = new_row['opening']
-            
-        else:
-            
-            condition = row[word] > new_row['closing']
-            todo = 'Waiting collection'
-            time2spend = row[word] - new_row['closing']
-            in_t = new_row['closing']
-            out_t = row[word]
-        
-        if condition:
-            # Modificamos la linea de acción para realizar la espera
-            new_action = new_row.copy()
-            new_action['todo'] = todo
-            new_action['todo_type'] = 0
-            new_action['fixed'] = True
-            new_action['time2spend'] = time2spend
-            new_action['in'] = in_t
-            new_action['out'] = out_t
-            new_action['conmutime'] = row['conmutime']
-            # La añadimos
-            new_schedule = pd.concat([new_schedule, pd.DataFrame([new_action])], ignore_index=True).reset_index(drop=True)
-        # Modificamos la acción a su nuevo in
-        new_row['todo_type'] = 0
-        new_row['conmutime'] = row['conmutime']
-        # Actualizamos los valores de action para asegurar que ningun agente llega tarde a nada o sale antes de tiempo
-        if action == 'Delivery':
-            new_row[word] = max([row[word], new_row['opening']])
-            new_row['out'] = row[word] + row['time2spend'] if new_row['todo'] != 'Entertainment' else new_row['closing']
-        else:
-            new_row[word] = min([row[word], new_row['closing']])      
-        # Lo añadimos
-        new_schedule = pd.concat([new_schedule, pd.DataFrame([new_row])], ignore_index=True).reset_index(drop=True)   
-    # Devolvemos los resultados
-    return new_schedule
-
-
-
 
 def delivery_schedule_creation(data, family_level_1_schedule):
     # Inicializamos el df de resultados
