@@ -84,8 +84,12 @@ def main():
     vehicles_actions = pd.DataFrame()
     # Pasamos por los datos de cada una de las familias
     for f_name, family in tqdm(level2_families, desc="Procesando familias"):
-        # Logramos los vehiculos asignados a cada miembro familiar
-        avail_vehicles = transport_families.get_group(f_name)
+        # Hacemos try pues cabe la posibilidad de que la familia no cuente con vehiculos, por lo que el get_group no pencontrará nada
+        try:
+            # Logramos los vehiculos asignados a cada miembro familiar
+            avail_vehicles = transport_families.get_group(f_name)
+        except Exception as e:
+            avail_vehicles = pd.DataFrame()
         # Sacamos el schedule de level1 tambien
         level1_schedule = level1_families.get_group(f_name)
         # Sacamos los nombres de los agentes independientes

@@ -666,22 +666,6 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
     # Calculamos las responsabilidades
     responsability_matrix = create_responsability_matrix(dependents, independents, pop_building, family_level_1_schedule)
     
-    
-    
-    ### Simplificamos los df de trabajo
-    ## Quitamos los non-helpin independents 
-    # Sacamos los schedule de los independents non-helpers
-    new_rows, independents_schedule =  non_helpers(independents, family_level_1_schedule, responsability_matrix)
-    # Como no van a molestar, los copiamos en el final
-    family_level_2_schedule = pd.concat([family_level_2_schedule, new_rows], ignore_index=True).reset_index(drop=True)
-    
-    """ No se si me convence, igual es mejor hacerlo al final, rollo cubrir huecos en comparacion de las actividades realizadas en level 1 con las de level 2
-    ## Quitamos las secciones unnafected
-    new_rows, affected_actions = get_unaffected_actions(family_level_1_schedule, responsability_matrix)
-    # Como no van a molestar, los copiamos en el final
-    family_level_2_schedule = pd.concat([family_level_2_schedule, new_rows], ignore_index=True).reset_index(drop=True)
-    """
-    
     all_new_schedules = pd.DataFrame()
     
     # Agrupamos por ['agent_x', 'todo_x', 'osm_id_x'] para ver si el mismo agente recoge a mas de una persona
@@ -711,12 +695,10 @@ def create_family_level_2_schedule(pop_building, family_level_1_schedule):
         prev_data = prev_data_creation(previous_actions, helper_name)
         # Adaptamos el schedule de los agentes implicados
         new_schedule = schedule_adaptation(prev_data, data, family_level_1_schedule)
-
+        # Añadimos el schedule adaptado al df de resultados
         all_new_schedules = pd.concat([all_new_schedules, new_schedule], ignore_index=True).sort_values(by=['in','out']).reset_index(drop=True)
     
-    adapted_schedule = schedules_compatibilisation(all_new_schedules, family_level_1_schedule)   
-    
-    
+    family_level_2_schedule = schedules_compatibilisation(all_new_schedules, family_level_1_schedule)   
     
     return family_level_2_schedule
 
@@ -761,9 +743,7 @@ def schedules_compatibilisation(all_new_schedules, family_level_1_schedule):
     # Paso 4: Añadimos esas filas a updated_df
     final_df = pd.concat([updated_df, missing_rows], ignore_index=True).sort_values(by=['in','out']).reset_index(drop=True)
     
-    
-    print('all_new_schedules:')
-    input(final_df)
+    return final_df
 
 def prev_data_creation(previous_actions, helper_name):
     # Sacamos los datos del helper
