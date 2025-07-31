@@ -62,7 +62,7 @@ def main():
 
     pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])
     
-    todolist_family_creation(agent_populations['citizen'], agent_populations['building'])
+    todolist_family_creation(agent_populations['citizen'], agent_populations['building'], system_management)
     
 def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
     # Suponiendo que df_citizens y df_families ya están definidos

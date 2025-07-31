@@ -7,7 +7,6 @@ import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
 
-
 def create_family_level_1_schedule(pop_building, family_df, activities):
     """
       Summary: Crea la version inicial de los schedules de cada familia (level 1), 
@@ -134,126 +133,6 @@ def create_family_level_1_schedule(pop_building, family_df, activities):
     # Devolvemos el df de salida
     return todolist_family
 
-def time_adding(df_after_max, last_out):
-    # Inicializamos el df de resultados
-    df_after_max_adapted = pd.DataFrame()
-    # Actuamos sobre cada linea del df de acciones posteriores a las modificadas
-    for _, df_a_row in df_after_max.iterrows():
-        # Se calcula la nueva hora de entrada
-        new_in = last_out + int(df_a_row['conmutime'])
-        # Se calcula la nueva hora de salida
-        new_out = (new_in + df_a_row['time2spend']) if df_a_row['time2spend'] != 0 else df_a_row['closing']
-        if df_a_row['todo'] in ['Delivery', 'Collect']:
-            new_out = new_in
-        # En caso de detectarse alguna incompativilidad horaria, el agente no realiza la acción
-        if df_a_row['closing'] < new_in or df_a_row['closing'] < new_out:
-            print(f"After adaptation, {df_a_row['agent']} was not able to fullfill '{df_a_row['todo']}'.")
-            print(f"Opening: {df_a_row['opening']} Closing: {df_a_row['closing']}.")
-            print(f"new_in: {new_in} new_out: {new_out}.")
-            continue
-        # Se crea la nueva fila
-        rew_row ={
-            'agent': df_a_row['agent'],
-            'archetype': df_a_row['archetype'],
-            'todo': df_a_row['todo'], 
-            'osm_id': df_a_row['osm_id'], 
-            'todo_type': df_a_row['todo_type'], 
-            'opening': df_a_row['opening'], 
-            'closing': df_a_row['closing'], # Issue 16
-            'fixed': df_a_row['fixed'], 
-            'time2spend': df_a_row['time2spend'], 
-            'in': new_in, 
-            'out': new_out,
-            'conmutime': int(df_a_row['conmutime']),
-            'family': df_a_row['family'],
-            'family_archetype': df_a_row['family_archetype'],
-        }
-        # Se añade la fila al df
-        df_after_max_adapted = pd.concat([df_after_max_adapted, pd.DataFrame([rew_row])], ignore_index=True)
-        # Actualizamos para la siguiente iteracción
-        last_out = new_out
-    return df_after_max_adapted
-
-def df_division(agent_todo, agent_schedule):
-    # Paso 1: Añadir el índice como columna para no perderlo al hacer merge
-    agent_todo_with_index = agent_todo.reset_index()  # El índice se guarda en la columna 'index'
-    # Paso 2: Merge con agent_schedule
-    merged = agent_todo_with_index.merge(agent_schedule, on=['todo', 'osm_id'], how='inner')
-    # Paso 3: Obtener los índices originales de agent_todo que coincidieron
-    matching_indices = merged['index']  # Esta es la columna que guarda el índice original
-    # Paso 4: Calcular índice mínimo y máximo
-    min_index = matching_indices.min()
-    max_index = matching_indices.max()
-    # Paso 5: Crear los dos nuevos DataFrames a partir de agent_todo original
-    df_before_min = agent_todo[agent_todo.index < min_index]
-    df_after_max = agent_todo[agent_todo.index > max_index]    
-    return df_before_min, df_after_max
-
-def new_todolist_family_adaptation(todolist_family, new_todolist_family): 
-    # Inicializamos el df de resultados
-    new_list = pd.DataFrame()
-    # Pasamos por todos los agentes del schedule
-    for agent in todolist_family['agent'].unique():
-        # Inicializamos el df temporal resultados especificos para cada agente
-        new_new_list = pd.DataFrame()
-        # Si el agente no ha sido modificado
-        if not agent in new_todolist_family['agent'].to_list():
-            # Obtenemos los datos del agente
-            agent_todo = todolist_family[todolist_family['agent'] == agent]
-            # Se mantienen lo previo
-            new_list = pd.concat([new_list, agent_todo], ignore_index=True).sort_values(by='in', ascending=True)
-            continue
-        # Sacamos los datos especificos del agente modificado
-        agent_schedule = new_todolist_family[new_todolist_family['agent'] == agent].reset_index(drop=True)
-        # Sacamos el 'todo' del agente
-        agent_todo = todolist_family[todolist_family['agent'] == agent].reset_index(drop=True)
-        # Dividimos el df agent_todo en superior e inferior (sin coincidencias con agent_schedule)
-        df_before_min, df_after_max = df_division(agent_todo, agent_schedule)
-        # La previa no se necesita mayor modificacion, por lo que se copia
-        new_new_list = pd.concat([new_new_list, df_before_min], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
-        # Se agrega la parte modificada previamente del agente
-        new_new_list = pd.concat([new_new_list, agent_schedule], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
-        # Miramos si existe algo posterior
-        if not df_after_max.empty:
-            # Se modifica el df df_after_max para actualizar los tiempos
-            df_after_max = time_adding(df_after_max, max(new_new_list['out']))
-        # Y despues se suma
-        new_new_list = pd.concat([new_new_list, df_after_max], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
-        new_list = pd.concat([new_list, new_new_list], ignore_index=True).sort_values(by='in', ascending=True).reset_index(drop=True)
-    return new_list
-
-def todolist_family_adaptation(responsability_matrix, todolist_family):
-    # Calculamos los apartados sobre los que actuar dentro de 'todolist_family'
-    matrix2cover, prev_matrix2cover = matrix2cover_creation(todolist_family, responsability_matrix)
-    # Tomamos los apartados sobre los que actuar y los adaptamos a las necesidades de los dependants
-    new_todolist_family = route_creation(matrix2cover, prev_matrix2cover)
-    # Adaptar el resto del schedule a las modificaciones realizadas
-    todolist_family = new_todolist_family_adaptation(todolist_family, new_todolist_family)
-    return todolist_family
-
-def route_creation(matrix2cover, prev_matrix2cover): 
-    ## Dividir los datos
-    # DataFrame para almacenar resultados si vas a ir agregando algo más adelante
-    columns=['agent','todo','osm_id','todo_type','opening','closing','fixed','time2spend','in','out','conmutime']
-    new_list = pd.DataFrame(columns=columns)
-    # Filtrar dependientes con todo_type distinto de 0
-    dependants_1 = matrix2cover[matrix2cover['todo_type'] != 0]
-    # Filtrar en el DataFrame anterior aquellos agentes que están en dependants_1
-    dependants_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(dependants_1['agent'])]
-    # Filtrar helper con todo_type igual a 0
-    helper_1 = matrix2cover[matrix2cover['todo_type'] == 0]
-    # Conseguir los datos especificos del helper
-    helper_0 = prev_matrix2cover[prev_matrix2cover['agent'].isin(helper_1['agent'])] # Issue 16
-    helper_1 = matrix2cover[matrix2cover['agent'] == helper_0['agent'].iloc[0]]
-    ## Ejecutamos las actividades de recogida y entrega de agentes
-    # Recogida
-    new_new_list = agent_collection(prev_matrix2cover, matrix2cover, helper_0)
-    new_list = pd.concat([new_list, new_new_list], ignore_index=True)
-    # Entrega
-    new_new_list = agent_delivery(prev_matrix2cover, matrix2cover, helper_1, new_list)
-    new_list = pd.concat([new_list, new_new_list], ignore_index=True)
-    return new_list
-
 def sort_route(osm_ids, helper):
     # Esta funcion deberia devolver el df ordenado con los verdaderos siempor de out
     # recuerda que el helper siempre debe ser el primero
@@ -289,321 +168,6 @@ def sort_route(osm_ids, helper):
     combined_df = combined_df.sort_values(by=target_col, ascending=ascending).reset_index(drop=True)
     
     return combined_df
-
-def agent_collection(prev_matrix2cover, matrix2cover, helper):
-    # Inicializamos el df de los resultados
-    columns=['agent','todo','osm_id','todo_type','opening','closing','fixed','time2spend','in','out','conmutime']
-    new_new_list = pd.DataFrame(columns=columns)
-    ## Creación de ruta de recogida
-    # DataFrame con datos de outs
-    out_osm_ids = pd.DataFrame(columns=['osm_id', 'out', 'conmutime'])
-    # Agrupamos para crear ruta de recogida
-    osm_id_groups = prev_matrix2cover.groupby('osm_id')
-    # Pasamos por todos los grupos de la salida
-    for name_group, oi_group in osm_id_groups:
-        # Buscamos el valor maximo de out en el grupo que tenga time2spend != 0 (quién condiciona)
-        filtered = oi_group[oi_group['time2spend']!=0]
-        # Asignamos tiempo de conmutación del grupo
-        group_conmutime = oi_group['conmutime'].max()
-        # Asignamos tiempo de salida del grupo
-        if filtered.empty:
-            filtered = matrix2cover[matrix2cover['fixed'] == True]
-            if filtered.empty:
-                group_out_time = oi_group['out'].min() # - group_conmutime*len(filtered) # El probelma es que lo he añadido pero len(filtered) es 0 porque se supone que si entra aqui es .empty
-            else:
-                group_out_time = filtered['in'].max() - group_conmutime*len(filtered)
-        else:
-            group_out_time = filtered['out'].max()
-        # Añadir nueva fila de datos
-        rew_row ={ 
-            'osm_id': name_group,
-            'out': group_out_time,
-            'conmutime': group_conmutime
-        }   
-        # Suma a dataframe
-        out_osm_ids = pd.concat([out_osm_ids, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='out', ascending=False).reset_index(drop=True)
-    
-    # Crear la ruta ordenada
-    sorted_route = sort_route(out_osm_ids, helper)
-    
-    ## Crear el nuevo schedule (parte de recogida de agentes)
-    # Iteramos todos los osm_id de salida
-    for _, name_group in sorted_route.iterrows():
-        # Sacamos el grupo relativo al trip actual
-        group = osm_id_groups.get_group(name_group['osm_id'])
-        # Sacamos los valores a asignar para este grupo
-        group_out_time = name_group['out']
-        group_conmutime = name_group['conmutime']
-        # Miramos los agenets que ya estan en movimiento
-        previous_agents = new_new_list['agent'].unique()
-        # Iniciamos con los agentes en movimiento
-        for p_agent in previous_agents:
-            agent_data = new_new_list[new_new_list['agent'] == p_agent].iloc[0]
-            # Nueva fila
-            rew_row ={
-                'agent': p_agent,
-                'archetype': agent_data['archetype'],
-                'todo': 'Collect', 
-                'osm_id': name_group['osm_id'], 
-                'todo_type': 0, 
-                'opening': group_out_time, 
-                'closing': group_out_time, 
-                'fixed': False, 
-                'time2spend': 0, 
-                'in': group_out_time, 
-                'out': group_out_time,
-                'conmutime': group_conmutime,
-                'family': agent_data['family'],
-                'family_archetype': agent_data['family_archetype'],
-            }   
-            # Suma a dataframe
-            new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-        # Despues agentes que se mueven por primera vez
-        for _, agent in group.iterrows():
-            # Si el agente acaba la actividad y aun no le vienen a recoger
-            if (group_out_time > agent['closing']) or (group_out_time > agent['out'] and agent['time2spend'] != 0):
-                ## Calculamos el tiempo de espera
-                waiting_time = group_out_time - min([agent['out'], agent['closing']])
-                # Nueva fila
-                rew_row ={
-                    'agent': agent['agent'],
-                    'archetype': agent['archetype'],
-                    'todo': f'Waiting collection', 
-                    'osm_id': agent['osm_id'],  # Issue 17
-                    'todo_type': 0, 
-                    'opening': 0,               # Es una accion not-place-related, pero sí time-related
-                    'closing': float('inf'),    # Es una accion not-place-related, pero sí time-related 
-                    'fixed': agent['fixed'], 
-                    'time2spend': waiting_time, 
-                    'in': agent['out'], 
-                    'out': group_out_time,
-                    'conmutime': agent['conmutime'],
-                    'family': agent['family'],
-                    'family_archetype': agent['family_archetype'],
-                }
-                # Suma a dataframe
-                new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-                new_out = agent['out']
-                # En caso de que esta espera sea por parte del helper
-                if agent['agent'] in helper['agent'].to_list():
-                    rew_row ={
-                        'agent': agent['agent'],
-                        'archetype': agent['archetype'],
-                        'todo': f'Collect', 
-                        'osm_id': agent['osm_id'],  # Issue 17
-                        'todo_type': 0, 
-                        'opening': group_out_time,               # Es una accion not-place-related, pero sí time-related
-                        'closing': group_out_time,    # Es una accion not-place-related, pero sí time-related 
-                        'fixed': False, 
-                        'time2spend': 0, 
-                        'in': group_out_time, 
-                        'out': group_out_time,
-                        'conmutime': group_conmutime,
-                        'family': agent['family'],
-                        'family_archetype': agent['family_archetype'],
-                    }   
-                    # Suma a dataframe
-                    new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-            else: 
-                new_out = group_out_time
-            # Actualización del caso original del agente
-            rew_row ={
-                'agent': agent['agent'],
-                'archetype': agent['archetype'],
-                'todo': agent['todo'], 
-                'osm_id': agent['osm_id'], 
-                'todo_type': agent['todo_type'], 
-                'opening': agent['opening'], 
-                'closing': agent['closing'], 
-                'fixed': agent['fixed'], 
-                'time2spend': agent['time2spend'], 
-                'in': agent['in'], 
-                'out': new_out,
-                'conmutime': agent['conmutime'],
-                'family': agent['family'],
-                'family_archetype': agent['family_archetype'],
-            }   
-            # Suma a dataframe
-            new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-    return new_new_list
-
-def agent_delivery(prev_matrix2cover, matrix2cover, helper, agent_collection):   
-    # Inicializamos el df de los resultados
-    columns=['agent','todo','osm_id','todo_type','opening','closing','fixed','time2spend','in','out','conmutime']
-    new_new_list = pd.DataFrame(columns=columns)
-    ## Creación de ruta de recogida
-    # DataFrame con datos de ins
-    in_osm_ids = pd.DataFrame(columns=['osm_id', 'in', 'conmutime'])
-    # Agrupamos para crear ruta de entrega
-    osm_id_groups = matrix2cover.groupby('osm_id')
-    # Pasamos por todos los grupos de la salida
-    for name_group, oi_group in osm_id_groups:
-        # Buscamos el valor minimo de in en el grupo que tenga fixed == True (quién condiciona)
-        filtered = oi_group[oi_group['fixed'] == True]
-        # Asignamos tiempo de conmutación del grupo
-        group_conmutime = oi_group['conmutime'].max()
-        ## Asignamos tiempo de llegada del grupo
-        # En caso de NO HABER ningún agente condicionante
-        if filtered.empty: # No tiene más condiciones, porque si es fixed tendra un time2spend seguro, no hace falta comprobar
-            max_out = agent_collection['out'].max()
-            agents_row = agent_collection[agent_collection['out'] == max_out]
-            max_in = agents_row['in'].max()           
-            agents_row = agents_row[agents_row['in'] == max_in]
-            group_in_time = agents_row['out'].iloc[0] + agents_row['conmutime'].iloc[0]
-        else:
-            # Tomamos como hora de entrada la del agente condicionante con hora más tenprana
-            # Este será el último en ser entregado, asi te aseguras de que todos llegan antes de la hora, ninguno tarde.
-            group_in_time = filtered['in'].min()
-        # Añadir nueva fila de datos
-        rew_row ={ 
-            'osm_id': name_group,
-            'in': group_in_time,
-            'conmutime': group_conmutime
-        }   
-        # Suma a dataframe
-        in_osm_ids = pd.concat([in_osm_ids, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=False).reset_index(drop=True)
-    
-    # Crear la ruta ordenada
-    sorted_route = sort_route(in_osm_ids, helper)
-    
-    ## Crear el nuevo schedule (parte de recogida de agentes)
-    # Iteramos todos los osm_id de llegada
-    for _, name_group in sorted_route.iterrows():
-        # Sacamos el grupo relativo al trip actual
-        group = osm_id_groups.get_group(name_group['osm_id'])
-        # Sacamos los valores a asignar para este grupo
-        group_in_time = name_group['in']
-        group_conmutime = name_group['conmutime']
-        # Miramos los agentes que ya estan en movimiento (si estan presentes en new_new_list, son de otro ciclo, porque new_new_list empieza limpio)
-        previous_agents = new_new_list['agent'].unique()
-        # Iniciamos con los agentes en movimiento
-        for p_agent in previous_agents:
-            agent_data = new_new_list[new_new_list['agent'] == p_agent].iloc[0]
-            # Nueva fila
-            rew_row ={
-                'agent': p_agent,
-                'archetype': agent_data['archetype'],
-                'todo': 'Delivery', 
-                'osm_id': name_group['osm_id'], 
-                'todo_type': 0, 
-                'opening': group_in_time, 
-                'closing': group_in_time, 
-                'fixed': False, 
-                'time2spend': 0, 
-                'in': group_in_time, 
-                'out': group_in_time,
-                'conmutime': group_conmutime,
-                'family': agent_data['family'],
-                'family_archetype': agent_data['family_archetype'],
-            }
-            # Suma a dataframe
-            new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-        # Despues agentes que se mueven por primera vez
-        for _, agent in group.iterrows():
-            # Si el agente llega antes de la apertura
-            if (group_in_time < agent['opening']) or (group_in_time < agent['in'] and agent['fixed'] == True):
-                # Calculamos el tiempo de espera
-                waiting_time = max([agent['in'], agent['opening']]) - group_in_time # Tecnicamente [agent['in'], agent['opening']] deberian ser iguales si es fix, pero bue
-                # Nueva fila
-                rew_row ={
-                    'agent': agent['agent'],
-                    'archetype': agent['archetype'],
-                    'todo': f'Waiting opening', 
-                    'osm_id': agent['osm_id'], # Issue 17
-                    'todo_type': 0, 
-                    'opening': 0,               # Es una accion not-place-related, pero sí time-related
-                    'closing': float('inf'),    # Es una accion not-place-related, pero sí time-related
-                    'fixed': agent['fixed'], 
-                    'time2spend': waiting_time, 
-                    'in': group_in_time, 
-                    'out': agent['in'],
-                    'conmutime': agent['conmutime'],
-                    'family': agent['family'],
-                    'family_archetype': agent['family_archetype'],
-                }   
-                # Suma a dataframe
-                new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-                in_time = agent['in']
-            else:
-                # El caso de entrada es un poco distinto del de salida. Mientras que la salida se hubica entre dos actividades,
-                # la entrada esta entre 
-                in_time = group_in_time
-            
-            new_out = (agent['in'] + agent['time2spend']) if agent['time2spend'] != 0 else agent['closing']
-                
-            rew_row ={
-                'agent': agent['agent'],
-                'archetype': agent['archetype'],
-                'todo': agent['todo'], 
-                'osm_id': agent['osm_id'], 
-                'todo_type': 0, 
-                'opening': agent['opening'], 
-                'closing': agent['closing'], 
-                'fixed': agent['fixed'], 
-                'time2spend': agent['time2spend'], 
-                'in': in_time, 
-                'out': new_out,
-                'conmutime': agent['conmutime'],
-                'family': agent['family'],
-                'family_archetype': agent['family_archetype'],
-            }   
-            # Suma a dataframe
-            new_new_list = pd.concat([new_new_list, pd.DataFrame([rew_row])], ignore_index=True).sort_values(by='in', ascending=True)
-    
-    # Paso 1: Filtrar la fila deseada (como ya haces)
-    filtered_nnl = new_new_list[new_new_list['todo'] == 'Delivery'] 
-    filtered_nnl = filtered_nnl.copy()
-    filtered_nnl['out'] = pd.to_numeric(filtered_nnl['out'], errors='coerce')
-    filtered_nnl = filtered_nnl.loc[filtered_nnl.groupby(['agent'])['out'].idxmax()]
-    filtered_nnl = filtered_nnl[filtered_nnl['agent'] == helper['agent'].iloc[0]]
-    # Asegurarse de que solo hay una fila
-    if len(filtered_nnl) > 1:
-        print(f"filtered_nnl no tiene solo una fila:")
-        print('filtered_nnl:')
-        input(filtered_nnl)
-    if len(filtered_nnl) == 0:
-        return new_new_list
-    # Paso 2: Buscar la fila idéntica en new_new_list
-    target_row = filtered_nnl.iloc[0]  # Convertir a Series
-    match_idx = (new_new_list == target_row).all(axis=1)
-    # Paso 3: Obtener el índice y modificar conmutime
-    idx = new_new_list[match_idx].index[0]
-    
-    new_new_list.at[idx, 'conmutime'] = matrix2cover.loc[
-        matrix2cover['agent'] == helper['agent'].iloc[0], 'conmutime'
-    ].iloc[0]
-
-    return new_new_list
-
-def matrix2cover_creation(todolist_family, responsability_matrix):
-    matrix2cover_rows = []
-    prev_matrix2cover_rows = []
-
-    # First row from helper (assumes first row contains this info)
-    r0 = responsability_matrix.iloc[0]
-
-    # Add current helper task
-    current_helper_row = todolist_family[(todolist_family['agent'] == r0['helper']) & (todolist_family['osm_id'] == r0['osm_id_h1']) & (todolist_family['in'] == r0['in_h'])]
-    matrix2cover_rows.append(current_helper_row)
-
-    # Add previous helper task
-    prev_helper_row = todolist_family[(todolist_family['agent'] == r0['helper']) & (todolist_family['osm_id'] == r0['osm_id_h0']) & (todolist_family['out'] == r0['out_h'])]
-    prev_matrix2cover_rows.append(prev_helper_row)
-
-    # Process dependents
-    for _, row in responsability_matrix.iterrows():
-        current_dependent_row = todolist_family[(todolist_family['agent'] == row['dependent']) & (todolist_family['osm_id'] == row['osm_id_d1']) & (todolist_family['in'] == row['in_d'])]
-        matrix2cover_rows.append(current_dependent_row)
-
-        prev_dependent_row = todolist_family[(todolist_family['agent'] == row['dependent']) & (todolist_family['osm_id'] == row['osm_id_d0']) &(todolist_family['out'] == row['out_d'])]
-        prev_matrix2cover_rows.append(prev_dependent_row)
-
-    # Concatenate once for efficiency
-    matrix2cover = pd.concat(matrix2cover_rows, ignore_index=True)
-    prev_matrix2cover = pd.concat(prev_matrix2cover_rows, ignore_index=True)
-
-    return matrix2cover, prev_matrix2cover
-  
 
 def todolist_family_creation(df_citizens, pop_building, system_management):
     """
@@ -779,7 +343,6 @@ def prev_data_creation(previous_actions, helper_name):
         }]
         prev_data = pd.concat([prev_data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
     return prev_data
-
 
 def data_creation(df_grm):
     # Sacamos la lista de los nombres de los agentes participantes en esta accion
@@ -985,7 +548,6 @@ def action_times_calculation(data, l_action, condition_time):
     # Devolvemos el df de salida
     return results, condition_time
 
-
 def new_schedule_creation(data, family_level_1_schedule, action):
     """
       Summary: Modifica, en base al df 'data' los datos originales del schedule, para adaptarlos
@@ -1071,102 +633,6 @@ def new_schedule_creation(data, family_level_1_schedule, action):
     new_schedule = new_schedule.sort_values(by=['in', 'out'], ascending=True).reset_index(drop=True)
     # Devolvemos el df de resultados
     return new_schedule
-
-def delivery_schedule_creation(data, family_level_1_schedule):
-    # Inicializamos el df de resultados
-    delivery_df = pd.DataFrame()
-    # Pasamos por todas las filas de data
-    for idx, row in data.iterrows():
-        # Sacamos los valores originales para dicha accion
-        new_row = family_level_1_schedule[(family_level_1_schedule['agent'] == row['agent']) &
-                                          (family_level_1_schedule['osm_id'] == row['osm_id']) &
-                                          (family_level_1_schedule['todo'] == row['todo'])].iloc[0]
-        # Miramos los agentes que quedan (estos son los que realizan la entrega)
-        for agent in data['agent'].iloc[idx+1:]:
-            # Sacamos la info de cada agente
-            agent_info = family_level_1_schedule[family_level_1_schedule['agent'] == agent].iloc[0]
-            # Modificamos sus lineas
-            new_action = new_row.copy()
-            new_action['agent'] = agent
-            new_action['archetype'] = agent_info['archetype']
-            new_action['todo'] = 'Delivery'
-            new_action['todo_type'] = 0
-            new_action['fixed'] = True
-            new_action['time2spend'] = 0
-            new_action['in'] = row['in']
-            new_action['out'] = row['in']
-            new_action['conmutime'] = row['conmutime']
-            # La añadimos
-            delivery_df = pd.concat([delivery_df, pd.DataFrame([new_action])], ignore_index=True).reset_index(drop=True)
-        # En caso de que el agente llegue antes de tiempo, deberá esperar
-        if row['in'] < new_row['opening']:
-            # Modificamos la linea de acción para realizar la espera
-            new_action = new_row.copy()
-            new_action['todo'] = 'Waiting opening'
-            new_action['todo_type'] = 0
-            new_action['fixed'] = True
-            new_action['time2spend'] = new_row['opening'] - row['in']
-            new_action['in'] = row['in']
-            new_action['out'] = new_row['opening']
-            new_action['conmutime'] = row['conmutime']
-            # La añadimos
-            delivery_df = pd.concat([delivery_df, pd.DataFrame([new_action])], ignore_index=True).reset_index(drop=True)
-        # Modificamos la acción a su nuevo in
-        new_row['todo_type'] = 0
-        new_row['in'] = max([row['in'], new_row['opening']])
-        new_row['out'] = row['in'] + row['time2spend'] if new_row['todo'] != 'Entertainment' else new_row['closing']
-        new_row['conmutime'] = row['conmutime']
-        # Lo añadimos
-        delivery_df = pd.concat([delivery_df, pd.DataFrame([new_row])], ignore_index=True).reset_index(drop=True)
-    # Devolvemos los resultados
-    return delivery_df
-
-def in_times_calculation(data):
-    # El resto del DataFrame, sin la fila 'helper' y lo ordenamos descendente
-    other_rows = data[data['type'] != 'helper'].sort_values(by='in', ascending=False).reset_index(drop=True)
-    # Inicializamos el df de resultados
-    df = pd.DataFrame()
-    # Pasamos por todas las filas de datos relativos a dependents
-    for idx, row in other_rows.iterrows():
-        # Asignamos el valor real de 'in'
-        in_v = row['in']
-        # Si es el primer caso (el que deberia provocar dependencias en el resto)
-        if idx == 0:
-            # Mantenemos igual el in
-            rin_v = in_v
-        else:
-            # Adaptamos a lo que antes teniamos menos el tiempo de conmutacion
-            rin_v = last_in_v - row['conmutime']
-        # Actualizamos el valor historico de rin
-        last_in_v = rin_v
-        # Calculamos la diferrencia entre intencio y real
-        diff_v = in_v - rin_v
-        # Creamos la nueva linea
-        new_row = [{
-            'agent': row['agent'],
-            'in': in_v,
-            'rin': rin_v,
-            'diff': diff_v,
-        }]
-        # Añadimos la nueva fila
-        df = pd.concat([df, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
-    # Recalculamos el in de cada accion
-    df['rin'] = df['rin'] + df['diff'].min() if df['diff'].min() < 0 else 0
-    # Hacemos merge para incorporar la columna 'rin' desde df al DataFrame other_rows
-    other_rows_updated = other_rows.merge(df[['agent', 'in', 'rin']], on=['agent', 'in'], how='left')
-    # Sustituimos 'in' por 'rin' donde exista
-    other_rows_updated['in'] = other_rows_updated['rin'].combine_first(other_rows_updated['in'])
-    # Eliminamos la columna 'rin' si ya no la necesitamos
-    other_rows_updated = other_rows_updated.drop(columns=['rin']).sort_values(by='in', ascending=True).reset_index(drop=True)
-    # Sacamos los datos de helper
-    helper_row = data[data['type'] == 'helper'].copy()
-    # Actualizamos su in (deberá ser despues de llevar a todos los agentes)
-    helper_row['in'] = other_rows_updated['in'].max() + helper_row['conmutime']
-    # Lo añadimos el df de salida
-    data = pd.concat([other_rows_updated, helper_row], ignore_index=True).reset_index(drop=True)
-    # Devolvemos el df de salida
-    return data
-    
     
 def comnutime_assignment(data, action):
     ## Ordenamos para poder trabajar
@@ -1190,7 +656,6 @@ def comnutime_assignment(data, action):
     # Devolvemos el df con los conmutime bien
     return data_sorted    
 
-
 def non_helpers(independents, family_level_1_schedule, responsability_matrix):   
     # Sacamos los nombres de los independents
     independents_names = independents['agent'].unique()
@@ -1202,50 +667,6 @@ def non_helpers(independents, family_level_1_schedule, responsability_matrix):
     independents_schedule = independents_schedule[independents_schedule['agent'].isin(responsability_matrix['agent_x'].unique())]
     # Devolvemos las nuevas filas y 'independents_schedule' actualizado
     return new_rows, independents_schedule
-
-def get_unaffected_actions(family_level_1_schedule, responsability_matrix):
-    # Inicializamos los df de resultados
-    all_unaffected_actions = pd.DataFrame()
-    all_affected_actions = pd.DataFrame()
-    # Sacamos los nombres de los independent agent
-    indep_agents = responsability_matrix['agent_x'].unique()
-    # Sacamos los nombres de los dependent agent
-    depend_agents = responsability_matrix['agent_y'].unique()
-    
-    for indep in indep_agents:
-        # Sacamos las reposnability matrix del agente de analisis
-        helper_responsabilities = responsability_matrix[responsability_matrix['agent_x'] == indep]
-        # Sacamos tambien la schedule del agente
-        helper_schedule = family_level_1_schedule[family_level_1_schedule['agent'] == indep]
-        # Encontrar el valor mínimo de out_x
-        min_out_x = helper_responsabilities['out_x'].min()
-        # Crear nueva lista con el que tiene ese valor mínimo y reseteamos el indice (just in case)
-        first_help = helper_responsabilities[helper_responsabilities['out_x'] == min_out_x].reset_index(drop=True)
-        prev_action, idx = get_previous_action(helper_schedule, first_help['agent_x'].iloc[0], first_help['in_x'].iloc[0])
-        # Evaluamos si la actividad previa sera o no afectada (si ningún agente que requiere asistencia en esta primera accion es tipo fixed
-        # el helper puede ayudar a los dependents cuando sea necesario, es decir, que los dependents pueden esperar a que el helper acabe su
-        # actividad previa).
-        if not first_help['fixed_y'].any() and prev_action['todo'] != 'Entertainment':
-            # Si el previo es idx, el actual será idx+1
-            idx += 1
-        # Retiramos la accion anterior, porque igaul tiene que salir antes de lo que estubiese haciendo (se observará en la siguiente uncion, no en esta)
-        unaffected_actions = helper_schedule.loc[:idx-1].copy()
-        # Lo sumamos al total
-        all_unaffected_actions = pd.concat([all_unaffected_actions, unaffected_actions], ignore_index=True).reset_index(drop=True)
-        # Sacamos las lineas afectadas por las asistencias (tecnicamente, la .iloc[0] aun no sabemos si esta o no afectada)
-        affected_actions = helper_schedule.loc[idx:].copy()   
-        # Lo sumamos al total
-        all_affected_actions = pd.concat([all_affected_actions, affected_actions], ignore_index=True).reset_index(drop=True)
-        
-    # Devolvemos los datos que no seran y los que si serán afectados por las actividades de asistencia
-    return all_unaffected_actions, all_affected_actions
-    
-
-    
-
-
-
-
 
 def create_responsability_matrix(dependents, independents, pop_building, family_level_1_schedule):
     # Inicializamos el df de mejores opciones porposible helper
@@ -1278,7 +699,7 @@ def create_responsability_matrix(dependents, independents, pop_building, family_
         for cart_n, cart in best_helpers_activity:
             # Si un independent ayuda dos veces a un mismo dependent, significa que se da el caso de la espera mazo larga
             if cart['agent_y'].duplicated().any():
-                print(F"\nSe ha detectado que una misma actividad tenia más de una actividad para el mismo agente y se ha cambiado")
+                print(F"Se ha detectado que una misma actividad tenia más de una actividad para el mismo agente y se ha cambiado")
                 # Identificar los índices de los valores mínimos por cada grupo duplicado de 'agent_y'
                 idx_to_drop = cart.loc[cart.duplicated('agent_y', keep=False)].groupby('agent_y')['in_y'].idxmin()
                 # Eliminar esos índices del DataFrame
@@ -1347,8 +768,6 @@ def get_previous_action(family_level_1_schedule, data_agent, data_in):
     previous_action = previous_actions.loc[[idx]]
     return previous_action.iloc[0], idx
 
-
-# Función de distancia haversine
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371  # Radio de la Tierra en km
     lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
