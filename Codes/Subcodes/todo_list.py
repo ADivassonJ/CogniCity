@@ -699,7 +699,7 @@ def create_responsability_matrix(dependents, independents, pop_building, family_
         for cart_n, cart in best_helpers_activity:
             # Si un independent ayuda dos veces a un mismo dependent, significa que se da el caso de la espera mazo larga
             if cart['agent_y'].duplicated().any():
-                print(F"\nSe ha detectado que una misma actividad tenia más de una actividad para el mismo agente y se ha cambiado")
+                print(F"Se ha detectado que una misma actividad tenia más de una actividad para el mismo agente y se ha cambiado")
                 # Identificar los índices de los valores mínimos por cada grupo duplicado de 'agent_y'
                 idx_to_drop = cart.loc[cart.duplicated('agent_y', keep=False)].groupby('agent_y')['in_y'].idxmin()
                 # Eliminar esos índices del DataFrame

@@ -221,7 +221,12 @@ def load_or_download_networks(study_area, study_area_path, networks):
         for net_type in missing_networks:
             try:
                 print(f'        Downloading {net_type} network from {study_area} ...')
-                graph = ox.graph_from_place(study_area, network_type=net_type)
+                # Cargar el polígono del área
+                gdf = ox.geocode_to_gdf(study_area)
+                # Aplicar un buffer de 150 metros para expandir el radio
+                gdf_buffered = gdf.to_crs(epsg=3857).buffer(3000).to_crs(epsg=4326)
+                # Obtener el grafo con el nuevo polígono ampliado
+                graph = ox.graph_from_polygon(gdf_buffered.iloc[0], network_type=net_type)
                 ox.save_graphml(graph, study_area_path / f"{net_type}.graphml")
                 networks_map[f"{net_type}_map"] = graph
             except Exception as e:

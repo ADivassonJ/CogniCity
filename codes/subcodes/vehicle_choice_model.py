@@ -12,64 +12,11 @@ import networkx as nx
 
 
 
-
-
-
-
-def main():
-    # Input
-    population = 450
-    study_area = 'Kanaleneiland'
-    
-    ## Code initialization
-    # Paths initialization
-    paths = {}
-    
-    paths['main'] = Path(__file__).resolve().parent.parent.parent
-    paths['system'] = paths['main'] / 'system'
-    
-    system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
-    file_management = system_management[['file_1', 'file_2', 'pre']]
-
-    # Paso 2: Bucle sobre filas del mini DF
-    for index, row in file_management.iterrows():
-        
-        file_1 = paths[study_area] if row['file_1'] == 'study_area' else paths[row['file_1']]
-        file_2 = study_area if row['file_2'] == 'study_area' else row['file_2']
-        
-        paths[file_2] = file_1 / file_2
-        
-        if not paths[file_2].exists():
-            if row['pre'] == 'y':
-                print(f"[Error] Critical file not detected:")
-                print(f"{paths[file_2]}")
-                print(f"Please solve the mentioned issue and reestart the model.")
-                sys.exit()
-            else:
-                os.makedirs(paths[file_2], exist_ok=True)
-                
-    networks = ['drive', 'walk']
-    networks_map = {}   
-    for net_type in networks:           
-        networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
-    
-    level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_level_1.xlsx")
-    level_2_results = pd.read_excel(f"{paths['results']}/{study_area}_level_2.xlsx")
-    
-    pop_citizen = pd.read_excel(f"{paths['population']}/pop_citizen.xlsx")
-    pop_family = pd.read_excel(f"{paths['population']}/pop_family.xlsx")
-    pop_building = pd.read_excel(f"{paths['population']}/pop_building.xlsx")
-    pop_transport = pd.read_excel(f"{paths['population']}/pop_transport.xlsx")
-    
-    pop_archetypes_transport = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_transport.xlsx")
-    
+def vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map):
     try:
         past_dist_calculations = pd.read_excel(f"{paths['study_area']}/past_dist_calculations.xlsx")
     except Exception:
         past_dist_calculations = pd.DataFrame()
-    
-    ##############################################################################
-    print(f'docs readed')
     
     # Agrupamos los resultados por familias
     level1_families = level_1_results.groupby(['family'])
@@ -127,7 +74,66 @@ def main():
                 avail_vehicles.remove(best_transport_distime_matrix['vehicle'])
                 
     vehicles_actions.to_excel(f"{paths['results']}/{study_area}_vehicles_actions.xlsx", index=False)
-    new_level2_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_2.xlsx", index=False)    
+    new_level2_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_2.xlsx", index=False)
+
+    return vehicles_actions, new_level2_schedules
+
+def main():
+    # Input
+    population = 450
+    study_area = 'Kanaleneiland'
+    
+    ## Code initialization
+    # Paths initialization
+    paths = {}
+    
+    paths['main'] = Path(__file__).resolve().parent.parent.parent
+    paths['system'] = paths['main'] / 'system'
+    
+    system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
+    file_management = system_management[['file_1', 'file_2', 'pre']]
+
+    # Paso 2: Bucle sobre filas del mini DF
+    for index, row in file_management.iterrows():
+        
+        file_1 = paths[study_area] if row['file_1'] == 'study_area' else paths[row['file_1']]
+        file_2 = study_area if row['file_2'] == 'study_area' else row['file_2']
+        
+        paths[file_2] = file_1 / file_2
+        
+        if not paths[file_2].exists():
+            if row['pre'] == 'y':
+                print(f"[Error] Critical file not detected:")
+                print(f"{paths[file_2]}")
+                print(f"Please solve the mentioned issue and reestart the model.")
+                sys.exit()
+            else:
+                os.makedirs(paths[file_2], exist_ok=True)
+                
+    networks = ['drive', 'walk']
+    networks_map = {}   
+    for net_type in networks:           
+        networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
+    
+    level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_level_1.xlsx")
+    level_2_results = pd.read_excel(f"{paths['results']}/{study_area}_level_2.xlsx")
+    
+    pop_citizen = pd.read_excel(f"{paths['population']}/pop_citizen.xlsx")
+    pop_family = pd.read_excel(f"{paths['population']}/pop_family.xlsx")
+    pop_building = pd.read_excel(f"{paths['population']}/pop_building.xlsx")
+    pop_transport = pd.read_excel(f"{paths['population']}/pop_transport.xlsx")
+    
+    pop_archetypes_transport = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_transport.xlsx")
+    
+    ##############################################################################
+    print(f'docs readed')
+
+    # Mostrar el mapa
+    ox.plot_graph(networks_map['drive_map'])
+    
+    
+    vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map)
+    
         
         
 def update_citizen_schedule(best_transport_distime_matrix, c_name, level1_schedule, level2_families):

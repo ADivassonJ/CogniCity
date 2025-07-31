@@ -7,6 +7,7 @@ import pandas as pd
 from pathlib import Path
 from subcodes.initialization import Archetype_documentation_initialization, Geodata_initialization, Synthetic_population_initialization
 from subcodes.todo_list import todolist_family_creation
+from subcodes.vehicle_choice_model import vehicle_choice_model
 pd.set_option('mode.chained_assignment', 'raise')  # Convierte el warning en error
 
 ### Main
@@ -62,7 +63,9 @@ def main():
 
     pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])
     
-    todolist_family_creation(agent_populations['citizen'], agent_populations['building'], system_management)
+    level_1_results, level_2_results = todolist_family_creation(agent_populations['citizen'], agent_populations['building'], system_management)
+    
+    vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, level_2_results, agent_populations['transport'], agent_populations['citizen'], paths, study_area, pop_archetypes['transport'], agent_populations['building'], networks_map)
     
 def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
     # Suponiendo que df_citizens y df_families ya están definidos
