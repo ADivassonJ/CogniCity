@@ -98,6 +98,8 @@ def create_family_level_1_schedule(pop_building, family_df, activities):
                         in_time = opening
                     out_time = (in_time + time2spend) if time2spend != 0 else closing
                 
+                node = pop_building[pop_building['osm_id']==osm_id]['node'].iloc[0]
+                
                 # Creamos la nueva fila en caso de que se pueda realizar la accion
                 if in_time < closing and out_time <= closing:
                     rew_row ={
@@ -105,6 +107,7 @@ def create_family_level_1_schedule(pop_building, family_df, activities):
                         'archetype': row_f_df['archetype'],
                         'todo': activity, 
                         'osm_id': osm_id, 
+                        'node': node,
                         'todo_type': todo_type, 
                         'opening': opening, 
                         'closing': closing, 

@@ -12,6 +12,8 @@ import geopandas as gpd
 from pathlib import Path
 import matplotlib.pyplot as plt
 from scipy.spatial import Voronoi
+from shapely.ops import unary_union
+from haversine import haversine, Unit
 from shapely.geometry import Point, Polygon
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -114,19 +116,14 @@ def Geodata_initialization(study_area, paths, pop_archetypes):
     networks = get_active_networks(pop_archetypes['transport'])
 
     # Paso 1: Cargar o descargar POIs
-    agent_populations['building'] = load_or_download_pois(study_area, paths[study_area], paths['population'], pop_archetypes['building'])
+    agent_populations['building'] = load_or_download_pois(study_area, paths, pop_archetypes['building'])
 
     # Paso 2: Cargar o descargar redes
     networks_map = load_or_download_networks(study_area, paths['maps'], networks)
 
-    # TO_DO: Añadir datos de buses eléctricos aquí
-    agent_populations['building'] = add_ebus(paths, study_area, agent_populations['building'])
-
     return agent_populations, networks_map
 
-def add_ebus(paths, study_area, building_populations):
-    
-    # Intentamos leer el archivo de TU Graz
+def e_sys_loading(paths, study_area):
     try:
         electric_system = pd.read_excel(paths['maps'] / 'electric_system.xlsx')
     except Exception as e:
@@ -145,52 +142,248 @@ def add_ebus(paths, study_area, building_populations):
                     print(f'        [ERROR] Archivo no encontrado en la ubiccion solicitada.')
                     print(f"        ({paths['desktop'] / f'electric_system_{study_area}.xlsx'})")
                     code = 'NOT_DONE'
-    
-    # Ahora que ya tenemos la informacion sobre la red (electric_system), podemos operar
-    
-    electric_system = electric_system.rename(columns={electric_system.columns[0]: "bus"})
-    # Creamos un subset con lon/lat
-    nodes_gdf = gpd.GeoDataFrame(
-        electric_system,
-        geometry=gpd.points_from_xy(electric_system["long"], electric_system["lat"]),
+    return electric_system
+
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point, MultiPoint
+from shapely.ops import voronoi_diagram
+import numpy as np
+from scipy.spatial import cKDTree
+import matplotlib.pyplot as plt
+
+def voronoi_clipped_by_circle(electric_system,
+                              lon_col='long', lat_col='lat',
+                              node_col=None,
+                              buffer_m=4000,
+                              proj_epsg=3857):
+    """
+    - electric_system: pd.DataFrame con al menos columnas lon_col, lat_col.
+      Si node_col es None se toma electric_system.iloc[:,0] como nombres de nodo.
+    - buffer_m: buffer alrededor del centro para asegurar que el círculo contenga todos los nodos (4000 m por defecto).
+    - proj_epsg: CRS métrico para trabajar en metros (default 3857).
+    Retorna:
+      nodes_gdf_proj: GeoDataFrame de nodos en CRS proyectado (metros)
+      vor_gdf: GeoDataFrame de polígonos Voronoi recortados al círculo (CRS proyectado) con columna 'node'
+      circle_geom: shapely Polygon del círculo (CRS proyectado)
+    """
+    # obtener nombres de nodo
+    if node_col is None:
+        node_names = electric_system.iloc[:,0].astype(str).values
+    else:
+        node_names = electric_system[node_col].astype(str).values
+
+    # puntos en WGS84
+    lons = electric_system[lon_col].astype(float).values
+    lats = electric_system[lat_col].astype(float).values
+    df_nodes = pd.DataFrame({'node': node_names, 'long': lons, 'lat': lats})
+    nodes_gdf = gpd.GeoDataFrame(df_nodes, geometry=gpd.points_from_xy(df_nodes.long, df_nodes.lat), crs="EPSG:4326")
+
+    # proyectar a CRS métrico
+    nodes_proj = nodes_gdf.to_crs(epsg=proj_epsg)
+
+    # centro y círculo (en CRS proyectado)
+    # uso el centroid de los puntos proyectados
+    centroid = nodes_proj.unary_union.centroid
+    circle = centroid.buffer(buffer_m)
+
+    # construir MultiPoint (shapely) en CRS proyectado
+    multipoints = MultiPoint([(p.x, p.y) for p in nodes_proj.geometry])
+
+    # crear diagram Voronoi y recortar por el círculo.
+    # voronoi_diagram recibe la geometría y un envelope; sin embargo
+    # por seguridad intersectamos cada polígono con el círculo.
+    vor_geom_collection = voronoi_diagram(multipoints, envelope=circle)  # necesita Shapely >=2.0
+
+    # vor_geom_collection es una GeometryCollection de polígonos; convertir en GeoDataFrame
+    polys = []
+    for geom in vor_geom_collection.geoms:
+        clipped = geom.intersection(circle)  # asegurar recorte al círculo
+        if not clipped.is_empty:
+            polys.append(clipped)
+
+    # asignar a cada polígono el nodo más cercano por centroid -> KDTree
+    poly_centroids = [p.centroid for p in polys]
+    poly_coords = np.vstack([[c.x, c.y] for c in poly_centroids])
+    node_coords = np.vstack([[p.x, p.y] for p in nodes_proj.geometry])
+    tree = cKDTree(node_coords)
+    dists, idxs = tree.query(poly_coords, k=1)
+    poly_nodes = [nodes_proj['node'].values[idx] for idx in idxs]
+
+    vor_gdf = gpd.GeoDataFrame({'node': poly_nodes, 'geometry': polys}, crs=f"EPSG:{proj_epsg}")
+
+    return nodes_proj, vor_gdf, circle
+
+import numpy as np
+import geopandas as gpd
+from scipy.spatial import cKDTree
+
+def assign_buildings(building_populations,
+                     vor_gdf, nodes_proj,
+                     lon_col='long', lat_col='lat',
+                     node_col_name='node',
+                     keep_original_node_col=True,
+                     debug=False):
+    """
+    Asigna cada edificio al nodo. Consolida posibles columnas node_left/node_right/node
+    que produce gpd.sjoin cuando hay colisiones de nombre.
+    Devuelve GeoDataFrame en EPSG:4326 con columna `node` (o node_col_name).
+    """
+    # Construir GeoDataFrame edificios (WGS84)
+    bld_df = building_populations.copy()
+    # Si ya hay una columna node en el df de edificios y queremos conservarla:
+    if keep_original_node_col and node_col_name in bld_df.columns:
+        bld_df = bld_df.rename(columns={node_col_name: 'orig_'+node_col_name})
+
+    bld_gdf = gpd.GeoDataFrame(
+        bld_df,
+        geometry=gpd.points_from_xy(bld_df[lon_col].astype(float),
+                                    bld_df[lat_col].astype(float)),
         crs="EPSG:4326"
     )
 
-    # Voronoi
-    points = np.array(list(zip(electric_system["long"], electric_system["lat"])))
-    vor = Voronoi(points)
-    vor_polygons = voronoi_polygons(vor, points)
-    vor_gdf = gpd.GeoDataFrame(
-        {"bus": electric_system["bus"]},
-        geometry=vor_polygons,
-        crs="EPSG:4326"
-    )
-    
-    # Suponemos que en building_populations existen columnas 'lon' y 'lat'
-    buildings_gdf = gpd.GeoDataFrame(
-        building_populations,
-        geometry=gpd.points_from_xy(building_populations["lon"], building_populations["lat"]),
-        crs="EPSG:4326"
-    )
-    # Spatial join
-    buildings_with_node = gpd.sjoin(buildings_gdf, vor_gdf, how="left", predicate="within")
-    # Renombramos la columna bus asociada
-    buildings_with_node = buildings_with_node.rename(columns={"bus": "node"})
-    # Quitamos columna auxiliar del join
-    result = buildings_with_node.drop(columns=["index_right"])
-        
+    # Proyectar a CRS del voronoi
+    target_crs = vor_gdf.crs
+    bld_proj = bld_gdf.to_crs(target_crs)
+
+    # Intento de spatial join (compatibilidad predicate/op)
+    try:
+        joined = gpd.sjoin(bld_proj, vor_gdf[['node','geometry']], how='left', predicate='within')
+    except TypeError:
+        # versiones antiguas: op='within'
+        joined = gpd.sjoin(bld_proj, vor_gdf[['node','geometry']], how='left', op='within')
+
+    # Normalizar casos de colisión de nombres:
+    # - si existe 'node_right' usamos eso
+    # - si existe 'node' directamente (caso ideal), la usamos
+    # - si existe 'node_left' usamos eso como fallback
+    # Creamos finalmente joined['node'] (o node_col_name)
+    if 'node' in joined.columns:
+        # ya está la columna 'node', nada que hacer
+        joined[node_col_name] = joined['node']
+    else:
+        # combinar posibles sufijos que añade sjoin
+        node_right = joined.columns[joined.columns.str.endswith('_right')] if isinstance(joined.columns, pd.Index) else []
+        node_left = joined.columns[joined.columns.str.endswith('_left')] if isinstance(joined.columns, pd.Index) else []
+
+        # preferencia: columna *_right si existe y suena a 'node_right'
+        chosen = None
+        if any(col == 'node_right' for col in joined.columns):
+            chosen = 'node_right'
+        elif any(col == 'node_left' for col in joined.columns):
+            # si sólo existe node_left (poco probable), usarlo
+            chosen = 'node_left'
+        else:
+            # si no hay sufijos específicos, intentar mapear desde index_right
+            if 'index_right' in joined.columns:
+                # map desde vor_gdf index -> node
+                mapping = vor_gdf['node']
+                joined[node_col_name] = joined['index_right'].map(mapping)
+            else:
+                chosen = None
+
+        if chosen is not None:
+            joined[node_col_name] = joined[chosen]
+
+    # Ahora puede que haya NaN en joined[node_col_name]; asignar nearest node por KDTree
+    if node_col_name not in joined.columns or joined[node_col_name].isna().any():
+        # asegurarnos de que la columna existe
+        if node_col_name not in joined.columns:
+            joined[node_col_name] = np.nan
+
+        no_node_mask = joined[node_col_name].isna()
+        if no_node_mask.any():
+            if debug:
+                print(f"{no_node_mask.sum()} edificios sin nodo tras sjoin; asignando nearest node como fallback.")
+            node_coords = np.vstack([nodes_proj.geometry.x.values, nodes_proj.geometry.y.values]).T
+            tree = cKDTree(node_coords)
+            pts = np.vstack([joined.loc[no_node_mask].geometry.x.values, joined.loc[no_node_mask].geometry.y.values]).T
+            dists, idxs = tree.query(pts, k=1)
+            assigned_nodes = nodes_proj['node'].values[idxs]
+            joined.loc[no_node_mask, node_col_name] = assigned_nodes
+
+    # Limpiar columnas auxiliares que creó sjoin: index_right, node_left/node_right, etc.
+    cols_to_drop = [c for c in ['index_right', 'node_left', 'node_right', 'node'] if c in joined.columns]
+    joined = joined.drop(columns=[c for c in cols_to_drop if c != node_col_name], errors='ignore')
+
+    # Volver a CRS original WGS84 y renombrar si hace falta
+    result = joined.to_crs("EPSG:4326").rename(columns={node_col_name: node_col_name})
+
     return result
+
+def buffer_value(electric_system):
+    # Supongamos que tu df se llama electric_system y tiene 'lat' y 'long'
+    # Encuentra los extremos
+    left = electric_system.loc[electric_system['long'].idxmin()]
+    right = electric_system.loc[electric_system['long'].idxmax()]
+    top = electric_system.loc[electric_system['lat'].idxmax()]
+    bottom = electric_system.loc[electric_system['lat'].idxmin()]
+
+    # Lista de extremos
+    extremos = [left, right, top, bottom]
+
+    # Calcular todas las distancias entre pares
+    max_distance = 0
+    for i in range(len(extremos)):
+        for j in range(i+1, len(extremos)):
+            coord1 = (extremos[i]['lat'], extremos[i]['long'])
+            coord2 = (extremos[j]['lat'], extremos[j]['long'])
+            distance = haversine(coord1, coord2, unit=Unit.METERS)
+            if distance > max_distance:
+                max_distance = distance
+    return int(max_distance)
+
+
+def add_ebus(paths, study_area, building_populations):
     
-def voronoi_polygons(vor, nodes):
-        polygons = []
-        for i, region_index in enumerate(vor.point_region):
-            region = vor.regions[region_index]
-            if -1 in region or len(region) == 0:
-                polygons.append(None)
-                continue
-            poly = Polygon([vor.vertices[j] for j in region])
-            polygons.append(poly)
-        return polygons
+    # Leemos el archivo de TU Graz
+    electric_system = e_sys_loading(paths, study_area)
+    
+    buffer = buffer_value(electric_system)
+    
+    # Asignamos buses a los edificios
+    nodes_proj, vor_gdf, circle_geom = voronoi_clipped_by_circle(electric_system,
+                                                                 lon_col='long', lat_col='lat',
+                                                                 node_col=None, buffer_m=buffer, proj_epsg=3857)
+
+    buildings_assigned = assign_buildings(building_populations,
+                                     vor_gdf, nodes_proj,
+                                     lon_col='lon', lat_col='lat',
+                                     node_col_name='node',
+                                     keep_original_node_col=True,
+                                     debug=True)
+    
+    plot_voronoi(buildings_assigned, vor_gdf, circle_geom, nodes_proj, buffer)
+    
+    buildings_assigned.to_excel(f"{paths['population']}/pop_building.xlsx", index=False)
+        
+    return buildings_assigned
+
+def plot_voronoi(buildings_assigned, vor_gdf, circle_geom, nodes_proj, buffer):
+    # Definir paleta de colores y lista de símbolos
+    colors = plt.cm.tab20.colors  # 20 colores distintos
+    markers = ['o', 's', 'v', '^', '<', '>', 'D', 'P', '*', 'X']  # símbolos distintos
+    # Generar combinaciones de color y símbolo
+    combos = list(itertools.product(colors, markers))
+    # Mapear cada nodo a una combinación única
+    unique_nodes = buildings_assigned['node'].unique()
+    node_style = {node: combos[i % len(combos)] for i, node in enumerate(unique_nodes)}
+    fig, ax = plt.subplots(figsize=(12, 12))
+    # Polígonos Voronoi
+    vor_gdf.to_crs(epsg=4326).plot(ax=ax, edgecolor='black', alpha=0.3, facecolor='none')
+    # Círculo límite
+    gpd.GeoSeries([circle_geom], crs=vor_gdf.crs).to_crs(epsg=4326).boundary.plot(
+        ax=ax, linestyle='--', linewidth=2, color='black'
+    )
+    # Nodos eléctricos
+    nodes_proj.to_crs(epsg=4326).plot(ax=ax, color='red', markersize=60, marker='x')
+    # Edificios con combinación única de color y símbolo
+    for node, (color, marker) in node_style.items():
+        subset = buildings_assigned[buildings_assigned['node'] == node]
+        subset.plot(ax=ax, color=color, marker=marker, markersize=12)
+    ax.set_title(f"Voronoi recortado por círculo (buffer {buffer} km)\nAsignación de edificios a nodos", fontsize=14)
+    ax.axis("off")  # quitar ejes
+    plt.show()
 
 def get_active_networks(transport_archetypes_df):
     active_maps = transport_archetypes_df.loc[
@@ -203,15 +396,20 @@ def get_active_networks(transport_archetypes_df):
     
     return active_maps
 
-def load_or_download_pois(study_area, study_area_path, pop_path, building_archetypes_df):
+def load_or_download_pois(study_area, paths, building_archetypes_df):
+    study_area_path = paths[study_area]
+    pop_path = paths['population']
     try:
         print(f'Loading POIs data ...')
         return pd.read_excel(f'{pop_path}/pop_building.xlsx')
     except Exception:
         print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
-        return download_pois(study_area, study_area_path, pop_path, building_archetypes_df)
+        return download_pois(study_area, paths, building_archetypes_df)
 
-def download_pois(study_area, study_area_path, pop_path, building_archetypes_df):
+def download_pois(study_area, paths, building_archetypes_df):
+    study_area_path = paths[study_area]
+    pop_path = paths['population']
+    
     try:
         print(f'        Downloading services data from {study_area} ...')
         Services_Group_relationship = pd.read_excel(f'{study_area_path}/Services-Group relationship.xlsx')
@@ -248,7 +446,10 @@ def download_pois(study_area, study_area_path, pop_path, building_archetypes_df)
     
     SG_relationship.to_excel(f'{pop_path}/pop_building.xlsx', index=False)
 
-    return SG_relationship
+    # Añadir datos de buses eléctricos aquí
+    buildings_populations = add_ebus(paths, study_area, SG_relationship)
+    
+    return buildings_populations
 
 def building_schedule_adding(osm_elements_df, building_archetypes_df):
     '''
