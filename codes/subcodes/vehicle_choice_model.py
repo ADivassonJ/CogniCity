@@ -280,9 +280,9 @@ def score_algorithm(distime_matrix):
     # Calcular score de forma robusta
     distime_matrix['score'] = (
         conmu_time +
-        distime_matrix['cost'] -
-        distime_matrix['benefits'] +
-        distime_matrix['emissions']
+        distime_matrix['cost']*0.4 -
+        distime_matrix['benefits']*0.4 +
+        distime_matrix['emissions']*0.1
     )
     
     return distime_matrix

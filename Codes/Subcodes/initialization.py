@@ -3,13 +3,16 @@ import sys
 import math
 import shutil
 import random
+import itertools
 import osmnx as ox
 ox.settings.timeout = 500
 import numpy as np
 import pandas as pd
 import geopandas as gpd
 from pathlib import Path
-import itertools
+import matplotlib.pyplot as plt
+from scipy.spatial import Voronoi
+from shapely.geometry import Point, Polygon
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ############# Due to py 3.7. some things are 'rusty'
@@ -17,7 +20,6 @@ import warnings
 from shapely.errors import ShapelyDeprecationWarning
 warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
 #############
-
 
 def Archetype_documentation_initialization(paths):
     """
@@ -118,8 +120,77 @@ def Geodata_initialization(study_area, paths, pop_archetypes):
     networks_map = load_or_download_networks(study_area, paths['maps'], networks)
 
     # TO_DO: Añadir datos de buses eléctricos aquí
+    agent_populations['building'] = add_ebus(paths, study_area, agent_populations['building'])
 
     return agent_populations, networks_map
+
+def add_ebus(paths, study_area, building_populations):
+    
+    # Intentamos leer el archivo de TU Graz
+    try:
+        electric_system = pd.read_excel(paths['maps'] / 'electric_system.xlsx')
+    except Exception as e:
+        print(f"    [WARNING] No se ha encontrado el archivo relativo a la red electrica del caso '{study_area}'.\n    Por favor, ubica el archivo .xlsx en el escritorio del ordenador con el siguiente nombre:")
+        print(f"        electric_system_{study_area}.xlsx")
+        code = 'NOT_DONE'
+        while code != 'DONE':
+            code = input(f"    Cuando hayas realizado la accion solicitada, ingresa 'DONE'.")
+            if code != 'DONE':
+                print(f'        Codigo de continuacion INCORRECTO.')
+            else:
+                try:
+                    electric_system = pd.read_excel(paths['desktop'] / f'electric_system_{study_area}.xlsx')
+                    electric_system.to_excel(f"{paths['maps']}/electric_system.xlsx", index=False)
+                except Exception as e:
+                    print(f'        [ERROR] Archivo no encontrado en la ubiccion solicitada.')
+                    print(f"        ({paths['desktop'] / f'electric_system_{study_area}.xlsx'})")
+                    code = 'NOT_DONE'
+    
+    # Ahora que ya tenemos la informacion sobre la red (electric_system), podemos operar
+    
+    electric_system = electric_system.rename(columns={electric_system.columns[0]: "bus"})
+    # Creamos un subset con lon/lat
+    nodes_gdf = gpd.GeoDataFrame(
+        electric_system,
+        geometry=gpd.points_from_xy(electric_system["long"], electric_system["lat"]),
+        crs="EPSG:4326"
+    )
+
+    # Voronoi
+    points = np.array(list(zip(electric_system["long"], electric_system["lat"])))
+    vor = Voronoi(points)
+    vor_polygons = voronoi_polygons(vor, points)
+    vor_gdf = gpd.GeoDataFrame(
+        {"bus": electric_system["bus"]},
+        geometry=vor_polygons,
+        crs="EPSG:4326"
+    )
+    
+    # Suponemos que en building_populations existen columnas 'lon' y 'lat'
+    buildings_gdf = gpd.GeoDataFrame(
+        building_populations,
+        geometry=gpd.points_from_xy(building_populations["lon"], building_populations["lat"]),
+        crs="EPSG:4326"
+    )
+    # Spatial join
+    buildings_with_node = gpd.sjoin(buildings_gdf, vor_gdf, how="left", predicate="within")
+    # Renombramos la columna bus asociada
+    buildings_with_node = buildings_with_node.rename(columns={"bus": "node"})
+    # Quitamos columna auxiliar del join
+    result = buildings_with_node.drop(columns=["index_right"])
+        
+    return result
+    
+def voronoi_polygons(vor, nodes):
+        polygons = []
+        for i, region_index in enumerate(vor.point_region):
+            region = vor.regions[region_index]
+            if -1 in region or len(region) == 0:
+                polygons.append(None)
+                continue
+            poly = Polygon([vor.vertices[j] for j in region])
+            polygons.append(poly)
+        return polygons
 
 def get_active_networks(transport_archetypes_df):
     active_maps = transport_archetypes_df.loc[
@@ -672,14 +743,11 @@ def create_stats_trans(archetypes_path, transport_archetypes, family_archetypes)
     # Obtener listas de 'name' de ambos DataFrames
     transport_names = transport_archetypes['name'].dropna().unique()
     family_names = family_archetypes['name'].dropna().unique()
-
     # Crear combinaciones entre todos los elementos (producto cartesiano)
     combinations = list(itertools.product(family_names, transport_names))
-
     # Crear DataFrame con las combinaciones
     stats_trans = pd.DataFrame(combinations, columns=['item_1', 'item_2'])
     stats_trans = stats_trans[~stats_trans['item_2'].isin(['walk', 'public'])] #estos no se requiere de asignacion a las familias
-    
     # Agregar columnas vacías para los valores estadísticos
     stats_trans['mu'] = ''
     stats_trans['sigma'] = ''
@@ -870,6 +938,7 @@ def main():
     
     paths['main'] = Path(__file__).resolve().parent.parent.parent
     paths['system'] = paths['main'] / 'system'
+    paths['desktop'] = Path.home() / "Desktop"
     
     system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
     
