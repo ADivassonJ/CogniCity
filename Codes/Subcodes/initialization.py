@@ -17,6 +17,15 @@ from haversine import haversine, Unit
 from shapely.geometry import Point, Polygon
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from shapely.ops import transform
+import pyproj
+
+import numpy as np
+import geopandas as gpd
+from scipy.spatial import cKDTree
+
+
+
 ############# Due to py 3.7. some things are 'rusty'
 import warnings
 from shapely.errors import ShapelyDeprecationWarning
@@ -114,12 +123,33 @@ def Geodata_initialization(study_area, paths, pop_archetypes):
     agent_populations = {}
     # Obtener redes activas desde transport_archetypes
     networks = get_active_networks(pop_archetypes['transport'])
+    
+    # Diccionario con coordenadas de los territorios especiales
+    special_areas_coords = {
+        "Aradas": [(1, 1), (1, 1)],
+        "Kanaleneiland": [(52.07892763457244, 5.081179665783377), 
+                          (52.071082860598274, 5.087677559318499), 
+                          (52.060700337662205, 5.097493321101714), 
+                          (52.0589253058436, 5.111134343014198),
+                          (52.06371772987415, 5.113155235149382),
+                          (52.06713423672216, 5.112072614362676),
+                          (52.07698296226893, 5.109504220222101),
+                          (52.07814350260757, 5.108891797422314),
+                          (52.079586294469394, 5.107820057522688),
+                          (52.081311310482626, 5.106084859589962),
+                          (52.0818131208049, 5.105013119690336),
+                          (52.08520019308004, 5.09822543371076),
+                          (52.08291081138339, 5.094959178778566),
+                          (52.08102903986475, 5.090570148713432),
+                        ],
+        "Annelinn": [(1, 1), (1, 1)],
+    }
 
     # Paso 1: Cargar o descargar POIs
-    agent_populations['building'] = load_or_download_pois(study_area, paths, pop_archetypes['building'])
+    agent_populations['building'] = load_or_download_pois(study_area, paths, pop_archetypes['building'], special_areas_coords)
 
     # Paso 2: Cargar o descargar redes
-    networks_map = load_or_download_networks(study_area, paths['maps'], networks)
+    networks_map = load_or_download_networks(study_area, paths['maps'], networks, special_areas_coords)
 
     return agent_populations, networks_map
 
@@ -127,21 +157,24 @@ def e_sys_loading(paths, study_area):
     try:
         electric_system = pd.read_excel(paths['maps'] / 'electric_system.xlsx')
     except Exception as e:
-        print(f"    [WARNING] No se ha encontrado el archivo relativo a la red electrica del caso '{study_area}'.\n    Por favor, ubica el archivo .xlsx en el escritorio del ordenador con el siguiente nombre:")
-        print(f"        electric_system_{study_area}.xlsx")
-        code = 'NOT_DONE'
-        while code != 'DONE':
-            code = input(f"    Cuando hayas realizado la accion solicitada, ingresa 'DONE'.")
-            if code != 'DONE':
-                print(f'        Codigo de continuacion INCORRECTO.')
-            else:
-                try:
-                    electric_system = pd.read_excel(paths['desktop'] / f'electric_system_{study_area}.xlsx')
-                    electric_system.to_excel(f"{paths['maps']}/electric_system.xlsx", index=False)
-                except Exception as e:
-                    print(f'        [ERROR] Archivo no encontrado en la ubiccion solicitada.')
-                    print(f"        ({paths['desktop'] / f'electric_system_{study_area}.xlsx'})")
-                    code = 'NOT_DONE'
+        try:
+            electric_system = pd.read_excel(paths['desktop'] / f'electric_system_{study_area}.xlsx')
+        except Exception as e:
+            print(f"    [WARNING] The file relating to the electrical network for the “{study_area}” case has not been found.\n       Please locate the .xlsx file on your computer desktop with the following name:")
+            print(f"            electric_system_{study_area}.xlsx")
+            code = 'NOT_DONE'
+            while code != 'DONE':
+                code = input(f"        Once you have completed the requested action, enter “DONE”.")
+                if code != 'DONE':
+                    print(f'        Incorrect continuation code.')
+                else:
+                    try:
+                        electric_system = pd.read_excel(paths['desktop'] / f'electric_system_{study_area}.xlsx')
+                        electric_system.to_excel(f"{paths['maps']}/electric_system.xlsx", index=False)
+                    except Exception as e:
+                        print(f'        [ERROR] Archivo no encontrado en la ubiccion solicitada.')
+                        print(f"        ({paths['desktop'] / f'electric_system_{study_area}.xlsx'})")
+                        code = 'NOT_DONE'
     return electric_system
 
 import pandas as pd
@@ -151,22 +184,31 @@ from shapely.ops import voronoi_diagram
 import numpy as np
 from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
+import geopandas as gpd
+import pandas as pd
+import numpy as np
+from shapely.geometry import MultiPoint
+from shapely.ops import voronoi_diagram
+from scipy.spatial import cKDTree
 
-def voronoi_clipped_by_circle(electric_system,
-                              lon_col='long', lat_col='lat',
-                              node_col=None,
-                              buffer_m=4000,
-                              proj_epsg=3857):
+
+def voronoi_clipped_by_polygon(electric_system,
+                               boundary_polygon,
+                               lon_col='long', lat_col='lat',
+                               node_col=None,
+                               proj_epsg=3857):
     """
     - electric_system: pd.DataFrame con al menos columnas lon_col, lat_col.
       Si node_col es None se toma electric_system.iloc[:,0] como nombres de nodo.
-    - buffer_m: buffer alrededor del centro para asegurar que el círculo contenga todos los nodos (4000 m por defecto).
+    - boundary_polygon: shapely Polygon o MultiPolygon en EPSG:4326 (lon/lat) que limita los Voronoi.
     - proj_epsg: CRS métrico para trabajar en metros (default 3857).
+    
     Retorna:
       nodes_gdf_proj: GeoDataFrame de nodos en CRS proyectado (metros)
-      vor_gdf: GeoDataFrame de polígonos Voronoi recortados al círculo (CRS proyectado) con columna 'node'
-      circle_geom: shapely Polygon del círculo (CRS proyectado)
+      vor_gdf: GeoDataFrame de polígonos Voronoi recortados al polígono límite (CRS proyectado) con columna 'node'
+      boundary_proj: shapely Polygon del límite proyectado (CRS proyectado)
     """
+
     # obtener nombres de nodo
     if node_col is None:
         node_names = electric_system.iloc[:,0].astype(str).values
@@ -181,24 +223,18 @@ def voronoi_clipped_by_circle(electric_system,
 
     # proyectar a CRS métrico
     nodes_proj = nodes_gdf.to_crs(epsg=proj_epsg)
-
-    # centro y círculo (en CRS proyectado)
-    # uso el centroid de los puntos proyectados
-    centroid = nodes_proj.unary_union.centroid
-    circle = centroid.buffer(buffer_m)
+    boundary_proj = gpd.GeoSeries([boundary_polygon], crs="EPSG:4326").to_crs(epsg=proj_epsg).iloc[0]
 
     # construir MultiPoint (shapely) en CRS proyectado
     multipoints = MultiPoint([(p.x, p.y) for p in nodes_proj.geometry])
 
-    # crear diagram Voronoi y recortar por el círculo.
-    # voronoi_diagram recibe la geometría y un envelope; sin embargo
-    # por seguridad intersectamos cada polígono con el círculo.
-    vor_geom_collection = voronoi_diagram(multipoints, envelope=circle)  # necesita Shapely >=2.0
+    # crear diagram Voronoi y recortar por el polígono límite
+    vor_geom_collection = voronoi_diagram(multipoints, envelope=boundary_proj)
 
-    # vor_geom_collection es una GeometryCollection de polígonos; convertir en GeoDataFrame
+    # convertir en GeoDataFrame
     polys = []
     for geom in vor_geom_collection.geoms:
-        clipped = geom.intersection(circle)  # asegurar recorte al círculo
+        clipped = geom.intersection(boundary_proj)  # recorte al polígono
         if not clipped.is_empty:
             polys.append(clipped)
 
@@ -212,11 +248,7 @@ def voronoi_clipped_by_circle(electric_system,
 
     vor_gdf = gpd.GeoDataFrame({'node': poly_nodes, 'geometry': polys}, crs=f"EPSG:{proj_epsg}")
 
-    return nodes_proj, vor_gdf, circle
-
-import numpy as np
-import geopandas as gpd
-from scipy.spatial import cKDTree
+    return nodes_proj, vor_gdf, boundary_proj
 
 def assign_buildings(building_populations,
                      vor_gdf, nodes_proj,
@@ -334,55 +366,120 @@ def buffer_value(electric_system):
     return int(max_distance)
 
 
-def add_ebus(paths, study_area, building_populations):
+import os
+import pyproj
+from shapely.geometry import Polygon, MultiPolygon
+from shapely.ops import transform
+import geopandas as gpd
+
+def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, proj_epsg=3857):
+    """
+    Asigna e-buses a edificios usando Voronoi recortados a un polígono buffered.
     
-    # Leemos el archivo de TU Graz
+    - paths: dict con rutas de archivos, incluyendo 'population' para guardar resultados
+    - polygon: shapely Polygon o MultiPolygon que define el área de estudio (EPSG:4326)
+    - building_populations: DataFrame con edificios y columnas de lon/lat
+    - study_area: parámetro para carga del sistema eléctrico
+    - buffer_m: buffer en metros alrededor del polígono
+    - proj_epsg: CRS métrico para cálculos en metros
+    """
+    
+    # Validar polígono
+    if not isinstance(polygon, (Polygon, MultiPolygon)):
+        raise TypeError("polygon debe ser shapely Polygon o MultiPolygon")
+    
+    # 1️⃣ Transformar polígono a CRS métrico y aplicar buffer
+    project_to_m = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{proj_epsg}", always_xy=True).transform
+    polygon_m = transform(project_to_m, polygon)
+    polygon_buffered_m = polygon_m.buffer(buffer_m)
+    
+    # 2️⃣ Cargar sistema eléctrico
     electric_system = e_sys_loading(paths, study_area)
     
-    buffer = buffer_value(electric_system)
+    # 3️⃣ Generar Voronoi recortados al polígono buffered (ya en CRS métrico)
+    nodes_proj, vor_gdf, polygon_buffered_proj = voronoi_clipped_by_polygon(
+        electric_system, polygon_buffered_m, proj_epsg=proj_epsg
+    )
     
-    # Asignamos buses a los edificios
-    nodes_proj, vor_gdf, circle_geom = voronoi_clipped_by_circle(electric_system,
-                                                                 lon_col='long', lat_col='lat',
-                                                                 node_col=None, buffer_m=buffer, proj_epsg=3857)
-
-    buildings_assigned = assign_buildings(building_populations,
-                                     vor_gdf, nodes_proj,
-                                     lon_col='lon', lat_col='lat',
-                                     node_col_name='node',
-                                     keep_original_node_col=True,
-                                     debug=True)
+    # 4️⃣ Asignar edificios a los nodos usando los Voronoi
+    buildings_assigned = assign_buildings(
+        building_populations,
+        vor_gdf,
+        nodes_proj,
+        lon_col='lon', lat_col='lat',       # ajustar si columnas se llaman diferente
+        node_col_name='node',
+        keep_original_node_col=True,
+        debug=True
+    )
     
-    plot_voronoi(buildings_assigned, vor_gdf, circle_geom, nodes_proj, buffer)
+    # 5️⃣ Crear carpeta de salida si no existe
+    os.makedirs(paths['population'], exist_ok=True)
     
+    # 6️⃣ Graficar resultados
+    plot_voronoi(
+        buildings_assigned,
+        vor_gdf,
+        polygon_buffered_proj,   # polígono buffered en CRS métrico
+        nodes_proj,
+        polygon,                 # polígono original en EPSG:4326 (opcional)
+        polygon_buffered_m       # polígono buffered en CRS métrico para comparación
+    )
+    
+    # 7️⃣ Guardar resultados
     buildings_assigned.to_excel(f"{paths['population']}/pop_building.xlsx", index=False)
-        
+    
     return buildings_assigned
 
-def plot_voronoi(buildings_assigned, vor_gdf, circle_geom, nodes_proj, buffer):
-    # Definir paleta de colores y lista de símbolos
-    colors = plt.cm.tab20.colors  # 20 colores distintos
-    markers = ['o', 's', 'v', '^', '<', '>', 'D', 'P', '*', 'X']  # símbolos distintos
-    # Generar combinaciones de color y símbolo
+def plot_voronoi(buildings_assigned, vor_gdf, nodes_proj, polygon_original=None, polygon_buffered=None):
+    """
+    Visualiza Voronoi, nodos eléctricos y edificios asignados.
+    
+    - buildings_assigned: GeoDataFrame con edificios y columna 'node'
+    - vor_gdf: GeoDataFrame de Voronoi (CRS métrico)
+    - nodes_proj: GeoDataFrame de nodos eléctricos (CRS métrico)
+    - polygon_original: Polygon/MultiPolygon original en EPSG:4326 (opcional)
+    - polygon_buffered: Polygon/MultiPolygon buffered en CRS métrico (opcional)
+    """
+    import matplotlib.pyplot as plt
+    import geopandas as gpd
+    import itertools
+    
+    colors = plt.cm.tab20.colors
+    markers = ['o', 's', 'v', '^', '<', '>', 'D', 'P', '*', 'X']
     combos = list(itertools.product(colors, markers))
-    # Mapear cada nodo a una combinación única
     unique_nodes = buildings_assigned['node'].unique()
     node_style = {node: combos[i % len(combos)] for i, node in enumerate(unique_nodes)}
-    fig, ax = plt.subplots(figsize=(12, 12))
-    # Polígonos Voronoi
-    vor_gdf.to_crs(epsg=4326).plot(ax=ax, edgecolor='black', alpha=0.3, facecolor='none')
-    # Círculo límite
-    gpd.GeoSeries([circle_geom], crs=vor_gdf.crs).to_crs(epsg=4326).boundary.plot(
-        ax=ax, linestyle='--', linewidth=2, color='black'
-    )
-    # Nodos eléctricos
-    nodes_proj.to_crs(epsg=4326).plot(ax=ax, color='red', markersize=60, marker='x')
-    # Edificios con combinación única de color y símbolo
+    
+    fig, ax = plt.subplots(figsize=(12,12))
+    
+    # Reproyectar a EPSG:4326 para visualización
+    vor_gdf_4326 = vor_gdf.to_crs(epsg=4326)
+    nodes_4326 = nodes_proj.to_crs(epsg=4326)
+    
+    # Voronoi
+    vor_gdf_4326.plot(ax=ax, edgecolor='black', alpha=0.3, facecolor='none')
+    
+    # Polígono buffered (opcional)
+    if polygon_buffered is not None:
+        polygon_buff_4326 = gpd.GeoSeries([polygon_buffered], crs=vor_gdf.crs).to_crs(epsg=4326)
+        polygon_buff_4326.boundary.plot(ax=ax, linestyle='--', linewidth=2, color='black')
+    
+    # Polígono original (opcional)
+    if polygon_original is not None:
+        polygon_orig_4326 = gpd.GeoSeries([polygon_original], crs="EPSG:4326")
+        polygon_orig_4326.boundary.plot(ax=ax, linestyle=':', linewidth=2, color='gray')
+    
+    # Nodos
+    nodes_4326.plot(ax=ax, color='red', markersize=60, marker='x', label='Nodo eléctrico')
+    
+    # Edificios
     for node, (color, marker) in node_style.items():
         subset = buildings_assigned[buildings_assigned['node'] == node]
-        subset.plot(ax=ax, color=color, marker=marker, markersize=12)
-    ax.set_title(f"Voronoi recortado por círculo (buffer {buffer} km)\nAsignación de edificios a nodos", fontsize=14)
-    ax.axis("off")  # quitar ejes
+        subset.plot(ax=ax, color=color, marker=marker, markersize=12, label=str(node))
+    
+    ax.set_title("Voronoi recortado por polígono buffered\nAsignación de edificios a nodos", fontsize=14)
+    ax.axis("off")
+    ax.legend(markerscale=1.5, fontsize=10)
     plt.show()
 
 def get_active_networks(transport_archetypes_df):
@@ -396,20 +493,17 @@ def get_active_networks(transport_archetypes_df):
     
     return active_maps
 
-def load_or_download_pois(study_area, paths, building_archetypes_df):
-    study_area_path = paths[study_area]
+def load_or_download_pois(study_area, paths, building_archetypes_df, special_areas_coords):
     pop_path = paths['population']
     try:
         print(f'Loading POIs data ...')
         return pd.read_excel(f'{pop_path}/pop_building.xlsx')
     except Exception:
         print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
-        return download_pois(study_area, paths, building_archetypes_df)
+        return download_pois(study_area, paths, building_archetypes_df, special_areas_coords)
 
-def download_pois(study_area, paths, building_archetypes_df):
-    study_area_path = paths[study_area]
-    pop_path = paths['population']
-    
+def download_pois(study_area, paths, building_archetypes_df, special_areas_coords):
+    study_area_path = paths[study_area]    
     try:
         print(f'        Downloading services data from {study_area} ...')
         Services_Group_relationship = pd.read_excel(f'{study_area_path}/Services-Group relationship.xlsx')
@@ -426,28 +520,31 @@ def download_pois(study_area, paths, building_archetypes_df):
     
     all_osm_data = []
 
-    # Paralelization
-    with ThreadPoolExecutor() as executor:
-        futures = {
-            executor.submit(get_osm_elements, study_area, group_ref): group_name
-            for group_name, group_ref in services_groups.items()
-        }
-        for future in as_completed(futures):
-            group_name = futures[future]
-            try:
-                df_group = future.result()
-                df_group['archetype'] = group_name.replace('_list', '')
-                all_osm_data.append(df_group)
-            except Exception as e:
-                print(f"    [ERROR] Failed to get data for {group_name}: {e}")
+    if study_area in special_areas_coords:
+        coords = special_areas_coords[study_area]
+        # Intercambiar lat y lon a lon, lat
+        coords_corrected = [(lon, lat) for lat, lon in coords]
+        polygon = Polygon(coords_corrected)
+    else:
+        gdf = ox.geocode_to_gdf(study_area)
+        polygon = gdf.iloc[0].geometry
+        
+    for group_name, group_ref in services_groups.items():
+        try:
+            df_group = get_osm_elements(polygon, group_ref)
+            df_group['archetype'] = group_name.replace('_list', '')
+            all_osm_data.append(df_group)
+            print(f"    {group_name}: {len(df_group)} elements found")
+        except Exception as e:
+            print(f"    [ERROR] Failed to get data for {group_name}: {e}")
+
+    # Concatenar todos los DataFrames
     osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
     
     SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
-    
-    SG_relationship.to_excel(f'{pop_path}/pop_building.xlsx', index=False)
 
     # Añadir datos de buses eléctricos aquí
-    buildings_populations = add_ebus(paths, study_area, SG_relationship)
+    buildings_populations = add_ebus(paths, polygon, SG_relationship, study_area)
     
     return buildings_populations
 
@@ -475,7 +572,7 @@ def building_schedule_adding(osm_elements_df, building_archetypes_df):
 
     return osm_elements_df
 
-def load_or_download_networks(study_area, study_area_path, networks):
+def load_or_download_networks(study_area, study_area_path, networks, special_areas_coords):
     networks_map = {}
     missing_networks = []
     print(f'Loading maps ...')
@@ -493,14 +590,66 @@ def load_or_download_networks(study_area, study_area_path, networks):
         for net_type in missing_networks:
             try:
                 print(f'        Downloading {net_type} network from {study_area} ...')
-                # Cargar el polígono del área
-                gdf = ox.geocode_to_gdf(study_area)
-                # Aplicar un buffer de 150 metros para expandir el radio
-                gdf_buffered = gdf.to_crs(epsg=3857).buffer(3000).to_crs(epsg=4326)
-                # Obtener el grafo con el nuevo polígono ampliado
-                graph = ox.graph_from_polygon(gdf_buffered.iloc[0], network_type=net_type)
+
+                # Transformar el polígono a metros para aplicar buffer
+                project = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
+                if study_area in special_areas_coords:
+                    coords = special_areas_coords[study_area]
+                    # Intercambiar lat y lon a lon, lat
+                    coords_corrected = [(lon, lat) for lat, lon in coords]
+                    polygon = Polygon(coords_corrected)
+                else:
+                    gdf = ox.geocode_to_gdf(study_area)
+                    polygon = gdf.iloc[0].geometry
+
+                # Guardar polígono original
+                polygon_original = polygon
+
+                # Aplicar buffer a todos
+                project = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
+                polygon_m = transform(project, polygon_original)
+                if net_type == 'walk':
+                    buff = 300
+                else:
+                    buff = 1000
+                    
+                polygon_buffered_m = polygon_m.buffer(buff)
+
+                # Volver a lat/lon
+                project_back = pyproj.Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True).transform
+                polygon_buffered = transform(project_back, polygon_buffered_m)
+
+                # Obtener el grafo de la red usando el buffer
+                graph = ox.graph_from_polygon(polygon_buffered, network_type=net_type)
                 ox.save_graphml(graph, study_area_path / f"{net_type}.graphml")
                 networks_map[f"{net_type}_map"] = graph
+
+                '''# ---------- PLOTEAR POLÍGONO Y RED SUPERPUESTOS ----------
+                # ---------- CREAR GEODATAFRAMES ----------
+                gdf_original = gpd.GeoDataFrame(index=[0], crs="EPSG:4326", geometry=[polygon_original])
+                gdf_buffered = gpd.GeoDataFrame(index=[0], crs="EPSG:4326", geometry=[polygon_buffered])
+                # ---------- REPROYECTAR A CRS MÉTRICO ----------
+                gdf_original_proj = gdf_original.to_crs(epsg=3857)
+                gdf_buffered_proj = gdf_buffered.to_crs(epsg=3857)
+                graph_proj = ox.project_graph(graph, to_crs="EPSG:3857")  # Reproyecta la red
+                # ---------- CREAR FIGURA ----------
+                fig, ax = plt.subplots(figsize=(10, 10))
+                # Dibujar buffer
+                gdf_buffered_proj.plot(ax=ax, facecolor='lightblue', edgecolor='blue', alpha=0.3, label='Buffer')
+                # Dibujar polígono original
+                gdf_original_proj.plot(ax=ax, facecolor='none', edgecolor='blue', linewidth=2, label='Área original')
+                # Dibujar grafo de la red en negro sin nodos
+                ox.plot_graph(graph_proj, ax=ax, node_size=0, edge_color='black', show=False, close=False)
+                # Ajustar la visualización
+                ax.set_aspect('equal')  # Mantener proporción real
+                ax.set_xlim(gdf_buffered_proj.total_bounds[[0, 2]])  # xmin, xmax del buffer
+                ax.set_ylim(gdf_buffered_proj.total_bounds[[1, 3]])  # ymin, ymax del buffer
+                # Título y etiquetas
+                ax.set_title(f"{study_area} ({net_type}) with buffer of {buff} meters.")
+                ax.set_xlabel("X (m)")
+                ax.set_ylabel("Y (m)")
+                plt.show()'''
+
             except Exception as e:
                 print(f'        [ERROR] Failed to download {net_type} network: {e}')
                 raise e
@@ -1029,55 +1178,57 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
     return merged_df
 
-def get_osm_elements(area_name, poss_ref):
+def get_osm_elements(polygon, poss_ref):
     """
-    Obtiene y filtra los elementos de OSM según un conjunto fijo de etiquetas y prioridades,
-    y devuelve un DataFrame con la estructura personalizada.
-
+    Obtiene y filtra elementos de OSM dentro de un polígono de forma optimizada.
+    Calcula centroides correctamente usando CRS proyectado.
+    
     Parámetros:
-    - area_name (str): Nombre del área para buscar datos.
+    - polygon (shapely.geometry.Polygon): Área de búsqueda.
     - poss_ref (dict): Reglas de prioridad para las etiquetas.
-
+    
     Retorna:
-    - DataFrame: Datos filtrados con las claves `osm_id`, `geometry`, `lat`, `lon`.
+    - GeoDataFrame con columnas: ['building_type', 'osm_id', 'geometry', 'lat', 'lon']
     """
-    # Conjunto fijo de etiquetas a consultar
+    # Crear conjunto de etiquetas para OSM
     tags = {key: True for key in poss_ref.keys()}
     
-    # Descargar datos de la zona especificada
-    gdf = ox.geometries_from_place(area_name, tags)
+    # Descargar datos de OSM
+    gdf = ox.geometries_from_polygon(polygon, tags).reset_index()
     
-    # Convertir a DataFrame
-    data = gdf.reset_index()
-
-    # Crear la estructura personalizada
-    filtered_data = []
-
-    for _, row in data.iterrows():
-        for key, values in poss_ref.items():
-            if key in row and pd.notna(row[key]):
-                if isinstance(values, list):  # Si hay una lista de valores aceptados
-                    if row[key] in values:
-                        break
-                elif row[key] == values:  # Si el valor aceptado es único
-                    break
+    # Filtrar filas según poss_ref usando máscara booleana
+    mask = pd.Series(False, index=gdf.index)
+    for key, values in poss_ref.items():
+        if key not in gdf.columns:
+            continue  # saltar etiquetas que no existen en este DataFrame
+        if isinstance(values, list):
+            mask |= gdf[key].isin(values)
         else:
-            # Si ninguna clave cumple, continuar con la siguiente fila
-            continue
-        building_type_name = building_type(row, poss_ref)
-        osmid_reformed = osmid_reform(row)
-        
-        # Añadir los datos con la estructura personalizada
-        filtered_data.append({
-            'building_type': building_type_name,
-            'osm_id': osmid_reformed,
-            'geometry': row['geometry'],
-            'lat': row['geometry'].centroid.y if row['geometry'] and not row['geometry'].is_empty else None,
-            'lon': row['geometry'].centroid.x if row['geometry'] and not row['geometry'].is_empty else None,
-        })
+            mask |= gdf[key] == values
 
-    # Convertir a DataFrame final
-    return pd.DataFrame(filtered_data)
+    filtered_gdf = gdf[mask].copy()
+    
+    if filtered_gdf.empty:
+        # Si no hay datos, retornar DataFrame vacío
+        return pd.DataFrame(columns=['building_type', 'osm_id', 'geometry', 'lat', 'lon'])
+    
+    # Reproyectar a CRS proyectado (UTM estimado) para centroides precisos
+    projected_gdf = filtered_gdf.to_crs(filtered_gdf.estimate_utm_crs())
+    
+    # Calcular centroides en CRS proyectado
+    centroids = projected_gdf.geometry.centroid
+    projected_gdf['lat'] = centroids.y
+    projected_gdf['lon'] = centroids.x
+    
+    # Volver a CRS geográfico (EPSG:4326) si quieres lat/lon en grados
+    projected_gdf = projected_gdf.to_crs(epsg=4326)
+    
+    # Aplicar funciones personalizadas (aún vectorizable si es posible)
+    projected_gdf['building_type'] = projected_gdf.apply(lambda row: building_type(row, poss_ref), axis=1)
+    projected_gdf['osm_id'] = projected_gdf.apply(osmid_reform, axis=1)
+    
+    # Seleccionar columnas finales
+    return projected_gdf[['building_type', 'osm_id', 'geometry', 'lat', 'lon']]
 
 def osmid_reform(row):
     osmid = row.get('osmid')
@@ -1112,21 +1263,6 @@ def building_type(row, poss_ref):
 
     # Si no se encuentra ninguna coincidencia
     return 'unknown'
-
-def obtener_geometrias(city_name, pos_ref):
-    data = get_osm_elements(city_name, pos_ref)
-    return data
-
-def obtener_dataframe_direcciones(city, pos_ref): 
-    """Obtiene un DataFrame con las coordenadas de cada dirección y asigna un 'Territorio' (distrito)."""
-    print('Procesando datos...')
-
-    refug_data = obtener_geometrias(city, pos_ref)
-    df_refug_data = pd.DataFrame(refug_data)
-    gdf_refug_data = gpd.GeoDataFrame(df_refug_data, geometry='geometry')
-    gdf_refug_data.set_crs("EPSG:4326", inplace=True)
-    
-    return gdf_refug_data
 
 def main():
     # Input
