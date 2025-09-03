@@ -24,6 +24,30 @@ import numpy as np
 import geopandas as gpd
 from scipy.spatial import cKDTree
 
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point, Polygon
+
+
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union, clip_by_rect
+from scipy.spatial import Voronoi
+import numpy as np
+
+import geopandas as gpd
+import pandas as pd
+from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union, voronoi_diagram
+
+
+
+import os
+import pyproj
+from shapely.geometry import Polygon, MultiPolygon
+from shapely.ops import transform
+import geopandas as gpd
 
 
 ############# Due to py 3.7. some things are 'rusty'
@@ -177,171 +201,116 @@ def e_sys_loading(paths, study_area):
                         code = 'NOT_DONE'
     return electric_system
 
-import pandas as pd
-import geopandas as gpd
-from shapely.geometry import Point, MultiPoint
-from shapely.ops import voronoi_diagram
-import numpy as np
-from scipy.spatial import cKDTree
-import matplotlib.pyplot as plt
-import geopandas as gpd
-import pandas as pd
-import numpy as np
-from shapely.geometry import MultiPoint
-from shapely.ops import voronoi_diagram
-from scipy.spatial import cKDTree
 
 
-def voronoi_clipped_by_polygon(electric_system,
-                               boundary_polygon,
-                               lon_col='long', lat_col='lat',
-                               node_col=None,
-                               proj_epsg=3857):
+def voronoi_from_nodes(electric_system: pd.DataFrame, boundary_polygon: Polygon):
     """
-    - electric_system: pd.DataFrame con al menos columnas lon_col, lat_col.
-      Si node_col es None se toma electric_system.iloc[:,0] como nombres de nodo.
-    - boundary_polygon: shapely Polygon o MultiPolygon en EPSG:4326 (lon/lat) que limita los Voronoi.
-    - proj_epsg: CRS métrico para trabajar en metros (default 3857).
-    
+    Genera un diagrama de Voronoi recortado por un polígono límite.
+
+    Parámetros:
+    -----------
+    electric_system : pd.DataFrame
+        DataFrame con nodos. La primera columna (sin nombre) contiene los nombres.
+        Debe tener columnas 'long' y 'lat'.
+    boundary_polygon : shapely.geometry.Polygon
+        Polígono límite.
+
     Retorna:
-      nodes_gdf_proj: GeoDataFrame de nodos en CRS proyectado (metros)
-      vor_gdf: GeoDataFrame de polígonos Voronoi recortados al polígono límite (CRS proyectado) con columna 'node'
-      boundary_proj: shapely Polygon del límite proyectado (CRS proyectado)
+    --------
+    nodes_gdf_proj : gpd.GeoDataFrame
+        GeoDataFrame de nodos proyectados.
+    vor_gdf : gpd.GeoDataFrame
+        Polígonos de Voronoi recortados al límite.
+    boundary_proj : shapely.geometry.Polygon
+        Polígono límite proyectado y unificado.
     """
+    
+    # Renombrar la primera columna a 'node'
+    electric_system = electric_system.rename(columns={electric_system.columns[0]: "node"})
 
-    # obtener nombres de nodo
-    if node_col is None:
-        node_names = electric_system.iloc[:,0].astype(str).values
-    else:
-        node_names = electric_system[node_col].astype(str).values
+    # Renombrar la primera columna como 'node'
+    df = electric_system.rename(columns={electric_system.columns[0]: "node"}).copy()
 
-    # puntos en WGS84
-    lons = electric_system[lon_col].astype(float).values
-    lats = electric_system[lat_col].astype(float).values
-    df_nodes = pd.DataFrame({'node': node_names, 'long': lons, 'lat': lats})
-    nodes_gdf = gpd.GeoDataFrame(df_nodes, geometry=gpd.points_from_xy(df_nodes.long, df_nodes.lat), crs="EPSG:4326")
-
-    # proyectar a CRS métrico
-    nodes_proj = nodes_gdf.to_crs(epsg=proj_epsg)
-    boundary_proj = gpd.GeoSeries([boundary_polygon], crs="EPSG:4326").to_crs(epsg=proj_epsg).iloc[0]
-
-    # construir MultiPoint (shapely) en CRS proyectado
-    multipoints = MultiPoint([(p.x, p.y) for p in nodes_proj.geometry])
-
-    # crear diagram Voronoi y recortar por el polígono límite
-    vor_geom_collection = voronoi_diagram(multipoints, envelope=boundary_proj)
-
-    # convertir en GeoDataFrame
-    polys = []
-    for geom in vor_geom_collection.geoms:
-        clipped = geom.intersection(boundary_proj)  # recorte al polígono
-        if not clipped.is_empty:
-            polys.append(clipped)
-
-    # asignar a cada polígono el nodo más cercano por centroid -> KDTree
-    poly_centroids = [p.centroid for p in polys]
-    poly_coords = np.vstack([[c.x, c.y] for c in poly_centroids])
-    node_coords = np.vstack([[p.x, p.y] for p in nodes_proj.geometry])
-    tree = cKDTree(node_coords)
-    dists, idxs = tree.query(poly_coords, k=1)
-    poly_nodes = [nodes_proj['node'].values[idx] for idx in idxs]
-
-    vor_gdf = gpd.GeoDataFrame({'node': poly_nodes, 'geometry': polys}, crs=f"EPSG:{proj_epsg}")
-
-    return nodes_proj, vor_gdf, boundary_proj
-
-def assign_buildings(building_populations,
-                     vor_gdf, nodes_proj,
-                     lon_col='long', lat_col='lat',
-                     node_col_name='node',
-                     keep_original_node_col=True,
-                     debug=False):
-    """
-    Asigna cada edificio al nodo. Consolida posibles columnas node_left/node_right/node
-    que produce gpd.sjoin cuando hay colisiones de nombre.
-    Devuelve GeoDataFrame en EPSG:4326 con columna `node` (o node_col_name).
-    """
-    # Construir GeoDataFrame edificios (WGS84)
-    bld_df = building_populations.copy()
-    # Si ya hay una columna node en el df de edificios y queremos conservarla:
-    if keep_original_node_col and node_col_name in bld_df.columns:
-        bld_df = bld_df.rename(columns={node_col_name: 'orig_'+node_col_name})
-
-    bld_gdf = gpd.GeoDataFrame(
-        bld_df,
-        geometry=gpd.points_from_xy(bld_df[lon_col].astype(float),
-                                    bld_df[lat_col].astype(float)),
+    # Crear GeoDataFrame de nodos
+    nodes_gdf = gpd.GeoDataFrame(
+        df,
+        geometry=gpd.points_from_xy(df["long"], df["lat"]),
         crs="EPSG:4326"
     )
 
-    # Proyectar a CRS del voronoi
-    target_crs = vor_gdf.crs
-    bld_proj = bld_gdf.to_crs(target_crs)
+    # Proyectar a un CRS métrico (UTM automático)
+    utm_crs = nodes_gdf.estimate_utm_crs()
+    nodes_gdf_proj = nodes_gdf.to_crs(utm_crs)
+    boundary_proj = gpd.GeoSeries([boundary_polygon], crs="EPSG:4326").to_crs(utm_crs).unary_union
 
-    # Intento de spatial join (compatibilidad predicate/op)
-    try:
-        joined = gpd.sjoin(bld_proj, vor_gdf[['node','geometry']], how='left', predicate='within')
-    except TypeError:
-        # versiones antiguas: op='within'
-        joined = gpd.sjoin(bld_proj, vor_gdf[['node','geometry']], how='left', op='within')
+    # Generar Voronoi
+    multipoint = nodes_gdf_proj.unary_union
+    voronoi = voronoi_diagram(multipoint, envelope=boundary_proj)
 
-    # Normalizar casos de colisión de nombres:
-    # - si existe 'node_right' usamos eso
-    # - si existe 'node' directamente (caso ideal), la usamos
-    # - si existe 'node_left' usamos eso como fallback
-    # Creamos finalmente joined['node'] (o node_col_name)
-    if 'node' in joined.columns:
-        # ya está la columna 'node', nada que hacer
-        joined[node_col_name] = joined['node']
-    else:
-        # combinar posibles sufijos que añade sjoin
-        node_right = joined.columns[joined.columns.str.endswith('_right')] if isinstance(joined.columns, pd.Index) else []
-        node_left = joined.columns[joined.columns.str.endswith('_left')] if isinstance(joined.columns, pd.Index) else []
+    # Convertir polígonos Voronoi a GeoDataFrame
+    vor_polys = []
+    node_ids = []
+    for idx, point in enumerate(nodes_gdf_proj.geometry):
+        poly = [cell for cell in voronoi.geoms if cell.contains(point)]
+        if poly:
+            clipped = poly[0].intersection(boundary_proj)
+            vor_polys.append(clipped)
+            node_ids.append(nodes_gdf_proj.iloc[idx]["node"])
 
-        # preferencia: columna *_right si existe y suena a 'node_right'
-        chosen = None
-        if any(col == 'node_right' for col in joined.columns):
-            chosen = 'node_right'
-        elif any(col == 'node_left' for col in joined.columns):
-            # si sólo existe node_left (poco probable), usarlo
-            chosen = 'node_left'
-        else:
-            # si no hay sufijos específicos, intentar mapear desde index_right
-            if 'index_right' in joined.columns:
-                # map desde vor_gdf index -> node
-                mapping = vor_gdf['node']
-                joined[node_col_name] = joined['index_right'].map(mapping)
-            else:
-                chosen = None
+    vor_gdf = gpd.GeoDataFrame({"node": node_ids, "geometry": vor_polys}, crs=utm_crs)
+    
+    return nodes_gdf_proj, vor_gdf, boundary_proj
 
-        if chosen is not None:
-            joined[node_col_name] = joined[chosen]
+def assign_buildings_to_nodes(building_populations: pd.DataFrame, 
+                              electric_system: pd.DataFrame, 
+                              boundary_polygon: Polygon):
+    """
+    Asigna a cada edificio el nodo más cercano usando un diagrama de Voronoi recortado por un polígono límite.
 
-    # Ahora puede que haya NaN en joined[node_col_name]; asignar nearest node por KDTree
-    if node_col_name not in joined.columns or joined[node_col_name].isna().any():
-        # asegurarnos de que la columna existe
-        if node_col_name not in joined.columns:
-            joined[node_col_name] = np.nan
+    Parámetros:
+    -----------
+    building_populations : pd.DataFrame
+        DataFrame con edificios. Debe tener columnas 'lon' y 'lat'.
+    electric_system : pd.DataFrame
+        DataFrame con nodos. Debe tener columnas 'long', 'lat' y la primera columna 'name'.
+    boundary_polygon : shapely.geometry.Polygon
+        Polígono límite para recortar el Voronoi.
 
-        no_node_mask = joined[node_col_name].isna()
-        if no_node_mask.any():
-            if debug:
-                print(f"{no_node_mask.sum()} edificios sin nodo tras sjoin; asignando nearest node como fallback.")
-            node_coords = np.vstack([nodes_proj.geometry.x.values, nodes_proj.geometry.y.values]).T
-            tree = cKDTree(node_coords)
-            pts = np.vstack([joined.loc[no_node_mask].geometry.x.values, joined.loc[no_node_mask].geometry.y.values]).T
-            dists, idxs = tree.query(pts, k=1)
-            assigned_nodes = nodes_proj['node'].values[idxs]
-            joined.loc[no_node_mask, node_col_name] = assigned_nodes
+    Retorna:
+    --------
+    pd.DataFrame
+        DataFrame de edificios con columna 'node' indicando el nodo asignado.
+    """
+    # Convertir edificios a GeoDataFrame
+    buildings_gdf = gpd.GeoDataFrame(
+        building_populations.copy(),
+        geometry=gpd.points_from_xy(building_populations['lon'], building_populations['lat']),
+        crs='EPSG:4326'
+    )
+    
+    # Generar Voronoi
+    nodes_gdf_proj, vor_gdf, boundary_proj = voronoi_from_nodes(electric_system, boundary_polygon)
+    
+    # Proyectar edificios al CRS del Voronoi
+    buildings_gdf_proj = buildings_gdf.to_crs(vor_gdf.crs)
+    
+    # Spatial join: asignar nodo según polígono de Voronoi
+    buildings_with_node = gpd.sjoin(
+        buildings_gdf_proj,
+        vor_gdf[['geometry', 'node']],
+        how='left',
+        predicate='within'
+    )
+    
+    # Volver a lon/lat
+    buildings_with_node = buildings_with_node.to_crs('EPSG:4326')
+       
+    plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, building_populations)
+    
+    # Devolver solo el DataFrame con la nueva columna 'node'
+    return pd.DataFrame(buildings_with_node.drop(columns='geometry'))
 
-    # Limpiar columnas auxiliares que creó sjoin: index_right, node_left/node_right, etc.
-    cols_to_drop = [c for c in ['index_right', 'node_left', 'node_right', 'node'] if c in joined.columns]
-    joined = joined.drop(columns=[c for c in cols_to_drop if c != node_col_name], errors='ignore')
 
-    # Volver a CRS original WGS84 y renombrar si hace falta
-    result = joined.to_crs("EPSG:4326").rename(columns={node_col_name: node_col_name})
-
-    return result
 
 def buffer_value(electric_system):
     # Supongamos que tu df se llama electric_system y tiene 'lat' y 'long'
@@ -366,12 +335,6 @@ def buffer_value(electric_system):
     return int(max_distance)
 
 
-import os
-import pyproj
-from shapely.geometry import Polygon, MultiPolygon
-from shapely.ops import transform
-import geopandas as gpd
-
 def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, proj_epsg=3857):
     """
     Asigna e-buses a edificios usando Voronoi recortados a un polígono buffered.
@@ -384,103 +347,56 @@ def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, pro
     - proj_epsg: CRS métrico para cálculos en metros
     """
     
-    # Validar polígono
-    if not isinstance(polygon, (Polygon, MultiPolygon)):
-        raise TypeError("polygon debe ser shapely Polygon o MultiPolygon")
-    
-    # 1️⃣ Transformar polígono a CRS métrico y aplicar buffer
-    project_to_m = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{proj_epsg}", always_xy=True).transform
-    polygon_m = transform(project_to_m, polygon)
-    polygon_buffered_m = polygon_m.buffer(buffer_m)
-    
-    # 2️⃣ Cargar sistema eléctrico
+    # Cargar sistema eléctrico
     electric_system = e_sys_loading(paths, study_area)
-    
-    # 3️⃣ Generar Voronoi recortados al polígono buffered (ya en CRS métrico)
-    nodes_proj, vor_gdf, polygon_buffered_proj = voronoi_clipped_by_polygon(
-        electric_system, polygon_buffered_m, proj_epsg=proj_epsg
-    )
-    
-    # 4️⃣ Asignar edificios a los nodos usando los Voronoi
-    buildings_assigned = assign_buildings(
-        building_populations,
-        vor_gdf,
-        nodes_proj,
-        lon_col='lon', lat_col='lat',       # ajustar si columnas se llaman diferente
-        node_col_name='node',
-        keep_original_node_col=True,
-        debug=True
-    )
-    
-    # 5️⃣ Crear carpeta de salida si no existe
-    os.makedirs(paths['population'], exist_ok=True)
-    
-    # 6️⃣ Graficar resultados
-    plot_voronoi(
-        buildings_assigned,
-        vor_gdf,
-        polygon_buffered_proj,   # polígono buffered en CRS métrico
-        nodes_proj,
-        polygon,                 # polígono original en EPSG:4326 (opcional)
-        polygon_buffered_m       # polígono buffered en CRS métrico para comparación
-    )
-    
-    # 7️⃣ Guardar resultados
-    buildings_assigned.to_excel(f"{paths['population']}/pop_building.xlsx", index=False)
-    
-    return buildings_assigned
 
-def plot_voronoi(buildings_assigned, vor_gdf, nodes_proj, polygon_original=None, polygon_buffered=None):
+    # Asignar edificios a los nodos usando los Voronoi
+    building_populations_with_node = assign_buildings_to_nodes(building_populations, electric_system, polygon)
+    
+    # Guardar resultados
+    building_populations_with_node.to_excel(f"{paths['population']}/pop_building.xlsx", index=False)
+    
+    return building_populations_with_node
+
+def plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, buildings_df, lon_col='lon', lat_col='lat'):
     """
-    Visualiza Voronoi, nodos eléctricos y edificios asignados.
+    Dibuja los nodos, el polígono límite, las celdas de Voronoi y los edificios.
     
-    - buildings_assigned: GeoDataFrame con edificios y columna 'node'
-    - vor_gdf: GeoDataFrame de Voronoi (CRS métrico)
-    - nodes_proj: GeoDataFrame de nodos eléctricos (CRS métrico)
-    - polygon_original: Polygon/MultiPolygon original en EPSG:4326 (opcional)
-    - polygon_buffered: Polygon/MultiPolygon buffered en CRS métrico (opcional)
+    nodes_gdf_proj : GeoDataFrame de nodos (ya proyectado)
+    vor_gdf : GeoDataFrame de polígonos Voronoi
+    boundary_proj : Polygon o MultiPolygon límite (ya proyectado)
+    buildings_df : DataFrame con edificios, debe tener columnas de lon/lat
     """
-    import matplotlib.pyplot as plt
-    import geopandas as gpd
-    import itertools
+    fig, ax = plt.subplots(figsize=(10, 10))
     
-    colors = plt.cm.tab20.colors
-    markers = ['o', 's', 'v', '^', '<', '>', 'D', 'P', '*', 'X']
-    combos = list(itertools.product(colors, markers))
-    unique_nodes = buildings_assigned['node'].unique()
-    node_style = {node: combos[i % len(combos)] for i, node in enumerate(unique_nodes)}
-    
-    fig, ax = plt.subplots(figsize=(12,12))
-    
-    # Reproyectar a EPSG:4326 para visualización
-    vor_gdf_4326 = vor_gdf.to_crs(epsg=4326)
-    nodes_4326 = nodes_proj.to_crs(epsg=4326)
+    # Polígono límite
+    if isinstance(boundary_proj, (Polygon, MultiPolygon)):
+        boundary_gs = gpd.GeoSeries([boundary_proj], crs=nodes_gdf_proj.crs)
+    else:
+        boundary_gs = boundary_proj
+    boundary_gs.boundary.plot(ax=ax, color="black", linewidth=2, label="Boundary")
     
     # Voronoi
-    vor_gdf_4326.plot(ax=ax, edgecolor='black', alpha=0.3, facecolor='none')
-    
-    # Polígono buffered (opcional)
-    if polygon_buffered is not None:
-        polygon_buff_4326 = gpd.GeoSeries([polygon_buffered], crs=vor_gdf.crs).to_crs(epsg=4326)
-        polygon_buff_4326.boundary.plot(ax=ax, linestyle='--', linewidth=2, color='black')
-    
-    # Polígono original (opcional)
-    if polygon_original is not None:
-        polygon_orig_4326 = gpd.GeoSeries([polygon_original], crs="EPSG:4326")
-        polygon_orig_4326.boundary.plot(ax=ax, linestyle=':', linewidth=2, color='gray')
+    vor_gdf.plot(ax=ax, alpha=0.3, edgecolor="blue", facecolor="lightblue", label="Voronoi")
     
     # Nodos
-    nodes_4326.plot(ax=ax, color='red', markersize=60, marker='x', label='Nodo eléctrico')
+    nodes_gdf_proj.plot(ax=ax, color="red", markersize=50, label="Nodes")
     
-    # Edificios
-    for node, (color, marker) in node_style.items():
-        subset = buildings_assigned[buildings_assigned['node'] == node]
-        subset.plot(ax=ax, color=color, marker=marker, markersize=12, label=str(node))
+    # Edificios: convertir a GeoDataFrame en mismo CRS
+    buildings_gdf = gpd.GeoDataFrame(
+        buildings_df,
+        geometry=gpd.points_from_xy(buildings_df[lon_col], buildings_df[lat_col]),
+        crs="EPSG:4326"
+    ).to_crs(nodes_gdf_proj.crs)
+    buildings_gdf.plot(ax=ax, color="green", markersize=20, alpha=0.6, label="Buildings")
     
-    ax.set_title("Voronoi recortado por polígono buffered\nAsignación de edificios a nodos", fontsize=14)
-    ax.axis("off")
-    ax.legend(markerscale=1.5, fontsize=10)
+    plt.legend()
+    plt.title("Voronoi Diagram con Nodos y Edificios")
+    plt.xlabel("X (m)")
+    plt.ylabel("Y (m)")
     plt.show()
+
+
 
 def get_active_networks(transport_archetypes_df):
     active_maps = transport_archetypes_df.loc[
@@ -534,9 +450,9 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
             df_group = get_osm_elements(polygon, group_ref)
             df_group['archetype'] = group_name.replace('_list', '')
             all_osm_data.append(df_group)
-            print(f"    {group_name}: {len(df_group)} elements found")
+            print(f"            {group_name}: {len(df_group)} elements found")
         except Exception as e:
-            print(f"    [ERROR] Failed to get data for {group_name}: {e}")
+            print(f"            [ERROR] Failed to get data for {group_name}: {e}")
 
     # Concatenar todos los DataFrames
     osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
@@ -1181,7 +1097,7 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
 def get_osm_elements(polygon, poss_ref):
     """
     Obtiene y filtra elementos de OSM dentro de un polígono de forma optimizada.
-    Calcula centroides correctamente usando CRS proyectado.
+    Calcula centroides correctamente en lat/lon.
     
     Parámetros:
     - polygon (shapely.geometry.Polygon): Área de búsqueda.
@@ -1200,7 +1116,7 @@ def get_osm_elements(polygon, poss_ref):
     mask = pd.Series(False, index=gdf.index)
     for key, values in poss_ref.items():
         if key not in gdf.columns:
-            continue  # saltar etiquetas que no existen en este DataFrame
+            continue
         if isinstance(values, list):
             mask |= gdf[key].isin(values)
         else:
@@ -1209,21 +1125,31 @@ def get_osm_elements(polygon, poss_ref):
     filtered_gdf = gdf[mask].copy()
     
     if filtered_gdf.empty:
-        # Si no hay datos, retornar DataFrame vacío
-        return pd.DataFrame(columns=['building_type', 'osm_id', 'geometry', 'lat', 'lon'])
+        raise ValueError("No POIs have been detected in the study area.")
     
     # Reproyectar a CRS proyectado (UTM estimado) para centroides precisos
     projected_gdf = filtered_gdf.to_crs(filtered_gdf.estimate_utm_crs())
     
     # Calcular centroides en CRS proyectado
     centroids = projected_gdf.geometry.centroid
-    projected_gdf['lat'] = centroids.y
-    projected_gdf['lon'] = centroids.x
     
-    # Volver a CRS geográfico (EPSG:4326) si quieres lat/lon en grados
+    # Reproyectar centroides a EPSG:4326 (lat/lon)
+    centroids_geo = centroids.to_crs(epsg=4326)
+    
+    # Asignar lat/lon correctos
+    projected_gdf['lat'] = centroids_geo.y
+    projected_gdf['lon'] = centroids_geo.x
+    
+    # Filtrar edificios cuyo centroide esté dentro del polígono original (no se podrán asignar a ningun bus por lo que nos da igual)
+    projected_gdf = projected_gdf[centroids_geo.within(polygon)]
+    
+    if projected_gdf.empty:
+        raise ValueError("No building has its centroid within the study area.")
+    
+    # Volver a CRS geográfico para la geometría original
     projected_gdf = projected_gdf.to_crs(epsg=4326)
     
-    # Aplicar funciones personalizadas (aún vectorizable si es posible)
+    # Aplicar funciones personalizadas
     projected_gdf['building_type'] = projected_gdf.apply(lambda row: building_type(row, poss_ref), axis=1)
     projected_gdf['osm_id'] = projected_gdf.apply(osmid_reform, axis=1)
     
