@@ -305,7 +305,7 @@ def assign_buildings_to_nodes(building_populations: pd.DataFrame,
     # Volver a lon/lat
     buildings_with_node = buildings_with_node.to_crs('EPSG:4326')
        
-    plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, building_populations)
+    #plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, building_populations)
     
     # Devolver solo el DataFrame con la nueva columna 'node'
     return pd.DataFrame(buildings_with_node.drop(columns='geometry'))
@@ -850,10 +850,20 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
         
         df_citizens = assign_data(list_citizen_variables, list_citizen_values, df_citizens, idx)
 
-        if df_citizens['WoS_fixed'][idx] == 1:
+        if df_citizens['WoS_fixed'][idx] != 1:
             WoS_id = random.choice(work_ids)
         else:
-            WoS_id = random.choice(study_ids)
+            students_data = df_citizens[(df_citizens['family'] == df_citizens['family'][idx]) &
+                                        (df_citizens['WoS_fixed'] == 1) &
+                                        (df_citizens['WoS'].notna())]
+            if students_data.empty:
+                WoS_id = random.choice(study_ids)
+            else:
+                print(students_data)
+                WoS_id = students_data['WoS'].iloc[0]
+        
+        print(f"WoS_id: {WoS_id}")
+        
         df_citizens.at[idx, 'WoS'] = WoS_id
         df_citizens.at[idx, 'WoS_subgroup'] = SG_relationship.loc[
             SG_relationship['osm_id'] == WoS_id, 'building_type'

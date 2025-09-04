@@ -12,7 +12,7 @@ import networkx as nx
 
 
 
-def vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map):
+def vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map):
     try:
         past_dist_calculations = pd.read_excel(f"{paths['study_area']}/past_dist_calculations.xlsx")
     except Exception:
@@ -20,37 +20,33 @@ def vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_ci
     
     # Agrupamos los resultados por familias
     level1_families = level_1_results.groupby(['family'])
-    level2_families = level_2_results.groupby(['family'])
     transport_families = pop_transport.groupby(['family'])
     
     # Inicializamos la memoria de trips ya evaluados
     eval_trips = []
     
     # Inicializamos dfs de resultados
-    new_level2_schedules = pd.DataFrame()
+    new_level1_schedules = pd.DataFrame()
     vehicles_actions = pd.DataFrame()
     # Pasamos por los datos de cada una de las familias
-    for f_name, family in tqdm(level2_families, desc="Procesando familias"):
-        # Hacemos try pues cabe la posibilidad de que la familia no cuente con vehiculos, por lo que el get_group no pencontrará nada
+    for f_name, family in tqdm(level1_families, desc="Procesando familias"):
+        # Hacemos try pues cabe la posibilidad de que la familia no cuente con vehiculos, por lo que el get_group no encontrará nada
         try:
             # Logramos los vehiculos asignados a cada miembro familiar
             avail_vehicles = transport_families.get_group(f_name)
         except Exception as e:
             avail_vehicles = pd.DataFrame()
-        # Sacamos el schedule de level1 tambien
-        level1_schedule = level1_families.get_group(f_name)
         # Sacamos los nombres de los agentes independientes
-        independents = get_independents(level1_schedule)
+        independents = get_independents(family)
         # Obtenemos el orden en el que iterar los independent (de route más a menos larga)
         independents = organize_independents(independents, family)
         # Agrupamos las actividades familiares por sus miembros
-        level2_citizens = family.groupby(['agent'])
-        level1_citizens = level1_schedule.groupby(['agent'])
+        level1_citizens = family.groupby(['agent'])
         # Inicializamos el nuevo schedule
         new_family_schedule = pd.DataFrame()
         for c_name in independents:
             # Logramos el schedule especifico de este agente
-            citizen_schedule = level2_citizens.get_group(c_name)
+            citizen_schedule = level1_citizens.get_group(c_name)
             # Sacamos sus datos de agente
             citizen_data = pop_citizen[pop_citizen['name'] == c_name].iloc[0]
             # Sacamos su ruta
@@ -64,9 +60,9 @@ def vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_ci
             # Decidimos el transporte
             best_transport_distime_matrix = vehicle_chosing(distime_matrix)
             # Actualizamos el schedule 
-            new_family_schedule = update_citizen_schedule(best_transport_distime_matrix, c_name, level1_schedule, family)
+            new_family_schedule = update_citizen_schedule(best_transport_distime_matrix, c_name, family, family)
             # Lo sumamos al total
-            new_level2_schedules = pd.concat([new_level2_schedules, new_family_schedule], ignore_index=True)
+            new_level1_schedules = pd.concat([new_level1_schedules, new_family_schedule], ignore_index=True)
             # Sumamos el vehiculo al vehicles_actions
             vehicles_actions = update_vehicles_actions(vehicles_actions, new_family_schedule, best_transport_distime_matrix, avail_vehicles)
             # Actualizamos la lista de vehiculos disponibles, para que el resto no tomen este
@@ -74,9 +70,9 @@ def vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_ci
                 avail_vehicles.remove(best_transport_distime_matrix['vehicle'])
                 
     vehicles_actions.to_excel(f"{paths['results']}/{study_area}_vehicles_actions.xlsx", index=False)
-    new_level2_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_2.xlsx", index=False)
+    new_level1_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_2.xlsx", index=False)
 
-    return vehicles_actions, new_level2_schedules
+    return vehicles_actions, new_level1_schedules
 
 def main():
     # Input
@@ -116,7 +112,6 @@ def main():
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
     
     level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_level_1.xlsx")
-    level_2_results = pd.read_excel(f"{paths['results']}/{study_area}_level_2.xlsx")
     
     pop_citizen = pd.read_excel(f"{paths['population']}/pop_citizen.xlsx")
     pop_family = pd.read_excel(f"{paths['population']}/pop_family.xlsx")
@@ -132,7 +127,7 @@ def main():
     ox.plot_graph(networks_map['drive_map'])
     
     
-    vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map)
+    vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map)
     
         
         
@@ -569,7 +564,7 @@ def route_creation(citizen_schedule):
     return route
     
 def get_independents(level1_schedule):
-    return level1_schedule[(level1_schedule['todo_type'] == 0) & (level1_schedule['todo'] == 'WoS')]['agent'].unique()
+    return level1_schedule[(level1_schedule['todo'] == 'WoS')&(level1_schedule['fixed'] == False)]['agent'].unique()
     
 def organize_independents(independents, family):
     # Inicializamos routes_data

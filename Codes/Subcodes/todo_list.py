@@ -90,7 +90,7 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                     # En caso de que el agente NO tenga un tiempo requerido de actividad
                     time2spend = 0
                 # El caso mayoritario de 'todo' para las acciones
-                todo_type = row_f_df[f'{activity}_type'] if not activity in home_travels else row_f_df['WoS_type']
+                #todo_type = row_f_df[f'{activity}_type'] if not activity in home_travels else row_f_df['WoS_type']
                 # En caso de la primera acción
                 if activity == activities[0]:
                     in_time = opening
@@ -124,7 +124,7 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                         'todo': activity, 
                         'osm_id': osm_id, 
                         'node': node,
-                        'todo_type': todo_type, 
+                        #'todo_type': todo_type, 
                         'opening': opening, 
                         'closing': closing, 
                         'fixed': fixed, 
@@ -142,12 +142,12 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                     update_warnings(f"{row_f_df['name']} ({row_f_df['family']}) was not able to fullfill '{activity}' at {in_time}.", paths)
                 #    print(f"They were trying to go at {in_time} until {out_time} but '{osm_id}' it closes at {closing}")
                     
-    ## En caso de que la familia cuente con dependientes pero no con helpers, se da por hecho que estos son saciados de algún modo por algún otro agente externo a la familia
+    '''## En caso de que la familia cuente con dependientes pero no con helpers, se da por hecho que estos son saciados de algún modo por algún otro agente externo a la familia
     dependent = todolist_family[todolist_family['todo_type'] != 0]['agent'].unique()
     helpers = todolist_family[(todolist_family['todo_type'] == 0) & (~todolist_family['agent'].isin(dependent))]['agent'].unique()
     if (len(helpers) == 0) and (len(dependent) != 0):
         update_warnings(f"'{family_df['family'].iloc[0]}' has no responsables for its dependants. For LEVEL 2 analisys, we will consider their need somehow fulfilled, but it is an aproximation.", paths)
-        todolist_family['todo_type'] = 0
+        todolist_family['todo_type'] = 0'''
     # Ordenamos la schedule por hora de 'in' 
     todolist_family = todolist_family.sort_values(by='in', ascending=True).reset_index(drop=True)
     # Devolvemos el df de salida
@@ -941,7 +941,7 @@ def main_td():
     level_1_results, level_2_results = todolist_family_creation(df_citizens, pop_building, system_management, paths)
     
     level_1_results.to_excel(f"{paths['results']}/{study_area}_level_1.xlsx", index=False)
-    level_2_results.to_excel(f"{paths['results']}/{study_area}_level_2.xlsx", index=False)
+    #level_2_results.to_excel(f"{paths['results']}/{study_area}_level_2.xlsx", index=False)
 
 # Ejecución
 if __name__ == '__main__':
