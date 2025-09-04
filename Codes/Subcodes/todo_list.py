@@ -240,10 +240,9 @@ def todolist_family_creation(df_citizens, pop_building, system_management, paths
         
         ## LEVEL 1
         # Creamos una lista de tareas con sus recorridos para cada agente de forma independiente
-        family_level_1_schedule = create_family_level_1_schedule(pop_building, family_df, activities, paths)
+        family_level_1_schedule = create_family_level_1_schedule(pop_building, family_df, activities, paths)        
         # Sumamos los datos a la lista de resultados de level 1
         level_1_schedule = pd.concat([level_1_schedule, family_level_1_schedule], ignore_index=True).reset_index(drop=True)
-        
         ## LEVEL 2
         # Evaluamos todolist_family para observar si existen agentes con dependencias
         family_level_2_schedule = create_family_level_2_schedule(pop_building_unique, family_level_1_schedule)
@@ -364,6 +363,8 @@ def prev_data_creation(previous_actions, helper_name):
         'osm_id': new_row_data['osm_id'],
         'todo': new_row_data['todo'],
         'conmutime': new_row_data['conmutime'],
+        'opening': new_row_data['opening'],
+        'closing': new_row_data['closing'],
     }]
     # Convertimos prev_data en df
     prev_data = pd.DataFrame(prev_data)
@@ -381,6 +382,8 @@ def prev_data_creation(previous_actions, helper_name):
             'osm_id': row['osm_id'],
             'todo': row['todo'],
             'conmutime': row['conmutime'],
+            'opening': row['opening'],
+            'closing': row['closing'],
         }]
         prev_data = pd.concat([prev_data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
     return prev_data
@@ -403,6 +406,8 @@ def data_creation(df_grm):
                 'osm_id': df_grm['osm_id_x'].iloc[0],
                 'todo': df_grm['todo_x'].iloc[0],
                 'conmutime': df_grm['conmutime_x'].iloc[0],
+                'opening': df_grm['opening_x'].iloc[0],
+                'closing': df_grm['closing_x'].iloc[0],
             }]
             data = pd.concat([data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
         else:
@@ -417,6 +422,8 @@ def data_creation(df_grm):
                 'osm_id': info_row['osm_id_y'].iloc[0],
                 'todo': info_row['todo_y'].iloc[0],
                 'conmutime': info_row['conmutime_y'].iloc[0],
+                'opening': info_row['opening_y'].iloc[0],
+                'closing': info_row['closing_y'].iloc[0],
             }]
             data = pd.concat([data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
     # Devolvemos data como resultado
@@ -434,9 +441,9 @@ def schedule_adaptation(prev_data, data, family_level_1_schedule):
         collection_schedule,_ = dc_action(prev_data, family_level_1_schedule, 'Collection', condition_time)
     # Si se cumple otro caso
     else:
-        # Realizamos el delivery de los agentes por parte del helper
-        collection_schedule, condition_time = dc_action(prev_data, family_level_1_schedule, 'Collection')
         # Realizamos el collection de los agentes por parte del helper
+        collection_schedule, condition_time = dc_action(prev_data, family_level_1_schedule, 'Collection')        
+        # Realizamos el delivery de los agentes por parte del helper
         delivery_schedule,_ = dc_action(data, family_level_1_schedule, 'Delivery', condition_time)
     # Sumamos ambas matrices
     new_schedule = pd.concat([collection_schedule, delivery_schedule], ignore_index=True).sort_values(by=['in','out']).reset_index(drop=True)
@@ -473,6 +480,10 @@ def action_times_calculation(data, l_action, condition_time):
       sepa cuando debe haberse completado).
     """
     
+    print('#'*90)
+    print('data:')
+    print(data)
+    
     # Copiamos el l_action en action 'just in case' que luego 'jugamos' un poco con ello
     action = l_action
     # Evaluamos el tipo de accion a acometer y asignamos el 'word' en base a esto
@@ -489,6 +500,11 @@ def action_times_calculation(data, l_action, condition_time):
         analis_rows = pd.concat([other_rows, pd.DataFrame([helper_row])], ignore_index=True).reset_index(drop=True)
     else: 
         analis_rows = pd.concat([pd.DataFrame([helper_row]), other_rows], ignore_index=True).reset_index(drop=True)
+    
+    
+    print('analis_rows:')
+    print(analis_rows)
+    
     # En caso de que existan osm_id compartidos, agrupamos por osm_id
     POI_groups = analis_rows.groupby(by='osm_id')
     # Inicializamos unos df de trabajo
@@ -520,6 +536,10 @@ def action_times_calculation(data, l_action, condition_time):
         # Sumamos las filas a los df de trabajo
         new_analis_rows = pd.concat([new_analis_rows, pd.DataFrame([row])], ignore_index=True).reset_index(drop=True)
         rest_rows = pd.concat([rest_rows, new_row], ignore_index=True).reset_index(drop=True)
+        
+    print('analis_rows:')
+    print(new_analis_rows)
+        
     # Actualizamos el df 'analis_rows'
     analis_rows = new_analis_rows
     # Si tenemos algún tiempo de condicion
@@ -536,6 +556,33 @@ def action_times_calculation(data, l_action, condition_time):
             # Copiamos el valor más restrictivo
             analis_rows[word] = analis_rows[word].apply(lambda x: min(x, condition_time))
             action = 'Delivery'    
+    
+    print('condition_time:')
+    print(condition_time)
+    print('analis_rows')
+    print(analis_rows)
+    
+    # Detectar filas problemáticas
+    mask = (analis_rows["in"] > analis_rows["closing"]) | (analis_rows["out"] < analis_rows["opening"])
+    invalid_rows = analis_rows[mask]
+
+    valid_rows = analis_rows.drop(invalid_rows.index)       
+    
+    if not invalid_rows.empty and not valid_rows.empty:
+        if (invalid_rows["type"] == "helper").any():
+            # Buscar el último válido (fuera de los inválidos)
+            last_valid = valid_rows.iloc[-1]
+            # Copiar valores del último válido a los inválidos
+            invalid_rows = invalid_rows.copy()
+            invalid_rows[["osm_id", "todo", "opening", "closing"]] = last_valid[["osm_id", "todo", "opening", "closing"]].values
+        else:
+            invalid_rows = invalid_rows.copy()
+            helper_row = valid_rows[valid_rows['type'] == "helper"].iloc[0]
+            invalid_rows[["osm_id", "todo", "opening", "closing"]] = helper_row[["osm_id", "todo", "opening", "closing"]].values
+
+    # Nuevo dataframe con válidos + inválidos corregidos
+    analis_rows = pd.concat([valid_rows, invalid_rows]).sort_index()
+        
     # Pasamos por las filas para crear una columna de tiempo real de la actuación
     for idx, row in analis_rows.iterrows():
         if idx == 0:
@@ -570,7 +617,7 @@ def action_times_calculation(data, l_action, condition_time):
     # Eliminamos la columna f'r{word}' si ya no la necesitamos
     analis_rows = analis_rows.drop(columns=[f'r{word}', 'diff']).reset_index(drop=True)
     # Calculamos el 'condition_time' de un posible caso posterior
-    if action == 'Delivery':        
+    if action == 'Delivery':
         condition_time = analis_rows[word].iloc[0] - analis_rows['conmutime'].iloc[0]
     else:
         condition_time = analis_rows[word].iloc[-1] + analis_rows['conmutime'].iloc[-1]
@@ -586,6 +633,35 @@ def action_times_calculation(data, l_action, condition_time):
         results = pd.concat([results, rows2add], ignore_index=True).reset_index(drop=True)
     # Ordenamos los resultados
     results = results.sort_values(by=[word], ascending=True).reset_index(drop=True)
+    
+    print('results')
+    print(results)
+    
+    # Detectar filas problemáticas
+    mask = (results["in"] > results["closing"]) | (results["out"] < results["opening"])
+    invalid_rows = results[mask]
+    valid_rows = results.drop(invalid_rows.index)       
+    
+    if not invalid_rows.empty and not valid_rows.empty:
+        if (invalid_rows["type"] == "helper").any():
+            # Buscar el último válido (fuera de los inválidos)
+            last_valid = valid_rows.iloc[-1]
+            # Copiar valores del último válido a los inválidos
+            invalid_rows = invalid_rows.copy()
+            invalid_rows[["osm_id", "todo", "opening", "closing"]] = last_valid[["osm_id", "todo", "opening", "closing"]].values
+        else:
+            invalid_rows = invalid_rows.copy()
+            helper_row = valid_rows[valid_rows['type'] == "helper"].iloc[0]
+            invalid_rows[["osm_id", "todo", "opening", "closing"]] = helper_row[["osm_id", "todo", "opening", "closing"]].values
+    
+    # Detectar filas problemáticas
+    mask = (results["in"] > results["closing"]) | (results["out"] < results["opening"])
+    invalid_rows = results[mask]
+    valid_rows = results.drop(invalid_rows.index) 
+    if not invalid_rows.empty:
+        print("PARA POR FAVOR")
+    
+    
     # Devolvemos el df de salida
     return results, condition_time
 
@@ -621,6 +697,12 @@ def new_schedule_creation(data, family_level_1_schedule, action):
     # Pasamos por todas las lineas de data (en orden)
     for idx, row in data.iterrows():
         # Sacamos los valores originales para dicha accion
+        
+        print('family_level_1_schedule:')
+        print(family_level_1_schedule)
+        print('row:')
+        print(row)
+        
         new_row = family_level_1_schedule[(family_level_1_schedule['agent'] == row['agent']) &
                                           (family_level_1_schedule['osm_id'] == row['osm_id']) &
                                           (family_level_1_schedule['todo'] == row['todo'])].iloc[0]
@@ -740,7 +822,7 @@ def create_responsability_matrix(dependents, independents, pop_building, family_
         for cart_n, cart in best_helpers_activity:
             # Si un independent ayuda dos veces a un mismo dependent, significa que se da el caso de la espera mazo larga
             if cart['agent_y'].duplicated().any():
-                print(F"Se ha detectado que una misma actividad tenia más de una actividad para el mismo agente y se ha cambiado")
+                #print(F"Se ha detectado que una misma actividad tenia más de una actividad para el mismo agente y se ha cambiado")
                 # Identificar los índices de los valores mínimos por cada grupo duplicado de 'agent_y'
                 idx_to_drop = cart.loc[cart.duplicated('agent_y', keep=False)].groupby('agent_y')['in_y'].idxmin()
                 # Eliminar esos índices del DataFrame
