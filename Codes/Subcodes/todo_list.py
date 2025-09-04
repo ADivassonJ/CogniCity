@@ -6,8 +6,24 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
+from datetime import datetime
 
-def create_family_level_1_schedule(pop_building, family_df, activities):
+def update_warnings(message, path):
+    """
+    Escribe o agrega un mensaje al archivo 'warnings.txt' dentro de path['results'].
+    
+    Args:
+        message (str): Mensaje a escribir en el archivo.
+        path (dict): Diccionario con la clave 'results' que indica la ruta de la carpeta.
+    """
+    # Construir la ruta completa al archivo
+    warnings_file = os.path.join(path['results'], 'warnings.txt')
+    
+    # Abrir el archivo en modo 'append' para agregar al final
+    with open(warnings_file, 'a', encoding='utf-8') as f:
+        f.write(message + '\n')
+
+def create_family_level_1_schedule(pop_building, family_df, activities, paths):
     """
       Summary: Crea la version inicial de los schedules de cada familia (level 1), 
     donde los agentes pueden realizar las actividades tal y como les apetezca, 
@@ -122,14 +138,14 @@ def create_family_level_1_schedule(pop_building, family_df, activities):
                     # La añadimos    
                     todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
                 else:
-                    print(f"{row_f_df['name']} was not able to fullfill '{activity}' at {in_time}.")
-                    print(f"They were trying to go at {in_time} until {out_time} but '{osm_id}' it closes at {closing}")
+                    update_warnings(f"{row_f_df['name']} ({row_f_df['family']}) was not able to fullfill '{activity}' at {in_time}.", paths)
+                #    print(f"They were trying to go at {in_time} until {out_time} but '{osm_id}' it closes at {closing}")
                     
     ## En caso de que la familia cuente con dependientes pero no con helpers, se da por hecho que estos son saciados de algún modo por algún otro agente externo a la familia
     dependent = todolist_family[todolist_family['todo_type'] != 0]['agent'].unique()
     helpers = todolist_family[(todolist_family['todo_type'] == 0) & (~todolist_family['agent'].isin(dependent))]['agent'].unique()
     if (len(helpers) == 0) and (len(dependent) != 0):
-        print(f"The family '{family_df['family'].iloc[0]}' has no responsables for its dependants. For LEVEL 2 analisys, we will consider their need somehow fulfilled, but it is an aproximation.")
+        update_warnings(f"'{family_df['family'].iloc[0]}' has no responsables for its dependants. For LEVEL 2 analisys, we will consider their need somehow fulfilled, but it is an aproximation.", paths)
         todolist_family['todo_type'] = 0
     # Ordenamos la schedule por hora de 'in' 
     todolist_family = todolist_family.sort_values(by='in', ascending=True).reset_index(drop=True)
@@ -172,7 +188,26 @@ def sort_route(osm_ids, helper):
     
     return combined_df
 
-def todolist_family_creation(df_citizens, pop_building, system_management):
+def warning_init(paths):
+    # Construir la ruta completa del archivo
+    file_path = os.path.join(paths['results'], 'warnings.txt')
+
+    # Borrar el archivo si existe
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+    # Crear el archivo y escribir la primera línea con fecha y hora
+    now = datetime.now()
+    time = now.strftime("%H:%M:%S")
+    date = now.strftime("%Y-%m-%d")
+
+    with open(file_path, 'w') as f:
+        f.write(f"#####################################\n")
+        f.write(f"Model launch at {time} on {date}\n")
+        f.write(f"#####################################\n\n")
+        
+
+def todolist_family_creation(df_citizens, pop_building, system_management, paths):
     """
     Summary: Esta funcion crea las daily schedule de los agentes, tanto de level 1 como de level 2
 
@@ -185,6 +220,9 @@ def todolist_family_creation(df_citizens, pop_building, system_management):
         level_1_results (DataFrame): daily schedule (level 1) de ciudadanos
         level_2_results (DataFrame): daily schedule (level 2) de ciudadanos
     """
+    
+    # Warning file initialization
+    warning_init(paths)
     
     # Simplificamos la población de edificios, para tener datos basicos
     pop_building_unique = pop_building.drop_duplicates(subset='osm_id')
@@ -202,7 +240,7 @@ def todolist_family_creation(df_citizens, pop_building, system_management):
         
         ## LEVEL 1
         # Creamos una lista de tareas con sus recorridos para cada agente de forma independiente
-        family_level_1_schedule = create_family_level_1_schedule(pop_building, family_df, activities)
+        family_level_1_schedule = create_family_level_1_schedule(pop_building, family_df, activities, paths)
         # Sumamos los datos a la lista de resultados de level 1
         level_1_schedule = pd.concat([level_1_schedule, family_level_1_schedule], ignore_index=True).reset_index(drop=True)
         
@@ -844,7 +882,7 @@ def main_td():
     ##############################################################################
     print(f'docs readed')
     
-    level_1_results, level_2_results = todolist_family_creation(df_citizens, pop_building, system_management)
+    level_1_results, level_2_results = todolist_family_creation(df_citizens, pop_building, system_management, paths)
     
     level_1_results.to_excel(f"{paths['results']}/{study_area}_level_1.xlsx", index=False)
     level_2_results.to_excel(f"{paths['results']}/{study_area}_level_2.xlsx", index=False)
