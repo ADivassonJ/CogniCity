@@ -245,10 +245,10 @@ def todolist_family_creation(df_citizens, pop_building, system_management, paths
         # Sumamos los datos a la lista de resultados de level 1
         level_1_schedule = pd.concat([level_1_schedule, family_level_1_schedule], ignore_index=True).reset_index(drop=True)
         ## LEVEL 2
-        # Evaluamos todolist_family para observar si existen agentes con dependencias
+        '''# Evaluamos todolist_family para observar si existen agentes con dependencias
         family_level_2_schedule = create_family_level_2_schedule(pop_building_unique, family_level_1_schedule)
         # Sumamos los datos a la lista de resultados de level 1
-        level_2_schedule = pd.concat([level_2_schedule, family_level_2_schedule], ignore_index=True).reset_index(drop=True)
+        level_2_schedule = pd.concat([level_2_schedule, family_level_2_schedule], ignore_index=True).reset_index(drop=True)'''
         
     # Devolvemos los resultados
     return level_1_schedule, level_2_schedule
