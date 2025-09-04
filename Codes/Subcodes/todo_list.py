@@ -134,6 +134,7 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                         'conmutime': int(row_f_df['conmutime']),
                         'family': row_f_df['family'],
                         'family_archetype': row_f_df['family_archetype'],
+                        'act_code': f"{row_f_df['name'][0]}{row_f_df['name'].split('_', 1)[1]}{activity[0]}{in_time}"
                     }
                     # La añadimos    
                     todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
@@ -365,6 +366,7 @@ def prev_data_creation(previous_actions, helper_name):
         'conmutime': new_row_data['conmutime'],
         'opening': new_row_data['opening'],
         'closing': new_row_data['closing'],
+        'act_code': new_row_data['act_code'],
     }]
     # Convertimos prev_data en df
     prev_data = pd.DataFrame(prev_data)
@@ -384,6 +386,7 @@ def prev_data_creation(previous_actions, helper_name):
             'conmutime': row['conmutime'],
             'opening': row['opening'],
             'closing': row['closing'],
+            'act_code': row['act_code'],
         }]
         prev_data = pd.concat([prev_data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
     return prev_data
@@ -408,6 +411,7 @@ def data_creation(df_grm):
                 'conmutime': df_grm['conmutime_x'].iloc[0],
                 'opening': df_grm['opening_x'].iloc[0],
                 'closing': df_grm['closing_x'].iloc[0],
+                'act_code': df_grm['act_code_x'].iloc[0],
             }]
             data = pd.concat([data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
         else:
@@ -424,6 +428,7 @@ def data_creation(df_grm):
                 'conmutime': info_row['conmutime_y'].iloc[0],
                 'opening': info_row['opening_y'].iloc[0],
                 'closing': info_row['closing_y'].iloc[0],
+                'act_code': info_row['act_code_x'].iloc[0],
             }]
             data = pd.concat([data, pd.DataFrame(new_row)], ignore_index=True).reset_index(drop=True)
     # Devolvemos data como resultado
@@ -480,10 +485,6 @@ def action_times_calculation(data, l_action, condition_time):
       sepa cuando debe haberse completado).
     """
     
-    print('#'*90)
-    print('data:')
-    print(data)
-    
     # Copiamos el l_action en action 'just in case' que luego 'jugamos' un poco con ello
     action = l_action
     # Evaluamos el tipo de accion a acometer y asignamos el 'word' en base a esto
@@ -500,11 +501,6 @@ def action_times_calculation(data, l_action, condition_time):
         analis_rows = pd.concat([other_rows, pd.DataFrame([helper_row])], ignore_index=True).reset_index(drop=True)
     else: 
         analis_rows = pd.concat([pd.DataFrame([helper_row]), other_rows], ignore_index=True).reset_index(drop=True)
-    
-    
-    print('analis_rows:')
-    print(analis_rows)
-    
     # En caso de que existan osm_id compartidos, agrupamos por osm_id
     POI_groups = analis_rows.groupby(by='osm_id')
     # Inicializamos unos df de trabajo
@@ -536,10 +532,6 @@ def action_times_calculation(data, l_action, condition_time):
         # Sumamos las filas a los df de trabajo
         new_analis_rows = pd.concat([new_analis_rows, pd.DataFrame([row])], ignore_index=True).reset_index(drop=True)
         rest_rows = pd.concat([rest_rows, new_row], ignore_index=True).reset_index(drop=True)
-        
-    print('analis_rows:')
-    print(new_analis_rows)
-        
     # Actualizamos el df 'analis_rows'
     analis_rows = new_analis_rows
     # Si tenemos algún tiempo de condicion
@@ -556,12 +548,6 @@ def action_times_calculation(data, l_action, condition_time):
             # Copiamos el valor más restrictivo
             analis_rows[word] = analis_rows[word].apply(lambda x: min(x, condition_time))
             action = 'Delivery'    
-    
-    print('condition_time:')
-    print(condition_time)
-    print('analis_rows')
-    print(analis_rows)
-    
     # Detectar filas problemáticas
     mask = (analis_rows["in"] > analis_rows["closing"]) | (analis_rows["out"] < analis_rows["opening"])
     invalid_rows = analis_rows[mask]
@@ -633,10 +619,6 @@ def action_times_calculation(data, l_action, condition_time):
         results = pd.concat([results, rows2add], ignore_index=True).reset_index(drop=True)
     # Ordenamos los resultados
     results = results.sort_values(by=[word], ascending=True).reset_index(drop=True)
-    
-    print('results')
-    print(results)
-    
     # Detectar filas problemáticas
     mask = (results["in"] > results["closing"]) | (results["out"] < results["opening"])
     invalid_rows = results[mask]
@@ -696,16 +678,8 @@ def new_schedule_creation(data, family_level_1_schedule, action):
     new_schedule = pd.DataFrame()
     # Pasamos por todas las lineas de data (en orden)
     for idx, row in data.iterrows():
-        # Sacamos los valores originales para dicha accion
-        
-        print('family_level_1_schedule:')
-        print(family_level_1_schedule)
-        print('row:')
-        print(row)
-        
-        new_row = family_level_1_schedule[(family_level_1_schedule['agent'] == row['agent']) &
-                                          (family_level_1_schedule['osm_id'] == row['osm_id']) &
-                                          (family_level_1_schedule['todo'] == row['todo'])].iloc[0]
+        # Sacamos los valores originales para dicha accion       
+        new_row = family_level_1_schedule[(family_level_1_schedule['act_code'] == row['act_code'])].iloc[0]
         ## Actualizamos algunos datos
         new_row['todo_type'] = 0 # Como ya hemos saciado la necesidad, ya no es dependiente
         new_row[word] = row[word] 
