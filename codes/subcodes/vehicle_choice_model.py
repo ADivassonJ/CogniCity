@@ -1,5 +1,6 @@
 import os
 import sys
+import math
 from tqdm import tqdm
 import numpy as np
 import osmnx as ox
@@ -37,14 +38,12 @@ def vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, stu
         except Exception as e:
             avail_vehicles = pd.DataFrame()
         # Sacamos los nombres de los agentes independientes
-        independents = get_independents(family)
-        # Obtenemos el orden en el que iterar los independent (de route más a menos larga)
-        independents = organize_independents(independents, family)
         # Agrupamos las actividades familiares por sus miembros
         level1_citizens = family.groupby(['agent'])
         # Inicializamos el nuevo schedule
-        new_family_schedule = pd.DataFrame()
-        for c_name in independents:
+        new_family_schedule = pd.DataFrame() 
+        family_members = family['agent'].unique()
+        for c_name in family_members:
             # Logramos el schedule especifico de este agente
             citizen_schedule = level1_citizens.get_group(c_name)
             # Sacamos sus datos de agente
@@ -66,11 +65,12 @@ def vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, stu
             # Sumamos el vehiculo al vehicles_actions
             vehicles_actions = update_vehicles_actions(vehicles_actions, new_family_schedule, best_transport_distime_matrix, avail_vehicles)
             # Actualizamos la lista de vehiculos disponibles, para que el resto no tomen este
-            if not best_transport_distime_matrix['vehicle'].iloc[0] in ['walk', 'UB_diesel']:
-                avail_vehicles.remove(best_transport_distime_matrix['vehicle'])
+            vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
+            if vehicle_name not in ['walk', 'UB_diesel']:
+                avail_vehicles = avail_vehicles[avail_vehicles['name'] != vehicle_name]
                 
     vehicles_actions.to_excel(f"{paths['results']}/{study_area}_vehicles_actions.xlsx", index=False)
-    new_level1_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_2.xlsx", index=False)
+    new_level1_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_1.xlsx", index=False)
 
     return vehicles_actions, new_level1_schedules
 
@@ -122,10 +122,6 @@ def main():
     
     ##############################################################################
     print(f'docs readed')
-
-    # Mostrar el mapa
-    ox.plot_graph(networks_map['drive_map'])
-    
     
     vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map)
     
@@ -160,7 +156,7 @@ def update_vehicles_actions(vehicles_actions, new_family_schedule, best_transpor
     simple_schedule['agent'] = best_transport_distime_matrix['vehicle'].iloc[0]
     simple_schedule['archetype'] = best_transport_distime_matrix['archetype'].iloc[0]
     # Eliminamos las columnas innecesarias
-    simple_schedule = simple_schedule.drop(['todo', 'todo_type', 'opening', 'closing', 'fixed', 'time2spend', 'conmutime'], axis=1)
+    simple_schedule = simple_schedule.drop(['todo', 'opening', 'closing', 'fixed', 'time2spend', 'conmutime'], axis=1)
     # Agregamos la nueva schedule a 'vehicles_actions'
     vehicles_actions = pd.concat([vehicles_actions, simple_schedule], ignore_index=True)
     # Devolvemos el df modificado
@@ -256,7 +252,7 @@ def score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     # Completamos el trip en caso de que tenga que acudir a algún punto P
     complete_trip, last_P, past_dist_calculations = trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, past_dist_calculations)
     # Calculamos la matriz de distime
-    distime_matrix, past_dist_calculations = distime_calculation(networks_map, complete_trip, past_dist_calculations, pop_building, citizen_data, transport)
+    distime_matrix, past_dist_calculations = distime_calculation(networks_map, complete_trip, past_dist_calculations, pop_building, citizen_data, transport, standard=False)
     # Sacamos el score en base al algoritmo especificado para ello
     distime_matrix = score_algorithm(distime_matrix)
     # Devolvemos score
@@ -275,119 +271,95 @@ def score_algorithm(distime_matrix):
     # Calcular score de forma robusta
     distime_matrix['score'] = (
         conmu_time +
-        distime_matrix['cost']*0.4 -
+        distime_matrix['cost']*0.004 -
         distime_matrix['benefits']*0.4 +
-        distime_matrix['emissions']*0.1
+        distime_matrix['emissions']*0.0001
     )
     
     return distime_matrix
 
+def haversine(lon1, lat1, lon2, lat2):
+    """
+    Calcula la distancia en km entre dos puntos usando la fórmula de Haversine.
+    """
+    R = 6371  # radio de la Tierra en km
+    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    return R * c
 
-def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop_building, citizen_data, transport):
-    # Inicializamos el df de salida
-    distime_matrix = pd.DataFrame()
-    # Sacamos el trip
+
+def distime_calculation(networks_map, complete_trip, past_dist_calculations, pop_building, citizen_data, transport, standard=True):
+    rows = []  # acumulamos aquí las filas
     trip = (complete_trip[0][0], complete_trip[-1][-1])
-    # Inicializamos la variable map_type
+
     map_type = 'drive'
     for step_0, step_1 in complete_trip:
-        if map_type == 'walk':
-            map_type = 'drive'
-        else:
-            map_type = 'walk'            
-            
-        # Miramos si ya lo hemos calculado antes
-        previously = past_dist_calculations[(past_dist_calculations['step'] == (step_0, step_1)) & (past_dist_calculations['map'] == map_type)]
-        
-        # Si no lo hemos hehco, lo hacemos ahora
+        # alternancia (esto lo puedes sustituir por tu lógica real)
+        map_type = 'walk' if map_type == 'drive' else 'drive'
+
+        # ¿Ya calculado?
+        previously = past_dist_calculations[
+            (past_dist_calculations['step'] == (step_0, step_1)) &
+            (past_dist_calculations['map'] == map_type)
+        ]
+
         if previously.empty:
-            lon_0, lat_0 = pop_building[pop_building['osm_id'] == step_0][['lon', 'lat']].iloc[0]
-            lon_1, lat_1 = pop_building[pop_building['osm_id'] == step_1][['lon', 'lat']].iloc[0]
-            
-            # Encuentra el nodo más cercano en el mapa
-            node_0 = ox.distance.nearest_nodes(networks_map[f'{map_type}_map'], lon_0, lat_0)
-            node_1 = ox.distance.nearest_nodes(networks_map[f'{map_type}_map'], lon_1, lat_1)
-            # Encuentra la ruta más corta entre poi_node y P_node
-            route = ox.shortest_path(networks_map[f'{map_type}_map'], node_0, node_1, weight='length')
-            
-            if route is None:
-                print(f"step_0: {step_0}, step_1: {step_1}")
-                print(f"node_0: {node_0}, node_1: {node_1}")
-                if node_0 not in networks_map[f'{map_type}_map'].nodes:
-                    input("node_0 no existe")
-                if node_1 not in networks_map[f'{map_type}_map'].nodes:
-                    input("node_1 no existe")
-                if not nx.has_path(networks_map[f'{map_type}_map'], node_0, node_1):
-                    print("No hay camino entre los nodos")
-                    G = networks_map[f'{map_type}_map']
+            lon_0, lat_0 = pop_building.loc[pop_building['osm_id'] == step_0, ['lon', 'lat']].iloc[0]
+            lon_1, lat_1 = pop_building.loc[pop_building['osm_id'] == step_1, ['lon', 'lat']].iloc[0]
 
-                    pos = nx.get_node_attributes(G, 'pos')  # Asegúrate de que los nodos tengan atributo 'pos' (x, y)
+            if standard:
+                # Usamos ruteo de OSMnx
+                node_0 = ox.distance.nearest_nodes(networks_map[f'{map_type}_map'], lon_0, lat_0)
+                node_1 = ox.distance.nearest_nodes(networks_map[f'{map_type}_map'], lon_1, lat_1)
 
-                    plt.figure(figsize=(10, 10))
-                    nx.draw(G, pos, node_size=10, node_color='lightgray', edge_color='gray', alpha=0.5)
+                route = ox.shortest_path(networks_map[f'{map_type}_map'], node_0, node_1, weight='length')
 
-                    # Dibujar node_0 en rojo y node_1 en azul
-                    if node_0 in pos:
-                        nx.draw_networkx_nodes(G, pos, nodelist=[node_0], node_color='red', node_size=100, label='node_0')
-                    else:
-                        print("Advertencia: node_0 no tiene posición asignada")
-
-                    if node_1 in pos:
-                        nx.draw_networkx_nodes(G, pos, nodelist=[node_1], node_color='blue', node_size=100, label='node_1')
-                    else:
-                        print("Advertencia: node_1 no tiene posición asignada")
-
-                    plt.legend()
-                    plt.title(f"Mapa sin camino entre {node_0} y {node_1}")
-                    plt.axis("equal")
-                    plt.show()
-                    
-                    
-                    
-                    
-                input(f"node_0: {node_0}, node_1: {node_1}")
-                
-                # Maneja el error: puede ser que no haya camino disponible
-                distance = float('inf')  # o 0, o algún valor sentinela, según el contexto
+                if route is None:
+                    distance = float('inf')
+                else:
+                    distance = nx.path_weight(networks_map[f'{map_type}_map'], route, weight="length") / 1000
             else:
-                distance = nx.path_weight(networks_map[f'{map_type}_map'], route, weight="length") / 1000
-            
-            
-            distance = nx.path_weight(networks_map[f'{map_type}_map'], route, weight="length")/1000
-            
-            past_dist_calculations = pd.concat([past_dist_calculations, pd.DataFrame([{'step': (step_0, step_1), 'map': map_type, 'km': distance}])], ignore_index=True)
-        # Si ya lo hemos hehco, lo copiamos
+                # Usamos distancia en línea recta (Haversine)
+                distance = haversine(lon_0, lat_0, lon_1, lat_1)
+
+            past_dist_calculations = pd.concat([
+                past_dist_calculations,
+                pd.DataFrame([{'step': (step_0, step_1), 'map': map_type, 'km': distance}])
+            ], ignore_index=True)
         else:
             distance = previously['km'].iloc[0]
 
         waiting_time = waiting_time_calculation(distance, step_1, transport)
         benefits = benefits_calculation(citizen_data, step_1)
-        
-        # Creamos nueva fila
-        new_row = {
+
+        rows.append({
             'citizen': citizen_data['name'],
             'vehicle': transport['name'],
             'archetype': transport['archetype'],
             'trip': trip,
             'distance': distance,
-            'walk_time': (citizen_data['walk_speed']/distance) if map_type == 'walk' and distance > 0 else 0,
-            'travel_time': transport['v']/distance if map_type == 'drive'and distance > 0 else 0,
+            'walk_time': distance / citizen_data['walk_speed'] if map_type == 'walk' and distance > 0 else 0,
+            'travel_time': distance / transport['v'] if map_type == 'drive' and distance > 0 else 0,
             'wait_time': waiting_time,
-            'cost': transport['Ekm']*distance if map_type == 'drive'and distance > 0 else 0,
-            'benefits': benefits, 
-            'emissions': transport['CO2km']*distance if map_type == 'drive'and distance > 0 else 0,
-            }
-        
-        distime_matrix = pd.concat([distime_matrix, pd.DataFrame([new_row])], ignore_index=True)
-        # Sumar solo la parte numérica
-        summed_numeric = distime_matrix.select_dtypes(include='number').sum().to_frame().T
-        # Añadir columnas no numéricas de forma segura
-        summed_df = summed_numeric.assign(
-            citizen=distime_matrix.iloc[0]['citizen'],   
-            vehicle=distime_matrix.iloc[0]['vehicle'],
-            archetype=distime_matrix.iloc[0]['archetype'],
-            trip=[distime_matrix.iloc[0]['trip']],
-        ) 
+            'cost': transport['Ekm'] * distance if map_type == 'drive' and distance > 0 else 0,
+            'benefits': benefits,
+            'emissions': transport['CO2km'] * distance if map_type == 'drive' and distance > 0 else 0,
+        })
+
+    distime_matrix = pd.DataFrame(rows)
+
+    # sumar solo al final
+    summed_numeric = distime_matrix.select_dtypes(include='number').sum().to_frame().T
+    summed_df = summed_numeric.assign(
+        citizen=distime_matrix.iloc[0]['citizen'],
+        vehicle=distime_matrix.iloc[0]['vehicle'],
+        archetype=distime_matrix.iloc[0]['archetype'],
+        trip=[distime_matrix.iloc[0]['trip']],
+    )
+
     return summed_df, past_dist_calculations
 
 def waiting_time_calculation(distance, step_1, transport):
@@ -564,7 +536,7 @@ def route_creation(citizen_schedule):
     return route
     
 def get_independents(level1_schedule):
-    return level1_schedule[(level1_schedule['todo'] == 'WoS')&(level1_schedule['fixed'] == False)]['agent'].unique()
+    return level1_schedule[(level1_schedule['todo'] == 'WoS') & (level1_schedule['fixed'] == False)]['agent'].unique()
     
 def organize_independents(independents, family):
     # Inicializamos routes_data
