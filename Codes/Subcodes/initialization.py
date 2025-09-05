@@ -1,62 +1,36 @@
-<<<<<<< HEAD
-=======
+# === Estándar de Python =======================================================
 import os
 import sys
 import math
 import shutil
 import random
 import itertools
-import osmnx as ox
-ox.settings.timeout = 500
-import numpy as np
-import pandas as pd
-import geopandas as gpd
 from pathlib import Path
-import matplotlib.pyplot as plt
-from scipy.spatial import Voronoi
-from shapely.ops import unary_union
-from haversine import haversine, Unit
-from shapely.geometry import Point, Polygon
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from shapely.ops import transform
-import pyproj
+# === Terceros (pip) ===========================================================
+# OSM y redes
+import osmnx as ox
+ox.settings.timeout = 500  # evita timeouts al bajar datos de OSM
 
+# Numérico / datos / visualización
 import numpy as np
-import geopandas as gpd
-from scipy.spatial import cKDTree
-
 import pandas as pd
+import matplotlib.pyplot as plt
+
+# Geoespacial
 import geopandas as gpd
-from shapely.geometry import Point, Polygon
-
-
-import pandas as pd
-import geopandas as gpd
-from shapely.geometry import Point, Polygon
-from shapely.ops import unary_union, clip_by_rect
-from scipy.spatial import Voronoi
-import numpy as np
-
-import geopandas as gpd
-import pandas as pd
-from shapely.geometry import Point, Polygon
-from shapely.ops import unary_union, voronoi_diagram
-
-
-
-import os
 import pyproj
-from shapely.geometry import Polygon, MultiPolygon
-from shapely.ops import transform
-import geopandas as gpd
-
-
-############# Due to py 3.7. some things are 'rusty'
+from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.ops import unary_union, transform, clip_by_rect, voronoi_diagram
+from scipy.spatial import Voronoi, cKDTree
+# Due to py 3.7. some things are 'rusty'
 import warnings
 from shapely.errors import ShapelyDeprecationWarning
 warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
-#############
+
+# Distancias geodésicas
+from haversine import haversine, Unit
 
 def Archetype_documentation_initialization(paths):
     """
@@ -307,7 +281,7 @@ def assign_buildings_to_nodes(building_populations: pd.DataFrame,
     # Volver a lon/lat
     buildings_with_node = buildings_with_node.to_crs('EPSG:4326')
        
-    plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, building_populations)
+    # plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, building_populations)
     
     # Devolver solo el DataFrame con la nueva columna 'node'
     return pd.DataFrame(buildings_with_node.drop(columns='geometry'))
@@ -1245,4 +1219,3 @@ def main():
     
 if __name__ == '__main__':
     main()
->>>>>>> parent of 6656f6b (Simplification)
