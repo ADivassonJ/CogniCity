@@ -537,6 +537,48 @@ def assign_data(list_variables: List[str], list_values: Dict[str, float], df_pop
     return df_pop
 
 
+def get_stats_value(value, stats_doc, item_1, item_2):
+    if str(value).strip() == '*':
+        row = stats_doc[
+            (stats_doc['item_1'] == item_1) & 
+            (stats_doc['item_2'] == item_2)
+        ]
+        if row.empty:
+            raise ValueError(f"No stats found for ({item_1}, {item_2}) in the correspondent doc. n\ Most probably is because the archetypes have been updated but the stats doc has not been updated.") # Si pasa esto es porque se an actualizado los arquetipos pero no se a actualizado el doc de stats
+        
+        stats_value = computate_stats(row)
+
+        return stats_value
+
+    return int(value)
+
+def computate_stats(row):
+    mu = float(row['mu'])
+    sigma = float(row['sigma'])
+    min_val = int(row['min'])
+    max_val = int(row['max'])
+
+    stats_value = round(np.random.normal(mu, sigma))
+    stats_value = max(min(stats_value, max_val), min_val)
+
+    return stats_value
+
+def get_wos_action(archetype, pop_archetypes, stats_synpop):
+    value = pop_archetypes['citizen'].loc[
+        pop_archetypes['citizen']['name'] == archetype, 'WoS_action'
+    ].values[0]
+    return get_stats_value(value, stats_synpop, archetype, 'WoS_action')
+
+def assign_data(list_variables, list_values, df_pop, idx):
+    for variable in list_variables:
+        value = list_values[variable]
+        if variable.endswith('_type') or variable.endswith('_amount'):
+            value = int(round(value))
+        elif variable.endswith('_time'):
+            value = int(round(value / 30.0) * 30)
+        df_pop.at[idx, variable] = value
+    return df_pop
+
 def buffer_for_network(net_type: str) -> int:
     return 300 if net_type == 'walk' else 1000
 
