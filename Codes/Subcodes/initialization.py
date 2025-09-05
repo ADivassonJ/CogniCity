@@ -52,14 +52,12 @@ def _ensure_polygon(geom) -> Polygon:
         return geom
     raise TypeError("Boundary geometry must be a shapely Polygon or MultiPolygon.")
 
-
 def _estimate_metric_crs(gdf: gpd.GeoDataFrame) -> str:
     try:
         return str(gdf.estimate_utm_crs())
     except Exception:
         # fallback
         return WEB_MERCATOR
-
 
 def _to_crs_safe(gdf: gpd.GeoDataFrame, crs: str) -> gpd.GeoDataFrame:
     if gdf.crs == crs:
@@ -73,7 +71,6 @@ def load_filter_sort_reset(filepath: Path) -> pd.DataFrame:
     df = pd.read_excel(filepath)
     # keep non-inactive rows; do not reset index to preserve any hidden metadata columns
     return df[df['state'] != 'inactive']
-
 
 # ===== Stats creation / loading =====
 
@@ -89,13 +86,11 @@ def add_matches_to_stats_synpop(stats_synpop: pd.DataFrame, df: pd.DataFrame, na
                 stats_synpop.loc[len(stats_synpop)] = [name_value, col, None, None, None, None]
     return stats_synpop
 
-
 def create_stats_synpop(archetypes_path: Path, citizen_archetypes: pd.DataFrame, family_archetypes: pd.DataFrame) -> None:
     stats_synpop = pd.DataFrame(columns=['item_1', 'item_2', 'mu', 'sigma', 'min', 'max'])
     stats_synpop = add_matches_to_stats_synpop(stats_synpop, citizen_archetypes)
     stats_synpop = add_matches_to_stats_synpop(stats_synpop, family_archetypes)
     stats_synpop.to_excel(archetypes_path / 'stats_synpop.xlsx', index=False)
-
 
 def create_stats_trans(archetypes_path: Path, transport_archetypes: pd.DataFrame, family_archetypes: pd.DataFrame) -> pd.DataFrame:
     transport_names = transport_archetypes['name'].dropna().unique()
@@ -108,7 +103,6 @@ def create_stats_trans(archetypes_path: Path, transport_archetypes: pd.DataFrame
     stats_trans.to_excel(archetypes_path / 'stats_trans.xlsx', index=False)
     return stats_trans
 
-
 def load_or_create_stats(archetypes_path: Path, filename: str, creation_func, creation_args: List[pd.DataFrame]) -> pd.DataFrame:
     filepath = archetypes_path / filename
     try:
@@ -120,7 +114,6 @@ def load_or_create_stats(archetypes_path: Path, filename: str, creation_func, cr
         creation_func(archetypes_path, *creation_args)
         raise ValueError(f"[ERROR] {filepath} is missing or incomplete. Please fill μ, σ, max, min values and rerun.")
     return df_stats
-
 
 def Archetype_documentation_initialization(paths: Dict[str, Path]):
     try:
@@ -163,7 +156,6 @@ def building_type(row: pd.Series, poss_ref: Dict[str, List[str]]) -> str:
             return f'{category}_{actor}'
     return 'unknown'
 
-
 def osmid_reform(row: pd.Series) -> Optional[str]:
     osmid = row.get('osmid')
     element_type = row.get('element_type')
@@ -178,13 +170,15 @@ def osmid_reform(row: pd.Series) -> Optional[str]:
         return f'W{osmid}'
     return None
 
-
 def get_osm_elements(polygon, poss_ref):
     # --- descarga ---
     gdf = ox.geometries_from_polygon(polygon, {k: True for k in poss_ref.keys()}).reset_index(drop=True)
     if gdf.empty:
         raise ValueError("OSM returned no elements for the given polygon and tags.")
 
+        
+    input(gdf.columns())
+    
     # --- filtrado robusto, sin realineaciones ambiguas ---
     import numpy as np
     mask = np.zeros(len(gdf), dtype=bool)
@@ -209,7 +203,7 @@ def get_osm_elements(polygon, poss_ref):
         raise ValueError("No POIs have been detected in the study area.")
 
     # --- centroides precisos y resto de tu lógica ---
-    projected_gdf = filtered_gdf.to_crs(filtered_gdf.estimate_utm_crs())
+    projected_gdf = filtered_gdf.to_crs(filtered_gdf.estimate_utm_crs())   
     centroids = projected_gdf.geometry.centroid
     centroids_geo = gpd.GeoSeries(centroids, crs=projected_gdf.crs).to_crs(epsg=4326)
 
@@ -227,10 +221,12 @@ def get_osm_elements(polygon, poss_ref):
 
     projected_gdf = projected_gdf.to_crs(epsg=4326)
     projected_gdf['building_type'] = projected_gdf.apply(lambda row: building_type(row, poss_ref), axis=1)
+    
+    input(projected_gdf['osmid'])
+    
     projected_gdf['osm_id'] = projected_gdf.apply(osmid_reform, axis=1)
 
     return projected_gdf[['building_type', 'osm_id', 'geometry', 'lat', 'lon']]
-
 
 # ===== Networks =====
 
@@ -241,7 +237,6 @@ def get_active_networks(transport_archetypes_df: pd.DataFrame) -> List[str]:
     if 'walk' not in active_maps:
         active_maps.append('walk')
     return active_maps
-
 
 def load_or_download_networks(study_area: str, study_area_path: Path, networks: List[str], special_areas_coords: Dict[str, List[Tuple[float, float]]]):
     networks_map = {}
@@ -284,7 +279,6 @@ def load_or_download_networks(study_area: str, study_area_path: Path, networks: 
             raise
     return networks_map
 
-
 # ===== Electric system & Voronoi =====
 
 def e_sys_loading(paths: Dict[str, Path], study_area: str) -> pd.DataFrame:
@@ -307,7 +301,6 @@ def e_sys_loading(paths: Dict[str, Path], study_area: str) -> pd.DataFrame:
                     print('        [ERROR] File not found at requested location.')
                     code = 'NOT_DONE'
 
-
 def _deduplicate_nodes(df: pd.DataFrame) -> pd.DataFrame:
     # remove exact duplicate lon/lat rows (Voronoi fails with duplicates)
     before = len(df)
@@ -315,7 +308,6 @@ def _deduplicate_nodes(df: pd.DataFrame) -> pd.DataFrame:
     if len(df2) < before:
         print(f"        [INFO] Dropped {before - len(df2)} duplicate node(s) for Voronoi stability.")
     return df2
-
 
 def voronoi_from_nodes(electric_system: pd.DataFrame, boundary_polygon: Polygon):
     boundary_polygon = _ensure_polygon(boundary_polygon)
@@ -372,7 +364,6 @@ def voronoi_from_nodes(electric_system: pd.DataFrame, boundary_polygon: Polygon)
 
     return nodes_gdf_proj, vor_gdf, boundary_proj
 
-
 def assign_buildings_to_nodes(building_populations: pd.DataFrame, electric_system: pd.DataFrame, boundary_polygon: Polygon) -> pd.DataFrame:
     # Buildings to GDF
     buildings_gdf = gpd.GeoDataFrame(
@@ -389,7 +380,6 @@ def assign_buildings_to_nodes(building_populations: pd.DataFrame, electric_syste
     df_out = pd.DataFrame(joined.drop(columns='geometry'))
     return df_out
 
-
 def buffer_value(electric_system: pd.DataFrame) -> int:
     left = electric_system.loc[electric_system['long'].idxmin()]
     right = electric_system.loc[electric_system['long'].idxmax()]
@@ -405,7 +395,6 @@ def buffer_value(electric_system: pd.DataFrame) -> int:
             if distance > max_distance:
                 max_distance = distance
     return int(max_distance)
-
 
 def add_ebus(paths: Dict[str, Path], polygon: Polygon, building_populations: pd.DataFrame, study_area: str, buffer_m: int = 500, proj_epsg: int = 3857) -> pd.DataFrame:
     electric_system = e_sys_loading(paths, study_area)
@@ -433,7 +422,6 @@ def services_groups_creation(df: pd.DataFrame, to_keep: List[str]) -> Dict[str, 
         group_dicts[group + "_list"] = group_ref
     return group_dicts
 
-
 # ===== High-level init steps =====
 
 def load_or_download_pois(study_area: str, paths: Dict[str, Path], building_archetypes_df: pd.DataFrame, special_areas_coords: Dict[str, List[Tuple[float, float]]]) -> pd.DataFrame:
@@ -444,7 +432,6 @@ def load_or_download_pois(study_area: str, paths: Dict[str, Path], building_arch
     except Exception:
         print('    [WARNING] Data is missing, it needs to be downloaded.')
         return download_pois(study_area, paths, building_archetypes_df, special_areas_coords)
-
 
 def building_schedule_adding(osm_elements_df: pd.DataFrame, building_archetypes_df: pd.DataFrame) -> pd.DataFrame:
     list_building_variables = [col.rsplit('_', 1)[0] for col in building_archetypes_df.columns if col.endswith('_mu')]
@@ -459,7 +446,6 @@ def building_schedule_adding(osm_elements_df: pd.DataFrame, building_archetypes_
                 list_building_values[key] = int(round(value / 30.0) * 30)
         osm_elements_df = assign_data(list_building_variables, list_building_values, osm_elements_df, idx)
     return osm_elements_df
-
 
 def download_pois(study_area: str, paths: Dict[str, Path], building_archetypes_df: pd.DataFrame, special_areas_coords: Dict[str, List[Tuple[float, float]]]) -> pd.DataFrame:
     study_area_path = paths[study_area]
@@ -500,12 +486,10 @@ def download_pois(study_area: str, paths: Dict[str, Path], building_archetypes_d
     buildings_populations = add_ebus(paths, polygon, SG_relationship, study_area)
     return buildings_populations
 
-
 # ===== Misc remaining pieces (unchanged behavior with minor cleanups) =====
 
 def get_active_networks_wrapper(pop_archetypes_transport: pd.DataFrame) -> List[str]:
     return get_active_networks(pop_archetypes_transport)
-
 
 def get_vehicle_stats(archetype: str, transport_archetypes: pd.DataFrame, variables: List[str]) -> Dict[str, float]:
     results: Dict[str, float] = {}
@@ -523,7 +507,6 @@ def get_vehicle_stats(archetype: str, transport_archetypes: pd.DataFrame, variab
         results[variable] = var_result
     return results
 
-
 def assign_data(list_variables: List[str], list_values: Dict[str, float], df_pop: pd.DataFrame, idx: int) -> pd.DataFrame:
     for variable in list_variables:
         value = list_values.get(variable)
@@ -535,7 +518,6 @@ def assign_data(list_variables: List[str], list_values: Dict[str, float], df_pop
             value = int(round(value / 30.0) * 30)
         df_pop.at[idx, variable] = value
     return df_pop
-
 
 def get_stats_value(value, stats_doc, item_1, item_2):
     if str(value).strip() == '*':
@@ -581,6 +563,76 @@ def assign_data(list_variables, list_values, df_pop, idx):
 
 def buffer_for_network(net_type: str) -> int:
     return 300 if net_type == 'walk' else 1000
+
+def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch):
+    """
+    Summary:
+       Analyse the df archetype_to_fill df to evaluate if the archetypes shown in this df can really be 
+      created or if, due to a lack of any archetype of citizen, it is no longer possible (e.g. if family 
+      archetype 3 needs one citizen type 1, one type 3 and 3 type 4 and we don't have enough of any type 
+      left, we already know that this family archetype can never be generated again).
+    Args:
+       archetype_to_fill (DataFrame): df with the archetypes data of the archetypes that can be applied
+       df_distribution (DataFrame): All citizens that are to be added to a family
+       ind_arch (str): Archetype name on which individuals (families with just one citizen) exists.
+    Returns:
+       archetype_to_fill (DataFrame): updated df with the archetypes data of the archetypes that can be applied
+    """
+    
+    # Determine names with any 0 or NaN (excluding the first column)
+    condition = df_distribution.iloc[:, 1:].eq(0) | df_distribution.iloc[:, 1:].isna()
+    problematic_names = set(df_distribution.loc[condition.any(axis=1), 'name'])
+    # If there is no problem, we return the original DataFrame.
+    if not problematic_names:
+        return archetype_to_fill
+    # Columns containing archetype data in archetype_to_fill (from fifth column onwards)
+    archetype_cols = archetype_to_fill.columns[4:]
+    # Create a Boolean mask:
+    # For each row, evaluate whether there is at least one column in which, being non-null and other than 0,
+    # the column name is in problematic_names.
+    mask = archetype_to_fill.apply(
+        lambda row: any(col in problematic_names 
+                        for col, val in row[archetype_cols].items() 
+                        if pd.notna(val) and val != 0),
+        axis=1
+    )
+    # Exclude from deletion the row whose ‘name’ matches ind_arch
+    mask &= (archetype_to_fill['name'] != ind_arch)
+    
+    # Filtering and resetting the index
+    return archetype_to_fill[~mask].reset_index(drop=True)
+
+def load_filter_sort_reset(filepath):
+    """
+    Summary: 
+       Load an Excel file, filter the rows where 'stat' is 'inactive' and return the DataFrame.
+    Args:
+       filepath (Path): path to the file that wants to be readed
+    Returns:
+       df: Readed dfs
+    """
+    df = pd.read_excel(filepath)
+    df = df[df['state'] != 'inactive']
+    return df
+
+def process_arch_to_fill(archetype_df, arch_name, df_distribution):
+    """
+    Para un 'arch_name' seleccionado, filtra la fila correspondiente en el DataFrame
+    'archetype_df', conserva solo las columnas que contengan la palabra 'archetype',
+    transpone el resultado y lo une con 'df_distribution' para poder compararlo.
+    
+    Retorna el DataFrame mergeado.
+    """    
+    row = archetype_df[archetype_df['name'] == arch_name]
+    # Seleccionar columnas que contengan "arch" (sin importar mayúsculas/minúsculas)
+    columns_to_keep = [col for col in row.columns if 'arch' in col.lower()] ########################## CUIDADO CON ESTO ASIER DEL FUTURO
+    row_filtered = row[columns_to_keep]
+    # Transponer y reformatear el DataFrame
+    transposed = row_filtered.T.reset_index()
+    transposed.columns = ['name', 'participants']  
+    # Unir con df_distribution para comparar los valores
+    merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
+    return merged_df
 
 def Citizen_inventory_creation(df: pd.DataFrame, population: int):
     """
