@@ -42,7 +42,10 @@ def vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_ci
         level1_schedule = level1_families.get_group(f_name)
         # Sacamos los nombres de los agentes independientes
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> parent of 6656f6b (Simplification)
         independents = get_independents(level1_schedule)
         # Obtenemos el orden en el que iterar los independent (de route más a menos larga)
         independents = organize_independents(independents, family)
@@ -81,7 +84,11 @@ def vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_ci
                 
     vehicles_actions.to_excel(f"{paths['results']}/{study_area}_vehicles_actions.xlsx", index=False)
 <<<<<<< HEAD
+<<<<<<< HEAD
     new_level1_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_1.xlsx", index=False)
+=======
+    new_level2_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_2.xlsx", index=False)
+>>>>>>> parent of 6656f6b (Simplification)
 =======
     new_level2_schedules.to_excel(f"{paths['results']}/{study_area}_new_level_2.xlsx", index=False)
 >>>>>>> parent of 6656f6b (Simplification)
@@ -138,6 +145,10 @@ def main():
     ##############################################################################
     print(f'docs readed')
     
+<<<<<<< HEAD
+=======
+    
+>>>>>>> parent of 6656f6b (Simplification)
     vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, level_2_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map)
     
         
@@ -552,7 +563,11 @@ def route_creation(citizen_schedule):
     
 def get_independents(level1_schedule):
 <<<<<<< HEAD
+<<<<<<< HEAD
     return level1_schedule[(level1_schedule['todo'] == 'WoS') & (level1_schedule['fixed'] == False)]['agent'].unique()
+=======
+    return level1_schedule[(level1_schedule['todo_type'] == 0) & (level1_schedule['todo'] == 'WoS')]['agent'].unique()
+>>>>>>> parent of 6656f6b (Simplification)
 =======
     return level1_schedule[(level1_schedule['todo_type'] == 0) & (level1_schedule['todo'] == 'WoS')]['agent'].unique()
 >>>>>>> parent of 6656f6b (Simplification)
