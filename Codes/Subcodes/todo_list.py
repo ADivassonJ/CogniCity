@@ -208,50 +208,84 @@ def warning_init(paths):
         f.write(f"#####################################\n\n")
         
 
-def todolist_family_creation(df_citizens, pop_building, system_management, paths):
-    """
-    Summary: Esta funcion crea las daily schedule de los agentes, tanto de level 1 como de level 2
+from concurrent.futures import ProcessPoolExecutor, as_completed  # o ThreadPoolExecutor
+from functools import partial
+import pandas as pd
+from tqdm import tqdm
 
-    Args:
-        df_citizens (DataFrame): Describe la poblacion de CIUDADANOS disponible, junto a sus caracteristicas
-        pop_building (DataFrame): Describe la poblacion de EDIFIOS disponible, junto a sus caracteristicas
-        system_management (DataFrame): Describe caracteristicas principales del sistema
-
-    Returns:
-        level_1_results (DataFrame): daily schedule (level 1) de ciudadanos
-        level_2_results (DataFrame): daily schedule (level 2) de ciudadanos
+# --- Helper a nivel de módulo: debe ser importable/pickleable ---
+def _build_family_level1(family_tuple, pop_building, activities, paths):
     """
-    
-    # Warning file initialization
-    warning_init(paths)
-    
-    # Simplificamos la población de edificios, para tener datos basicos
-    pop_building_unique = pop_building.drop_duplicates(subset='osm_id')
-    # Inicializamos los df de resultados
-    level_1_schedule = pd.DataFrame()
-    level_2_schedule = pd.DataFrame()
-    # Agrupamos la poblacion de ciudadanos en familias
-    df_citizens_families = df_citizens.groupby('family')
-    # Recorremos cada familia
-    for family_name, family_df in tqdm(df_citizens_families, desc="Procesando familias"):
-        # Sacamos la lista de actividades del archivo system_management
-        activities = system_management['activities'].tolist()
-        # Filtrar elementos que no sean NaN
-        activities = [a for a in activities if pd.notna(a)]  
-        
-        ## LEVEL 1
-        # Creamos una lista de tareas con sus recorridos para cada agente de forma independiente
-        family_level_1_schedule = create_family_level_1_schedule(pop_building, family_df, activities, paths)        
-        # Sumamos los datos a la lista de resultados de level 1
-        level_1_schedule = pd.concat([level_1_schedule, family_level_1_schedule], ignore_index=True).reset_index(drop=True)
-        ## LEVEL 2
-        '''# Evaluamos todolist_family para observar si existen agentes con dependencias
-        family_level_2_schedule = create_family_level_2_schedule(pop_building_unique, family_level_1_schedule)
-        # Sumamos los datos a la lista de resultados de level 1
-        level_2_schedule = pd.concat([level_2_schedule, family_level_2_schedule], ignore_index=True).reset_index(drop=True)'''
-        
-    # Devolvemos los resultados
-    return level_1_schedule, level_2_schedule
+    family_tuple: (family_name, family_df)
+    Devuelve: DataFrame con el level_1 de esa familia
+    """
+    family_name, family_df = family_tuple
+    # Llama a tu función existente (debe ser importable a nivel de módulo)
+    return create_family_level_1_schedule(pop_building, family_df, activities, paths)
+
+def todolist_family_creation(
+    study_area,
+    df_citizens,
+    pop_building,
+    system_management,
+    paths,
+    n_jobs=None,         # None -> usa número de CPUs disponibles
+    use_threads=False,   # True si tu carga es I/O-bound
+    chunksize=1          # >1 reduce overhead en muchísimas familias
+):
+    """
+    Paralelizada por familia. Escribe a Excel una sola vez al final.
+    """
+    # Inicialización de avisos
+    #warning_init(paths)
+
+    # Actividades una sola vez (evita recomputarlas por familia)
+    activities = [a for a in system_management['activities'].tolist() if pd.notna(a)]
+
+    # (Opcional) Únicos de building por si lo reactivas para level_2
+    # pop_building_unique = pop_building.drop_duplicates(subset='osm_id')
+
+    # Agrupar ciudadanos por familia
+    families_iter = df_citizens.groupby('family')
+    families = list(families_iter)  # materializamos para poder mostrar progreso
+    total = len(families)
+
+    # Elegir ejecutor
+    Executor = ProcessPoolExecutor
+    if use_threads:
+        from concurrent.futures import ThreadPoolExecutor
+        Executor = ThreadPoolExecutor
+
+    # Preparamos función parcial con parámetros constantes
+    worker = partial(_build_family_level1, pop_building=pop_building,
+                     activities=activities, paths=paths)
+
+    # Lanzamos en paralelo
+    results = []
+    with Executor(max_workers=n_jobs) as ex:
+        futures = {ex.submit(worker, fam): fam[0] for fam in families}
+
+        # Progreso
+        for fut in tqdm(as_completed(futures), total=total, desc="Procesando familias (paralelo)"):
+            fam_name = futures[fut]
+            try:
+                df_level1 = fut.result()
+                results.append(df_level1)
+            except Exception as e:
+                # No abortamos todo el run por una familia: registramos y seguimos
+                print(f"[ERROR] familia '{fam_name}': {e}")
+
+    # Un solo concat al final (mucho más rápido)
+    if results:
+        level_1_schedule = pd.concat(results, ignore_index=True)
+    else:
+        level_1_schedule = pd.DataFrame()
+
+    # Escribir una sola vez (evita cientos de escrituras)
+    out_xlsx = f"{paths['results']}/{study_area}_level_1.xlsx"
+    level_1_schedule.to_excel(out_xlsx, index=False)
+
+    return level_1_schedule
 
 def create_family_level_2_schedule(pop_building, family_level_1_schedule):
     # Inicializamos el df de resultados
@@ -938,10 +972,8 @@ def main_td():
     ##############################################################################
     print(f'docs readed')
     
-    level_1_results, level_2_results = todolist_family_creation(df_citizens, pop_building, system_management, paths)
+    level_1_results = todolist_family_creation(study_area, df_citizens, pop_building, system_management, paths)
     
-    level_1_results.to_excel(f"{paths['results']}/{study_area}_level_1.xlsx", index=False)
-    level_2_results.to_excel(f"{paths['results']}/{study_area}_level_2.xlsx", index=False)
 
 # Ejecución
 if __name__ == '__main__':

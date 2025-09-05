@@ -22,6 +22,7 @@ def main():
     
     paths['main'] = Path(__file__).resolve().parent.parent
     paths['system'] = paths['main'] / 'system'
+    paths['desktop'] = Path.home() / "Desktop"
     
     system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
     
@@ -61,11 +62,18 @@ def main():
     agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats_synpop, paths, agent_populations['building'], study_area, stats_trans)
     print('#'*20, ' Initialization finalized ','#'*20)
 
-    pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])
+    # pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])
+       
+    try:
+        level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_level_1.xlsx")
+    except Exception as e:
+        level_1_results = todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths)
     
-    level_1_results, level_2_results = todolist_family_creation(agent_populations['citizen'], agent_populations['building'], system_management)
-    
-    vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, level_2_results, agent_populations['transport'], agent_populations['citizen'], paths, study_area, pop_archetypes['transport'], agent_populations['building'], networks_map)
+    try:
+        vehicles_actions = pd.read_excel(f"{paths['results']}/{study_area}_vehicles_actions.xlsx")
+        new_level1_schedules = pd.read_excel(f"{paths['results']}/{study_area}_new_level_1.xlsx")
+    except Exception as e:
+        vehicles_actions, new_level1_schedules = vehicle_choice_model(level_1_results, agent_populations['transport'], agent_populations['citizen'], paths, study_area, pop_archetypes['transport'], agent_populations['building'], networks_map)
     
 def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
     # Suponiendo que df_citizens y df_families ya están definidos
