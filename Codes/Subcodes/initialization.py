@@ -1174,7 +1174,7 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
         # Assign a Work/Study location:
         if df_citizens['WoS_fixed'][idx] != 1:  
             # If not fixed, assign a random Work location
-            WoS_id = random.choice(work_ids)
+            WoS_id = random.choice(work_ids) <---------------- Modificar para lo de las distancias
         else:
             # If fixed, check if there is already someone in the family with a Work/Study assignment
             students_data = df_citizens[
@@ -1184,7 +1184,7 @@ def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_rel
             ]
             if students_data.empty:
                 # If none exist, assign a random Study location
-                WoS_id = random.choice(study_ids)
+                WoS_id = random.choice(study_ids)  <---------------- Modificar para lo de las distancias
             else:
                 # Otherwise, reuse the existing family member's Work/Study location
                 WoS_id = students_data['WoS'].iloc[0]
