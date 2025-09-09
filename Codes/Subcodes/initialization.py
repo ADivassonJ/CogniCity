@@ -1175,28 +1175,22 @@ def plot_wos_debug(
 ):
     """
     Visualiza home, anillo, candidatos (work/study) dentro del anillo y el elegido.
-    - home_lat/home_lon en WGS84 (EPSG:4326).
-    - ring_poly puede ser shapely, GeoSeries o GeoDataFrame.
-    - work_df/study_df: DataFrames con columnas ['osm_id','lat','lon'] en WGS84.
-    - chosen_id: osm_id elegido (se marca con estrella).
+    Todo en escala de grises.
     """
-    # Preparar anillo (shapely) y alinear CRS con WGS84
     ring_geom, ring_geom_crs = _as_geometry_and_crs(ring_poly)
     if ring_geom is None:
         return
 
-    # GeoSeries temporal para reproyectar si hace falta
+    # reproyectar si hace falta
     if ring_geom_crs is not None and ring_geom_crs != "EPSG:4326":
         ring_geom = gpd.GeoSeries([ring_geom], crs=ring_geom_crs).to_crs("EPSG:4326").iloc[0]
 
-    # Home como GeoDataFrame
     gdf_home = gpd.GeoDataFrame(
         {"name": ["home"]},
         geometry=[Point(home_lon, home_lat)],
         crs="EPSG:4326"
     )
 
-    # Candidatos (completos y los que caen en el anillo)
     def _prep_candidates(df):
         if df is None or len(df) == 0:
             return None, None
@@ -1205,53 +1199,56 @@ def plot_wos_debug(
             geometry=gpd.points_from_xy(df['lon'], df['lat']),
             crs="EPSG:4326"
         )
-        mask = gdf.geometry.within(ring_geom)  # usa .intersects si quieres incluir el borde
+        mask = gdf.geometry.within(ring_geom)
         return gdf, gdf.loc[mask.values]
 
     gdf_work, gdf_work_in = _prep_candidates(work_df)
     gdf_study, gdf_study_in = _prep_candidates(study_df)
 
-    # Crear figura/ejes
     created_ax = False
     if ax is None:
         fig, ax = plt.subplots(figsize=(6, 6))
         created_ax = True
 
-    # Dibujar anillo
-    gpd.GeoSeries([ring_geom], crs="EPSG:4326").boundary.plot(ax=ax, linewidth=2, alpha=0.8, label="Ring")
+    # Anillo
+    gpd.GeoSeries([ring_geom], crs="EPSG:4326").boundary.plot(
+        ax=ax, color="black", linewidth=1.5, alpha=0.8, label="Ring"
+    )
 
-    # Todos los candidatos (suaves)
+    # Todos los candidatos (gris claro)
     if gdf_work is not None and len(gdf_work) > 0:
-        gdf_work.plot(ax=ax, markersize=8, alpha=0.15, label="Work (all)")
+        gdf_work.plot(ax=ax, markersize=8, color="0.8", alpha=0.4, label="Work (all)")
     if gdf_study is not None and len(gdf_study) > 0:
-        gdf_study.plot(ax=ax, markersize=8, alpha=0.15, label="Study (all)")
+        gdf_study.plot(ax=ax, markersize=8, color="0.8", alpha=0.4, label="Study (all)")
 
-    # Candidatos dentro del anillo (resaltados)
+    # Dentro del anillo (gris más oscuro)
     if gdf_work_in is not None and len(gdf_work_in) > 0:
-        gdf_work_in.plot(ax=ax, markersize=18, alpha=0.8, label="Work in ring")
+        gdf_work_in.plot(ax=ax, markersize=20, color="0.4", label="Work in ring")
     if gdf_study_in is not None and len(gdf_study_in) > 0:
-        gdf_study_in.plot(ax=ax, markersize=18, alpha=0.8, label="Study in ring")
+        gdf_study_in.plot(ax=ax, markersize=20, color="0.4", label="Study in ring")
 
-    # Home
-    gdf_home.plot(ax=ax, markersize=50, marker="s", label="Home")
+    # Home (cuadrado negro)
+    gdf_home.plot(ax=ax, markersize=60, marker="s", color="black", label="Home")
 
-    # Elegido
+    # Elegido (estrella negra grande)
     if chosen_id is not None:
         for gdf_cand in (gdf_work, gdf_study):
             if gdf_cand is not None and not gdf_cand.empty:
                 hit = gdf_cand[gdf_cand['osm_id'] == chosen_id]
                 if not hit.empty:
-                    hit.plot(ax=ax, markersize=120, marker="*", label="Chosen WoS")
+                    hit.plot(ax=ax, markersize=150, marker="*", color="black", label="Chosen WoS")
                     break
 
     ax.set_aspect("equal", adjustable="datalim")
     ax.set_xlabel("lon")
     ax.set_ylabel("lat")
-    ax.legend(loc="best")
     if title:
         ax.set_title(title)
+    ax.legend(loc="best")
+
     if created_ax and show:
         plt.show()
+
 
 def Utilities_assignment(
     df_citizens: pd.DataFrame,
