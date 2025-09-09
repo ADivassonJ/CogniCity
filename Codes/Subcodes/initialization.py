@@ -1,53 +1,41 @@
 # === Estándar de Python =======================================================
 from __future__ import annotations
-from typing import Callable, Optional, Tuple, List, Dict
-import numpy as np
-import pandas as pd
 
-import numpy as np
-import pandas as pd
-from typing import Tuple, Dict, Optional, List, Set
-
-
-import os
-import sys
-import math
-import shutil
-import random
 import itertools
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-
-
-import numpy as np
-import pandas as pd
+import math
+import os
 import random
-from typing import Dict, Tuple, Optional
+import shutil
+import sys
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
-# === Terceros (pip) ===========================================================
+# === Terceros (instalados vía pip) ============================================
+
 # OSM y redes
 import osmnx as ox
 ox.settings.timeout = 500  # evita timeouts al bajar datos de OSM
 
 # Numérico / datos / visualización
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+from scipy.spatial import Voronoi, cKDTree
 
 # Geoespacial
 import geopandas as gpd
 import pyproj
-from shapely.geometry import Point, Polygon, MultiPolygon
-from shapely.ops import unary_union, transform, clip_by_rect, voronoi_diagram
-from scipy.spatial import Voronoi, cKDTree
-# Due to py 3.7. some things are 'rusty'
-import warnings
 from shapely.errors import ShapelyDeprecationWarning
-warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
+from shapely.geometry import MultiPolygon, Point, Polygon
+from shapely.ops import clip_by_rect, transform, unary_union, voronoi_diagram
 
 # Distancias geodésicas
-from haversine import haversine, Unit
+from haversine import Unit, haversine
+
+# === Configuración de warnings ================================================
+warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
 
 
 def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, proj_epsg=3857):
@@ -197,15 +185,33 @@ def assign_buildings_to_nodes(building_populations: pd.DataFrame,
     return pd.DataFrame(buildings_with_node.drop(columns='geometry'))
 
 
-def assign_data(list_variables, list_values, df_pop, idx):
+def assign_data(list_variables, list_values, row):
+    """
+    Asigna valores de list_values a una fila (Series o dict) según reglas:
+      - *_type y *_amount → enteros redondeados
+      - *_time → redondeado a múltiplos de 30
+      - resto → tal cual
+    """
     for variable in list_variables:
-        value = list_values[variable]
-        if variable.endswith('_type') or variable.endswith('_amount'):
-            value = int(round(value))
+        val = list_values.get(variable, None)
+
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            continue  # no asignamos nada si falta valor
+
+        if variable.endswith(('_type', '_amount')):
+            try:
+                val = int(round(val))
+            except Exception:
+                pass  # por si val no es numérico
         elif variable.endswith('_time'):
-            value = int(round(value / 30.0) * 30)
-        df_pop.at[idx, variable] = value
-    return df_pop
+            try:
+                val = int(round(val / 30.0) * 30)
+            except Exception:
+                pass
+
+        row[variable] = val
+
+    return row
 
 
 def buffer_value(electric_system):
@@ -231,29 +237,60 @@ def buffer_value(electric_system):
     return int(max_distance)
 
 
-def building_schedule_adding(osm_elements_df, building_archetypes_df):
-    '''
-    Esta funcion esta para sumar las caracteristicas a la poblacion de los building
-    '''
-    list_building_variables = [col.rsplit('_', 1)[0] for col in building_archetypes_df.columns if col.endswith('_mu')]
-    
-    for idx, row_oedf in osm_elements_df.iterrows():
-        list_building_values = get_vehicle_stats(row_oedf['archetype'], building_archetypes_df, list_building_variables)
-        
-        if list_building_values == {}:
-            input(f"row_oedf['archetype']: {row_oedf['archetype']}")
-            continue
-        
-        list_building_values['Service_opening'] = list_building_values['WoS_opening'] + list_building_values['Service_opening']
-        list_building_values['Service_closing'] = list_building_values['WoS_closing'] + list_building_values['Service_closing']
-        
-        for key, value in list_building_values.items():
-            if not math.isinf(value):
-                list_building_values[key] = int(round(value / 30.0) * 30)
-        
-        osm_elements_df = assign_data(list_building_variables, list_building_values, osm_elements_df, idx)
+def building_schedule_adding(osm_elements_df: pd.DataFrame,
+                             building_archetypes_df: pd.DataFrame,
+                             round_to: int = 30,
+                             clamp_minutes: tuple[int,int] = (0, 24*60)):
+    """
+    Añade variables de 'building_archetypes_df' a cada building de 'osm_elements_df',
+    redondeando tiempos a múltiplos de `round_to` minutos.
+    """
+    # columnas *_mu presentes en la hoja de arquetipos
+    list_building_variables = [
+        col.rsplit('_', 1)[0]
+        for col in building_archetypes_df.columns
+        if col.endswith('_mu')
+    ]
 
-    return osm_elements_df
+    final_results = []
+
+    for idx, row_oedf in osm_elements_df.iterrows():
+        arche = row_oedf.get('archetype', None)
+        if pd.isna(arche):
+            # sin arquetipo → saltamos
+            continue
+
+        # Debe devolver un dict con las variables pedidas
+        list_building_values = get_vehicle_stats(arche, building_archetypes_df, list_building_variables)
+
+        if not list_building_values:
+            # sin stats para ese arquetipo → loguea y sigue
+            # print(f"[WARN] Archetype sin stats: {arche}")
+            continue
+
+        # Combinar ventanas: usa .get() para evitar KeyError
+        # OJO: valida que realmente quieres sumarlas y no otra operación
+        wo_open  = list_building_values.get('WoS_opening', 0) or 0
+        sv_open  = list_building_values.get('Service_opening', 0) or 0
+        wo_close = list_building_values.get('WoS_closing', 0) or 0
+        sv_close = list_building_values.get('Service_closing', 0) or 0
+
+        list_building_values['Service_opening'] = wo_open + sv_open
+        list_building_values['Service_closing'] = wo_close + sv_close
+
+        # Redondeo a múltiplos de `round_to` sólo para numéricos finitos
+        for k, v in list(list_building_values.items()):
+            if isinstance(v, (int, float)) and np.isfinite(v):
+                rounded = int(round(v / float(round_to)) * round_to)
+                # clamp opcional a [0, 1440]
+                rounded = max(clamp_minutes[0], min(clamp_minutes[1], rounded))
+                list_building_values[k] = rounded
+
+        # Mezcla de vuelta en la fila (asumo que assign_data devuelve un dict/Serie listo para DataFrame)
+        out_row = assign_data(list_building_variables, list_building_values, row_oedf)
+        final_results.append(out_row)
+
+    return pd.DataFrame(final_results).reset_index(drop=True)
 
 
 def building_type(row, poss_ref):
@@ -1100,102 +1137,178 @@ def Synthetic_population_initialization(agent_populations, pop_archetypes, popul
             
     return agent_populations
 
-def Utilities_assignment(df_citizens, df_families, pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans):
-    # Extract variable names (remove "_mu" suffix) from transport archetypes
-    variables = [col.rsplit('_', 1)[0] for col in pop_archetypes['transport'].columns if col.endswith('_mu')]
-    
-    # DataFrame to store private vehicles
+
+def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
+    poi = gpd.GeoSeries([Point(lon, lat)], crs=crs)
+    poi_m = poi.to_crs(epsg=3857)
+    outer = poi_m.buffer(x + y).iloc[0]
+    inner = poi_m.buffer(max(x - y, 0)).iloc[0]
+    ring = outer.difference(inner)
+    ring_wgs84 = gpd.GeoSeries([ring], crs="EPSG:3857").to_crs(crs)
+    return ring_wgs84.iloc[0]  # <- devuelve shapely.geometry.Polygon
+
+def Utilities_assignment(
+    df_citizens: pd.DataFrame,
+    df_families: pd.DataFrame,
+    pop_archetypes: dict,
+    paths,
+    SG_relationship: pd.DataFrame,
+    stats_synpop: pd.DataFrame,
+    stats_trans: pd.DataFrame,
+    ring_rx_km: float = 17.0,         # radio inicial eje X (km)
+    ring_ry_km: float = 0.5,         # radio inicial eje Y (km)
+    ring_crs: str = "EPSG:4326",
+    expand_factor: float = 2.0,
+    max_iters: int = 4):
+    # --- helpers ---
+    def pick_building_type(osm_id):
+        bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'building_type']
+        return bt.iat[0] if not bt.empty else np.nan
+
+    def choose_id_in_ring(cand_df, ring_poly):
+        
+        
+        
+        if cand_df is None or len(cand_df) == 0:
+            return None
+
+        df = cand_df[['osm_id', 'lat', 'lon']].copy()
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=gpd.points_from_xy(df['lon'], df['lat']),
+            crs="EPSG:4326"
+        )
+
+        # sindex + predicate="within" (requiere rtree o pygeos instalado)
+        try:
+            idx_list = list(gdf.sindex.query(ring_poly, predicate="within"))
+        except Exception:
+            # Fallback si no hay sindex: usa within (más lento)
+            mask = gdf.geometry.within(ring_poly)
+            subset = gdf.loc[mask.values]
+            return None if len(subset) == 0 else subset['osm_id'].sample(1).iat[0]
+
+        if not idx_list:
+            return None
+
+        subset = gdf.iloc[idx_list]
+        return subset['osm_id'].sample(1).iat[0]
+
+
+    # --- 1) Variables de arquetipo de transporte (una vez) ---
+    variables = [c.rsplit('_', 1)[0] for c in pop_archetypes['transport'].columns if c.endswith('_mu')]
+
+    # --- 2) Vehículos privados por familia ---
     df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family', 'ubication'] + variables)
 
-    # Get all building IDs where archetype is "Home"
-    Home_ids = SG_relationship[SG_relationship['archetype'] == 'Home']['osm_id'].tolist()
+    Home_ids = SG_relationship.loc[SG_relationship['archetype'] == 'Home', 'osm_id'].tolist()
+    if not Home_ids:
+        raise ValueError("No hay edificios Home en SG_relationship.")
 
-    # Shuffle the list of Home IDs to assign randomly
     shuffled_Home_ids = random.sample(Home_ids, len(Home_ids))
-    counter = 0  # pointer to move along the shuffled list
+    counter = 0
 
-    # Assign one Home (osm_id) to each family
     for idx_df_f, row_df_f in df_families.iterrows():
-        # If we run out of shuffled IDs, reshuffle and restart
         if counter >= len(shuffled_Home_ids):
             shuffled_Home_ids = random.sample(Home_ids, len(Home_ids))
             counter = 0
 
         Home_id = shuffled_Home_ids[counter]
         counter += 1
-        
-        # Save the assigned home ID and its building type
-        df_families.at[idx_df_f, 'Home'] = Home_id
-        df_families.at[idx_df_f, 'Home_type'] = SG_relationship.loc[
-            SG_relationship['osm_id'] == Home_id, 'building_type'
-        ].values[0]
 
-        # Filter transport statistics related to this family's archetype
+        df_families.at[idx_df_f, 'Home'] = Home_id
+        df_families.at[idx_df_f, 'Home_type'] = pick_building_type(Home_id)
+
+        # vehículos según stats_trans para este arquetipo de familia
         filtered_st_trans = stats_trans[stats_trans['item_1'] == row_df_f['archetype']]
-        
-        # For each possible vehicle archetype in this family
         for _, row_fs in filtered_st_trans.iterrows():
-            stats_value = computate_stats(row_fs)  # number of vehicles to generate
-            for new_vehicle in range(stats_value):
-                # Get variables for this vehicle archetype (probabilities, etc.)
+            stats_value = computate_stats(row_fs)  # asumimos que existe
+            for _ in range(int(stats_value)):
                 stats_variables = get_vehicle_stats(row_fs['item_2'], pop_archetypes['transport'], variables)
-                
-                # Build new vehicle row
                 new_vehicle_row = {
                     'name': f'priv_vehicle_{len(df_priv_vehicle)}',
                     'archetype': row_fs['item_2'],
                     'family': row_df_f['name'],
-                    # NOTE: simplification → vehicle located at family home, should be parking spot ideally
-                    'ubication': Home_id
+                    'ubication': Home_id,  # Idealmente plaza de aparcamiento
+                    **stats_variables
                 }
-                new_vehicle_row.update(stats_variables)
-                df_priv_vehicle.loc[len(df_priv_vehicle)] = new_vehicle_row        
-    
-    # Assign each citizen to its family and family archetype
-    df_citizens['family'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'name'))
-    df_citizens['family_archetype'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'archetype'))
-    
-    # Assign each citizen their family Home
-    df_citizens['Home'] = df_citizens['name'].apply(lambda name: find_group(name, df_families, 'Home'))
-    
-    # Get all possible IDs for Work and Study locations
-    work_ids = SG_relationship[SG_relationship['archetype'] == 'work']['osm_id'].tolist()  
-    study_ids = SG_relationship[SG_relationship['archetype'] == 'study']['osm_id'].tolist()  
-    
-    # Assign Work/Study locations to citizens
-    for idx in range(len(df_citizens)):
-        # Get variables to assign to this citizen based on its archetype
-        list_citizen_variables = [col.rsplit('_', 1)[0] for col in pop_archetypes['citizen'].columns if col.endswith('_mu')]
-        list_citizen_values = get_vehicle_stats(df_citizens['archetype'][idx], pop_archetypes['citizen'], list_citizen_variables)
-        
-        # Write these variables into df_citizens
-        df_citizens = assign_data(list_citizen_variables, list_citizen_values, df_citizens, idx)
+                df_priv_vehicle.loc[len(df_priv_vehicle)] = new_vehicle_row
 
-        # Assign a Work/Study location:
-        if df_citizens['WoS_fixed'][idx] != 1:  
-            # If not fixed, assign a random Work location
-            WoS_id = random.choice(work_ids) <---------------- Modificar para lo de las distancias
-        else:
-            # If fixed, check if there is already someone in the family with a Work/Study assignment
-            students_data = df_citizens[
-                (df_citizens['family'] == df_citizens['family'][idx]) &
-                (df_citizens['WoS_fixed'] == 1) &
-                (df_citizens['WoS'].notna())
-            ]
-            if students_data.empty:
-                # If none exist, assign a random Study location
-                WoS_id = random.choice(study_ids)  <---------------- Modificar para lo de las distancias
+    # --- 3) Atributos de familia y Home por ciudadano ---
+    df_citizens['family'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'name'))
+    df_citizens['family_archetype'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'archetype'))
+    df_citizens['Home'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'Home'))
+
+    # --- 4) Work/Study pools (usar LISTAS de columnas, no sets) ---
+    work_df = SG_relationship.loc[SG_relationship['archetype'] == 'work', ['osm_id', 'lat', 'lon']].copy()
+    study_df = SG_relationship.loc[SG_relationship['archetype'] == 'study', ['osm_id', 'lat', 'lon']].copy()
+
+    # --- 5) Variables de arquetipo de ciudadano (una vez) ---
+    citizen_vars = [c.rsplit('_', 1)[0] for c in pop_archetypes['citizen'].columns if c.endswith('_mu')]
+
+    # --- 6) Asignación por ciudadano ---
+    for idx, row in df_citizens.iterrows():
+        # 6.1) escribir variables de arquetipo de ciudadano
+        arche = row['archetype']
+        citizen_vals = get_vehicle_stats(arche, pop_archetypes['citizen'], citizen_vars)
+        row_updated = assign_data(citizen_vars, citizen_vals, row.copy())
+        df_citizens.loc[idx, row_updated.index] = row_updated
+
+        # 6.2) home georef
+        home_id = df_citizens.at[idx, 'Home']
+        home_row = SG_relationship.loc[SG_relationship['osm_id'] == home_id, ['osm_id', 'lat', 'lon']]
+        if home_row.empty or home_row[['lat', 'lon']].isna().any(axis=None):
+            continue
+        home_lat = float(home_row.iloc[0]['lat'])
+        home_lon = float(home_row.iloc[0]['lon'])
+
+        # 6.3) anillo con expansión
+        
+        arch_citizen = pop_archetypes['citizen']
+        data_filtered = arch_citizen[arch_citizen['name'] == row_updated['archetype']][{'dist_wos_mu', 'dist_wos_sigma'}].iloc[0]
+        
+        rx, ry = data_filtered['dist_wos_mu'], data_filtered['dist_wos_sigma']
+        
+        WoS_id = None
+        for _ in range(max_iters):
+            ring = ring_from_poi(home_lat, home_lon, rx, ry, crs=ring_crs)
+            if df_citizens.at[idx, 'WoS_fixed'] != 1:
+                WoS_id = choose_id_in_ring(work_df, ring) or WoS_id
             else:
-                # Otherwise, reuse the existing family member's Work/Study location
-                WoS_id = students_data['WoS'].iloc[0]
-                
-        # Save Work/Study ID and subgroup (building type)
+                fam = df_citizens.at[idx, 'family']
+                fam_fixed = df_citizens[
+                    (df_citizens['family'] == fam) &
+                    (df_citizens['WoS_fixed'] == 1) &
+                    (df_citizens['WoS'].notna())
+                ]
+                if fam_fixed.empty:
+                    WoS_id = choose_id_in_ring(study_df, ring) or WoS_id
+                else:
+                    WoS_id = fam_fixed['WoS'].iloc[0]
+
+            if WoS_id is not None:
+                break
+            rx *= expand_factor
+            ry *= expand_factor
+
+        # Si no se encontró dentro de anillos, hacer fallback aleatorio
+        if WoS_id is None:
+            if df_citizens.at[idx, 'WoS_fixed'] != 1:
+                WoS_id = work_df['osm_id'].sample(1).iat[0] if not work_df.empty else None
+            else:
+                if not study_df.empty:
+                    WoS_id = study_df['osm_id'].sample(1).iat[0]
+                elif not work_df.empty:
+                    WoS_id = work_df['osm_id'].sample(1).iat[0]
+
+        if WoS_id is None:
+            continue  # no hay candidatos
+
         df_citizens.at[idx, 'WoS'] = WoS_id
-        df_citizens.at[idx, 'WoS_subgroup'] = SG_relationship.loc[
-            SG_relationship['osm_id'] == WoS_id, 'building_type'
-        ].values[0]  
-    
+        df_citizens.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
+
     return df_families, df_citizens, df_priv_vehicle
+
 
 def voronoi_from_nodes(electric_system: pd.DataFrame, boundary_polygon: Polygon):
     """
