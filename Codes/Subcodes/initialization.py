@@ -1147,6 +1147,112 @@ def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
     ring_wgs84 = gpd.GeoSeries([ring], crs="EPSG:3857").to_crs(crs)
     return ring_wgs84.iloc[0]  # <- devuelve shapely.geometry.Polygon
 
+# --- DEBUG PLOT: home, ring, candidatos y elegido --------------------------------
+import geopandas as gpd
+import matplotlib.pyplot as plt
+from shapely.geometry import Point
+
+def _as_geometry_and_crs(geom_like):
+    """Devuelve (geom_shapely, crs or None) desde geometry / GeoSeries / GeoDataFrame."""
+    if geom_like is None:
+        return None, None
+    if isinstance(geom_like, gpd.GeoDataFrame):
+        return geom_like.geometry.unary_union, getattr(geom_like, "crs", None)
+    if isinstance(geom_like, gpd.GeoSeries):
+        return geom_like.unary_union, getattr(geom_like, "crs", None)
+    # shapely geometry
+    return geom_like, None
+
+def plot_wos_debug(
+    home_lat, home_lon,
+    ring_poly,
+    work_df=None, study_df=None,
+    chosen_id=None,
+    ring_crs="EPSG:4326",
+    title=None,
+    show=True,
+    ax=None
+):
+    """
+    Visualiza home, anillo, candidatos (work/study) dentro del anillo y el elegido.
+    - home_lat/home_lon en WGS84 (EPSG:4326).
+    - ring_poly puede ser shapely, GeoSeries o GeoDataFrame.
+    - work_df/study_df: DataFrames con columnas ['osm_id','lat','lon'] en WGS84.
+    - chosen_id: osm_id elegido (se marca con estrella).
+    """
+    # Preparar anillo (shapely) y alinear CRS con WGS84
+    ring_geom, ring_geom_crs = _as_geometry_and_crs(ring_poly)
+    if ring_geom is None:
+        return
+
+    # GeoSeries temporal para reproyectar si hace falta
+    if ring_geom_crs is not None and ring_geom_crs != "EPSG:4326":
+        ring_geom = gpd.GeoSeries([ring_geom], crs=ring_geom_crs).to_crs("EPSG:4326").iloc[0]
+
+    # Home como GeoDataFrame
+    gdf_home = gpd.GeoDataFrame(
+        {"name": ["home"]},
+        geometry=[Point(home_lon, home_lat)],
+        crs="EPSG:4326"
+    )
+
+    # Candidatos (completos y los que caen en el anillo)
+    def _prep_candidates(df):
+        if df is None or len(df) == 0:
+            return None, None
+        gdf = gpd.GeoDataFrame(
+            df[['osm_id','lat','lon']].copy(),
+            geometry=gpd.points_from_xy(df['lon'], df['lat']),
+            crs="EPSG:4326"
+        )
+        mask = gdf.geometry.within(ring_geom)  # usa .intersects si quieres incluir el borde
+        return gdf, gdf.loc[mask.values]
+
+    gdf_work, gdf_work_in = _prep_candidates(work_df)
+    gdf_study, gdf_study_in = _prep_candidates(study_df)
+
+    # Crear figura/ejes
+    created_ax = False
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 6))
+        created_ax = True
+
+    # Dibujar anillo
+    gpd.GeoSeries([ring_geom], crs="EPSG:4326").boundary.plot(ax=ax, linewidth=2, alpha=0.8, label="Ring")
+
+    # Todos los candidatos (suaves)
+    if gdf_work is not None and len(gdf_work) > 0:
+        gdf_work.plot(ax=ax, markersize=8, alpha=0.15, label="Work (all)")
+    if gdf_study is not None and len(gdf_study) > 0:
+        gdf_study.plot(ax=ax, markersize=8, alpha=0.15, label="Study (all)")
+
+    # Candidatos dentro del anillo (resaltados)
+    if gdf_work_in is not None and len(gdf_work_in) > 0:
+        gdf_work_in.plot(ax=ax, markersize=18, alpha=0.8, label="Work in ring")
+    if gdf_study_in is not None and len(gdf_study_in) > 0:
+        gdf_study_in.plot(ax=ax, markersize=18, alpha=0.8, label="Study in ring")
+
+    # Home
+    gdf_home.plot(ax=ax, markersize=50, marker="s", label="Home")
+
+    # Elegido
+    if chosen_id is not None:
+        for gdf_cand in (gdf_work, gdf_study):
+            if gdf_cand is not None and not gdf_cand.empty:
+                hit = gdf_cand[gdf_cand['osm_id'] == chosen_id]
+                if not hit.empty:
+                    hit.plot(ax=ax, markersize=120, marker="*", label="Chosen WoS")
+                    break
+
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.set_xlabel("lon")
+    ax.set_ylabel("lat")
+    ax.legend(loc="best")
+    if title:
+        ax.set_title(title)
+    if created_ax and show:
+        plt.show()
+
 def Utilities_assignment(
     df_citizens: pd.DataFrame,
     df_families: pd.DataFrame,
@@ -1165,13 +1271,17 @@ def Utilities_assignment(
         bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'building_type']
         return bt.iat[0] if not bt.empty else np.nan
 
-    def choose_id_in_ring(cand_df, ring_poly):
-        
-        
-        
+    def choose_id_in_ring(cand_df, ring_poly, include_border=True):
+        """
+        Devuelve un osm_id aleatorio de cand_df dentro del anillo/polígono.
+        - cand_df: DataFrame con ['osm_id','lat','lon'] en EPSG:4326
+        - ring_poly: shapely geometry, GeoSeries o GeoDataFrame
+        - include_border: True -> cuenta puntos en el borde (intersects), False -> strictly within
+        """
         if cand_df is None or len(cand_df) == 0:
             return None
 
+        # 1) Candidatos como GeoDataFrame (WGS84)
         df = cand_df[['osm_id', 'lat', 'lon']].copy()
         gdf = gpd.GeoDataFrame(
             df,
@@ -1179,19 +1289,42 @@ def Utilities_assignment(
             crs="EPSG:4326"
         )
 
-        # sindex + predicate="within" (requiere rtree o pygeos instalado)
-        try:
-            idx_list = list(gdf.sindex.query(ring_poly, predicate="within"))
-        except Exception:
-            # Fallback si no hay sindex: usa within (más lento)
-            mask = gdf.geometry.within(ring_poly)
-            subset = gdf.loc[mask.values]
-            return None if len(subset) == 0 else subset['osm_id'].sample(1).iat[0]
+        # 2) Extraer geometría del anillo y su CRS
+        if isinstance(ring_poly, gpd.GeoDataFrame):
+            ring_geom = ring_poly.geometry.unary_union
+            ring_crs = ring_poly.crs
+        elif isinstance(ring_poly, gpd.GeoSeries):
+            ring_geom = ring_poly.unary_union
+            ring_crs = ring_poly.crs
+        else:
+            ring_geom = ring_poly
+            ring_crs = None
 
-        if not idx_list:
+        if ring_geom is None:
             return None
 
-        subset = gdf.iloc[idx_list]
+        # 3) Alinear CRS si hace falta
+        if ring_crs is not None and gdf.crs is not None and ring_crs != gdf.crs:
+            ring_geom = gpd.GeoSeries([ring_geom], crs=ring_crs).to_crs(gdf.crs).iloc[0]
+
+        # 4) Dos fases: sindex (intersects) -> filtro exacto (within/intersects)
+        try:
+            # usar intersects para prefiltrar SIEMPRE (más estable)
+            idx_hits = list(gdf.sindex.query(ring_geom, predicate="intersects"))
+            cand = gdf.iloc[idx_hits] if idx_hits else gdf  # si sindex vacío, cae al refinado global
+        except Exception:
+            cand = gdf  # sin sindex, refinado global
+
+        # 5) Predicado exacto
+        if include_border:
+            mask = cand.geometry.intersects(ring_geom)  # cuenta borde
+        else:
+            mask = cand.geometry.within(ring_geom)      # estrictamente dentro
+
+        subset = cand.loc[mask.values]
+        if subset.empty:
+            return None
+
         return subset['osm_id'].sample(1).iat[0]
 
 
@@ -1230,8 +1363,7 @@ def Utilities_assignment(
                     'archetype': row_fs['item_2'],
                     'family': row_df_f['name'],
                     'ubication': Home_id,  # Idealmente plaza de aparcamiento
-                    **stats_variables
-                }
+                    **stats_variables}
                 df_priv_vehicle.loc[len(df_priv_vehicle)] = new_vehicle_row
 
     # --- 3) Atributos de familia y Home por ciudadano ---
@@ -1264,30 +1396,54 @@ def Utilities_assignment(
 
         # 6.3) anillo con expansión
         
+        DEBUG_PLOTS = True
+        
         arch_citizen = pop_archetypes['citizen']
-        data_filtered = arch_citizen[arch_citizen['name'] == row_updated['archetype']][{'dist_wos_mu', 'dist_wos_sigma'}].iloc[0]
-        
-        rx, ry = data_filtered['dist_wos_mu'], data_filtered['dist_wos_sigma']
-        
+        data_filtered = arch_citizen.loc[
+            arch_citizen['name'] == row_updated['archetype'],
+            ['dist_wos_mu', 'dist_wos_sigma']
+        ].iloc[0]
+
+        rx, ry = float(data_filtered['dist_wos_mu']), float(data_filtered['dist_wos_sigma'])
         WoS_id = None
-        for _ in range(max_iters):
+
+        # Si el ciudadano es "fijo" y ya hay WoS en la familia, reutiliza y evita anillos
+        if df_citizens.at[idx, 'WoS_fixed'] == 1:
+            fam = df_citizens.at[idx, 'family']
+            fam_fixed = df_citizens[
+                (df_citizens['family'] == fam) &
+                (df_citizens['WoS_fixed'] == 1) &
+                (df_citizens['WoS'].notna())
+            ]
+            if not fam_fixed.empty:
+                WoS_id = fam_fixed['WoS'].iloc[0]
+
+        for it in range(max_iters):
+            if WoS_id is not None:
+                break  # ya resuelto por reutilización
+
             ring = ring_from_poi(home_lat, home_lon, rx, ry, crs=ring_crs)
+
+            if DEBUG_PLOTS:
+                plot_wos_debug(
+                    home_lat, home_lon,
+                    ring_poly=ring,
+                    work_df=work_df if df_citizens.at[idx, 'WoS_fixed'] != 1 else None,
+                    study_df=study_df if df_citizens.at[idx, 'WoS_fixed'] == 1 else None,
+                    chosen_id=None,
+                    ring_crs=ring_crs,
+                    title=f"Citizen {idx} (dist_mu={rx:.2f}, dist_sigma={ry:.2f})"
+                )
+
             if df_citizens.at[idx, 'WoS_fixed'] != 1:
-                WoS_id = choose_id_in_ring(work_df, ring) or WoS_id
+                # elige uno aleatorio entre los work dentro del anillo
+                WoS_id = choose_id_in_ring(work_df, ring)
             else:
-                fam = df_citizens.at[idx, 'family']
-                fam_fixed = df_citizens[
-                    (df_citizens['family'] == fam) &
-                    (df_citizens['WoS_fixed'] == 1) &
-                    (df_citizens['WoS'].notna())
-                ]
-                if fam_fixed.empty:
-                    WoS_id = choose_id_in_ring(study_df, ring) or WoS_id
-                else:
-                    WoS_id = fam_fixed['WoS'].iloc[0]
+                # si no había reutilización, busca entre study dentro del anillo
+                WoS_id = choose_id_in_ring(study_df, ring)
 
             if WoS_id is not None:
-                break
+                break  # encontrado → salir
             rx *= expand_factor
             ry *= expand_factor
 
