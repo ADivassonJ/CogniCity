@@ -14,6 +14,12 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 # === Terceros (instalados vía pip) ============================================
 
+
+# --- DEBUG PLOT: home, ring, candidatos y elegido --------------------------------
+import geopandas as gpd
+import matplotlib.pyplot as plt
+from shapely.geometry import Point
+
 # OSM y redes
 import osmnx as ox
 ox.settings.timeout = 500  # evita timeouts al bajar datos de OSM
@@ -1147,10 +1153,6 @@ def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
     ring_wgs84 = gpd.GeoSeries([ring], crs="EPSG:3857").to_crs(crs)
     return ring_wgs84.iloc[0]  # <- devuelve shapely.geometry.Polygon
 
-# --- DEBUG PLOT: home, ring, candidatos y elegido --------------------------------
-import geopandas as gpd
-import matplotlib.pyplot as plt
-from shapely.geometry import Point
 
 def _as_geometry_and_crs(geom_like):
     """Devuelve (geom_shapely, crs or None) desde geometry / GeoSeries / GeoDataFrame."""
@@ -1258,8 +1260,6 @@ def Utilities_assignment(
     SG_relationship: pd.DataFrame,
     stats_synpop: pd.DataFrame,
     stats_trans: pd.DataFrame,
-    ring_rx_km: float = 17.0,         # radio inicial eje X (km)
-    ring_ry_km: float = 0.5,         # radio inicial eje Y (km)
     ring_crs: str = "EPSG:4326",
     expand_factor: float = 2.0,
     max_iters: int = 4):
@@ -1323,7 +1323,6 @@ def Utilities_assignment(
             return None
 
         return subset['osm_id'].sample(1).iat[0]
-
 
     # --- 1) Variables de arquetipo de transporte (una vez) ---
     variables = [c.rsplit('_', 1)[0] for c in pop_archetypes['transport'].columns if c.endswith('_mu')]
@@ -1393,16 +1392,16 @@ def Utilities_assignment(
 
         # 6.3) anillo con expansión
         
-        DEBUG_PLOTS = True
+        DEBUG_PLOTS = False # <----- Modificar esto para que podamos plotear los donuts
         
         arch_citizen = pop_archetypes['citizen']
-        data_filtered = arch_citizen.loc[
-            arch_citizen['name'] == row_updated['archetype'],
-            ['dist_wos_mu', 'dist_wos_sigma']
-        ].iloc[0]
+        data_filtered = arch_citizen[arch_citizen['name'] == row_updated['archetype']].iloc[0]
 
         rx, ry = float(data_filtered['dist_wos_mu']), float(data_filtered['dist_wos_sigma'])
         WoS_id = None
+        
+        # Asifgnamos los valores de poi_mu y poi_sigma
+        df_citizens['dist_poi_mu'], df_citizens['dist_poi_sigma'] = float(data_filtered['dist_poi_mu']), float(data_filtered['dist_poi_sigma'])
 
         # Si el ciudadano es "fijo" y ya hay WoS en la familia, reutiliza y evita anillos
         if df_citizens.at[idx, 'WoS_fixed'] == 1:

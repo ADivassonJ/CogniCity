@@ -1,5 +1,6 @@
 import os
 import sys
+import geopandas as gpd
 import random
 import osmnx as ox
 import numpy as np
@@ -7,6 +8,7 @@ import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
+from shapely.geometry import Point
 
 def update_warnings(message, path):
     """
@@ -23,6 +25,71 @@ def update_warnings(message, path):
     with open(warnings_file, 'a', encoding='utf-8') as f:
         f.write(message + '\n')
 
+def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
+    poi = gpd.GeoSeries([Point(lon, lat)], crs=crs)
+    poi_m = poi.to_crs(epsg=3857)
+    outer = poi_m.buffer(x + y).iloc[0]
+    inner = poi_m.buffer(max(x - y, 0)).iloc[0]
+    ring = outer.difference(inner)
+    ring_wgs84 = gpd.GeoSeries([ring], crs="EPSG:3857").to_crs(crs)
+    return ring_wgs84.iloc[0]  # <- devuelve shapely.geometry.Polygon
+
+def choose_id_in_ring(cand_df, ring_poly, include_border=True):
+        """
+        Devuelve un osm_id aleatorio de cand_df dentro del anillo/polígono.
+        - cand_df: DataFrame con ['osm_id','lat','lon'] en EPSG:4326
+        - ring_poly: shapely geometry, GeoSeries o GeoDataFrame
+        - include_border: True -> cuenta puntos en el borde (intersects), False -> strictly within
+        """
+        
+        if cand_df is None or len(cand_df) == 0:
+            return None
+        
+        # 1) Candidatos como GeoDataFrame (WGS84)
+        df = cand_df[['osm_id', 'lat', 'lon']].copy()
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=gpd.points_from_xy(df['lon'], df['lat']),
+            crs="EPSG:4326"
+        )
+        # 2) Extraer geometría del anillo y su CRS
+        if isinstance(ring_poly, gpd.GeoDataFrame):
+            ring_geom = ring_poly.geometry.unary_union
+            ring_crs = ring_poly.crs
+        elif isinstance(ring_poly, gpd.GeoSeries):
+            ring_geom = ring_poly.unary_union
+            ring_crs = ring_poly.crs
+        else:
+            ring_geom = ring_poly
+            ring_crs = None
+
+        if ring_geom is None:
+            return None
+
+        # 3) Alinear CRS si hace falta
+        if ring_crs is not None and gdf.crs is not None and ring_crs != gdf.crs:
+            ring_geom = gpd.GeoSeries([ring_geom], crs=ring_crs).to_crs(gdf.crs).iloc[0]
+
+        # 4) Dos fases: sindex (intersects) -> filtro exacto (within/intersects)
+        try:
+            # usar intersects para prefiltrar SIEMPRE (más estable)
+            idx_hits = list(gdf.sindex.query(ring_geom, predicate="intersects"))
+            cand = gdf.iloc[idx_hits] if idx_hits else gdf  # si sindex vacío, cae al refinado global
+        except Exception:
+            cand = gdf  # sin sindex, refinado global
+
+        # 5) Predicado exacto
+        if include_border:
+            mask = cand.geometry.intersects(ring_geom)  # cuenta borde
+        else:
+            mask = cand.geometry.within(ring_geom)      # estrictamente dentro
+
+        subset = cand.loc[mask.values]
+        if subset.empty:
+            return None
+
+        return subset['osm_id'].sample(1).iat[0]
+
 def create_family_level_1_schedule(pop_building, family_df, activities, paths):
     """
       Summary: Crea la version inicial de los schedules de cada familia (level 1), 
@@ -37,6 +104,7 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
     Returns:
         todolist_family (DataFrame): Descripcion de level 1 del daily schedule de los agentes.
     """
+    
     # No puede trabajarse sin ningun tipo de actividades asignadas
     if activities == []:
         activities = ['WoS', 'Dutties', 'Entertainment']
@@ -62,9 +130,11 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                 except Exception:
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
-                    available_options = pop_building[pop_building['archetype'] == activity]['osm_id'].tolist() # ISSUE 33
+                    available_options = pop_building[pop_building['archetype'] == activity][{'osm_id','lat', 'lon'}] # ISSUE 33
+                    last_poi_data = pop_building[pop_building['osm_id'] == rew_row['osm_id']].iloc[0]                    
+                    ring = ring_from_poi(last_poi_data['lat'], last_poi_data['lon'], row_f_df['dist_poi_mu'], row_f_df['dist_poi_sigma'])
                     # Elegimos uno aleatorio del grupo de validos
-                    osm_id = random.choice(available_options)
+                    osm_id = choose_id_in_ring(available_options, ring)       
                 try:
                     # Si el agente tiene una hora de accion especifica fixed True, si no False
                     fixed = True if row_f_df[f'{activity}_fixed'] == 1 else False
@@ -219,7 +289,9 @@ def _build_family_level1(family_tuple, pop_building, activities, paths):
     family_tuple: (family_name, family_df)
     Devuelve: DataFrame con el level_1 de esa familia
     """
+    
     family_name, family_df = family_tuple
+    
     # Llama a tu función existente (debe ser importable a nivel de módulo)
     return create_family_level_1_schedule(pop_building, family_df, activities, paths)
 
@@ -255,7 +327,7 @@ def todolist_family_creation(
     if use_threads:
         from concurrent.futures import ThreadPoolExecutor
         Executor = ThreadPoolExecutor
-
+    
     # Preparamos función parcial con parámetros constantes
     worker = partial(_build_family_level1, pop_building=pop_building,
                      activities=activities, paths=paths)
@@ -270,6 +342,9 @@ def todolist_family_creation(
             fam_name = futures[fut]
             try:
                 df_level1 = fut.result()
+                
+                print(f"df_level1:\n{df_level1}")
+                
                 results.append(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
@@ -955,8 +1030,8 @@ def main_td():
                 os.makedirs(paths[file_2], exist_ok=True)
     
     
-    df_citizens = pd.read_excel(f"{paths['population']}/pop_citizen.xlsx")
-    df_priv_vehicles = pd.read_excel(f"{paths['population']}/pop_transport.xlsx")
+    df_citizens = pd.read_parquet(f"{paths['population']}/pop_citizen.parquet")
+    df_priv_vehicles = pd.read_parquet(f"{paths['population']}/pop_transport.parquet")
 
     citizen_archetypes = load_filter_sort_reset(paths['archetypes'] / 'pop_archetypes_citizen.xlsx')
     family_archetypes = load_filter_sort_reset(paths['archetypes'] / 'pop_archetypes_family.xlsx')
