@@ -336,12 +336,9 @@ def todolist_family_creation(
     results = []
     with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam): fam[0] for fam in families}
-        print('froga_1')
         # Progreso
         for fut in tqdm(as_completed(futures), total=total, desc="Procesando familias (paralelo)"):
             fam_name = futures[fut]
-            
-            print('froga_2')
             try:
                 df_level1 = fut.result()                
                 results.append(df_level1)
