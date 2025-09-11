@@ -308,8 +308,9 @@ def todolist_family_creation(
     """
     Paralelizada por familia. Escribe a Excel una sola vez al final.
     """
+    
     # Inicialización de avisos
-    #warning_init(paths)
+    warning_init(paths)
 
     # Actividades una sola vez (evita recomputarlas por familia)
     activities = [a for a in system_management['activities'].tolist() if pd.notna(a)]
@@ -331,20 +332,18 @@ def todolist_family_creation(
     # Preparamos función parcial con parámetros constantes
     worker = partial(_build_family_level1, pop_building=pop_building,
                      activities=activities, paths=paths)
-
     # Lanzamos en paralelo
     results = []
     with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam): fam[0] for fam in families}
-
+        print('froga_1')
         # Progreso
         for fut in tqdm(as_completed(futures), total=total, desc="Procesando familias (paralelo)"):
             fam_name = futures[fut]
+            
+            print('froga_2')
             try:
-                df_level1 = fut.result()
-                
-                print(f"df_level1:\n{df_level1}")
-                
+                df_level1 = fut.result()                
                 results.append(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
