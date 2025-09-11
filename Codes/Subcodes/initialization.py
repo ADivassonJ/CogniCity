@@ -63,7 +63,7 @@ def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, pro
     building_populations_with_node = assign_buildings_to_nodes(building_populations, electric_system, polygon)
     
     # Guardar resultados
-    building_populations_with_node.to_excel(f"{paths['population']}/pop_building.xlsx", index=False)
+    building_populations_with_node.to_parquet(f"{paths['population']}/pop_building.parquet", index=False)
     
     return building_populations_with_node
 
@@ -623,6 +623,7 @@ def e_sys_loading(paths, study_area):
     except Exception as e:
         try:
             electric_system = pd.read_excel(paths['desktop'] / f'electric_system_{study_area}.xlsx')
+            electric_system.to_parquet(f"{paths['maps']}/electric_system.parquet", index=False)
         except Exception as e:
             print(f"    [WARNING] The file relating to the electrical network for the “{study_area}” case has not been found.\n       Please locate the .xlsx file on your computer desktop with the following name:")
             print(f"            electric_system_{study_area}.xlsx")
@@ -634,7 +635,7 @@ def e_sys_loading(paths, study_area):
                 else:
                     try:
                         electric_system = pd.read_excel(paths['desktop'] / f'electric_system_{study_area}.xlsx')
-                        electric_system.to_excel(f"{paths['maps']}/electric_system.xlsx", index=False)
+                        electric_system.to_parquet(f"{paths['maps']}/electric_system.parquet", index=False)
                     except Exception as e:
                         print(f'        [ERROR] Archivo no encontrado en la ubiccion solicitada.')
                         print(f"        ({paths['desktop'] / f'electric_system_{study_area}.xlsx'})")
@@ -883,7 +884,7 @@ def load_or_download_pois(study_area, paths, building_archetypes_df, special_are
     pop_path = paths['population']
     try:
         print(f'Loading POIs data ...')
-        return pd.read_excel(f'{pop_path}/pop_building.xlsx')
+        return pd.read_parquet(f'{pop_path}/pop_building.parquet')
     except Exception:
         print(f'    [WARNING] Data is missing, it needs to be downloaded.') 
         return download_pois(study_area, paths, building_archetypes_df, special_areas_coords)

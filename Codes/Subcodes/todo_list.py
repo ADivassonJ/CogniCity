@@ -114,7 +114,9 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
     # Inicializamos el df en el que meteremos los schedules
     todolist_family = pd.DataFrame()
     # Pasamos por cada agente que constitulle la familia 
-    for idx_f_df, row_f_df in family_df.iterrows(): 
+    for idx_f_df, row_f_df in family_df.iterrows():
+        # contador
+        trip = 1
         # Vamos actividad por actividad            
         for activity in activities:
             # Miramos si tenemos alguna cantidad de esta tarea a realizar (solo existe si la cantidad es != 1)
@@ -159,67 +161,30 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                 except Exception:
                     # En caso de que el agente NO tenga un tiempo requerido de actividad
                     time2spend = 0
-                # El caso mayoritario de 'todo' para las acciones
-                #todo_type = row_f_df[f'{activity}_type'] if not activity in home_travels else row_f_df['WoS_type']
-                # En caso de la primera acción
-                if activity == activities[0]:
-                    in_time = opening
-                    out_time = (in_time + time2spend) if time2spend != 0 else closing
-                # En caso de la última acción
-                elif activity == activities[-1]:
-                    filtered = todolist_family[todolist_family['agent'] == row_f_df['name']]
-                    in_time = 0
-                    row_out = filtered[filtered['in'] == min(filtered['in'])]
-                    out_time = row_out['in'].iloc[0] - row_out['conmutime'].iloc[0] # Mira al tiempo de entrada de la primera acción y le resta el tiempo de conmutación
-                    #todo_type = 0 # No necesitan que nadie les acompañe, porque empiezan el día ahí
-                # El resto de acciones
-                else:
-                    try:
-                        filtered = todolist_family[todolist_family['agent'] == row_f_df['name']]
-                    except:
-                        filtered = pd.DataFrame()
-                    if not filtered.empty:
-                        in_time = max(filtered['out']) + filtered['conmutime'].iloc[0]
-                    else: # si resulta que hoy no trabajaba
-                        in_time = opening
-                    out_time = (in_time + time2spend) if time2spend != 0 else closing
                 
                 node = pop_building[pop_building['osm_id']==osm_id]['node'].iloc[0]
                 
-                # Creamos la nueva fila en caso de que se pueda realizar la accion
-                if in_time < closing and out_time <= closing:
-                    rew_row ={
-                        'agent': row_f_df['name'],
-                        'archetype': row_f_df['archetype'],
-                        'todo': activity, 
-                        'osm_id': osm_id, 
-                        'node': node,
-                        #'todo_type': todo_type, 
-                        'opening': opening, 
-                        'closing': closing, 
-                        'fixed': fixed, 
-                        'time2spend': time2spend, 
-                        'in': in_time, 
-                        'out': out_time,
-                        'conmutime': int(row_f_df['conmutime']),
-                        'family': row_f_df['family'],
-                        'family_archetype': row_f_df['family_archetype'],
-                        'act_code': f"{row_f_df['name'][0]}{row_f_df['name'].split('_', 1)[1]}{activity[0]}{in_time}"
-                    }
-                    # La añadimos    
-                    todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
-                else:
-                    update_warnings(f"{row_f_df['name']} ({row_f_df['family']}) was not able to fullfill '{activity}' at {in_time}.", paths)
-                #    print(f"They were trying to go at {in_time} until {out_time} but '{osm_id}' it closes at {closing}")
-                    
-    '''## En caso de que la familia cuente con dependientes pero no con helpers, se da por hecho que estos son saciados de algún modo por algún otro agente externo a la familia
-    dependent = todolist_family[todolist_family['todo_type'] != 0]['agent'].unique()
-    helpers = todolist_family[(todolist_family['todo_type'] == 0) & (~todolist_family['agent'].isin(dependent))]['agent'].unique()
-    if (len(helpers) == 0) and (len(dependent) != 0):
-        update_warnings(f"'{family_df['family'].iloc[0]}' has no responsables for its dependants. For LEVEL 2 analisys, we will consider their need somehow fulfilled, but it is an aproximation.", paths)
-        todolist_family['todo_type'] = 0'''
+                rew_row ={
+                    'agent': row_f_df['name'],
+                    'archetype': row_f_df['archetype'],
+                    'todo': activity, 
+                    'osm_id': osm_id, 
+                    'node': node,
+                    'opening': opening, 
+                    'closing': closing, 
+                    'fixed': fixed, 
+                    'time2spend': time2spend, 
+                    'family': row_f_df['family'],
+                    'family_archetype': row_f_df['family_archetype'],
+                    'trip': trip if activity != 'Home_in' else 0
+                }
+                # La añadimos    
+                todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
+                
+                trip += 1
+                
     # Ordenamos la schedule por hora de 'in' 
-    todolist_family = todolist_family.sort_values(by='in', ascending=True).reset_index(drop=True)
+    todolist_family = todolist_family.reset_index(drop=True)
     # Devolvemos el df de salida
     return todolist_family
 
@@ -309,9 +274,6 @@ def todolist_family_creation(
     Paralelizada por familia. Escribe a Excel una sola vez al final.
     """
     
-    # Inicialización de avisos
-    warning_init(paths)
-
     # Actividades una sola vez (evita recomputarlas por familia)
     activities = [a for a in system_management['activities'].tolist() if pd.notna(a)]
 
@@ -1027,18 +989,13 @@ def main_td():
     
     
     df_citizens = pd.read_parquet(f"{paths['population']}/pop_citizen.parquet")
-    df_priv_vehicles = pd.read_parquet(f"{paths['population']}/pop_transport.parquet")
 
-    citizen_archetypes = load_filter_sort_reset(paths['archetypes'] / 'pop_archetypes_citizen.xlsx')
-    family_archetypes = load_filter_sort_reset(paths['archetypes'] / 'pop_archetypes_family.xlsx')
-    transport_archetypes = load_filter_sort_reset(paths['archetypes'] / 'pop_archetypes_transport.xlsx')
-    
     networks = ['drive', 'walk']
     networks_map = {}   
     for net_type in networks:           
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
     
-    pop_building = pd.read_excel(f"{paths['population']}/pop_building.xlsx")
+    pop_building = pd.read_parquet(f"{paths['population']}/pop_building.parquet")
     
     ##############################################################################
     print(f'docs readed')
