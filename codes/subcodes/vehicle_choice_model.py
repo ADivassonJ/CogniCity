@@ -27,8 +27,7 @@ def _process_family(
     pop_citizen,
     pop_archetypes_transport,
     pop_building,
-    networks_map,
-    past_dist_calculations_init  # copia inicial (se ampliará localmente)
+    networks_map
 ):
     f_name, family = family_tuple
 
@@ -42,67 +41,43 @@ def _process_family(
     level1_citizens = level1_schedule.groupby('agent')
     family_members = family['agent'].unique()
 
-    new_family_schedule = pd.DataFrame()
-    vehicles_actions_delta = pd.DataFrame()
-    past_cache_delta = pd.DataFrame()
-    past_cache_local = past_dist_calculations_init.copy()
-
-    # (Opcional) set para evitar duplicados dentro de la propia familia
-    seen_trips = set()
+    all_citizen_schedule = pd.DataFrame()
+    all_vehicle_schedule = pd.DataFrame()
 
     for c_name in family_members:
-        citizen_schedule = level1_citizens.get_group(c_name).sort_values(by='trip', ascending=True).reset_index(drop=True).copy()
+        citizen_todolist = level1_citizens.get_group(c_name).sort_values(by='trip', ascending=True).reset_index(drop=True).copy()
         citizen_data = pop_citizen.loc[pop_citizen['name'] == c_name].iloc[0]
 
         # Ruta del ciudadano
-        citizen_route = route_creation(citizen_schedule)
+        citizen_route = route_creation(citizen_todolist)
         
         # Calcula matriz dist/tiempo y actualiza cache local
-        distime_matrix, past_cache_local = VSM_calculation(
+        distime_matrix = VSM_calculation(
             citizen_route,
             avail_vehicles,
             citizen_data,
             pop_archetypes_transport,
             pop_building,
-            networks_map,
-            past_cache_local
+            networks_map
         )
         
         # Escoge vehículo
         best_transport_distime_matrix = vehicle_chosing(distime_matrix)
 
         # Actualiza schedule de la familia con la elección
-        new_family_schedule = update_citizen_schedule(
-            best_transport_distime_matrix, c_name, family
-        )
-
+        citizen_schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, family)
+        all_citizen_schedule = pd.concat([all_citizen_schedule, citizen_schedule], ignore_index=True)
+        
         # Actualiza acciones de vehículos
-        vehicles_actions_delta = update_vehicles_actions(
-            vehicles_actions_delta, new_family_schedule, best_transport_distime_matrix, avail_vehicles
-        )
-
+        vehicle_schedule = create_vehicles_actions(citizen_schedule, best_transport_distime_matrix, avail_vehicles)
+        all_vehicle_schedule = pd.concat([all_vehicle_schedule, vehicle_schedule], ignore_index=True)
+        
         # “Consume” vehículo si no es compartible
         vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
         if vehicle_name not in ['walk', 'UB_diesel']:
             avail_vehicles = avail_vehicles[avail_vehicles['name'] != vehicle_name]
 
-    # Lo que el worker devuelve:
-    # - schedule actualizado de la familia
-    # - acciones de vehículos de la familia
-    # - SOLO las filas nuevas del cache (delta respecto a la entrada)
-    if past_dist_calculations_init is None or past_dist_calculations_init.empty:
-        past_cache_delta = past_cache_local
-    else:
-        # Merge-anti para obtener solo lo nuevo
-        # Clave para identificar duplicados de cache:
-        key_cols = ['step', 'map']
-        # Normaliza tipos si hace falta
-        a = past_dist_calculations_init[key_cols].astype(str)
-        b = past_cache_local[key_cols].astype(str)
-        mask = ~b.apply(tuple, axis=1).isin(a.apply(tuple, axis=1))
-        past_cache_delta = past_cache_local.loc[mask].copy()
-
-    return new_family_schedule, vehicles_actions_delta, past_cache_delta
+    return all_citizen_schedule, all_vehicle_schedule
 
 
 def vehicle_choice_model(
@@ -133,8 +108,8 @@ def vehicle_choice_model(
     if transport_families is not None:
         for fam_name, fam_df in transport_families:
             transport_families_dict[fam_name] = fam_df
-            
-            
+    
+    '''
     # --- Ejecutar en serie por familia ---
     results_schedules = []
     results_actions = []
@@ -147,9 +122,19 @@ def vehicle_choice_model(
         pop_citizen=pop_citizen,
         pop_archetypes_transport=pop_archetypes_transport,
         pop_building=pop_building,
-        networks_map=networks_map,
-        past_dist_calculations_init=past_dist_calculations
+        networks_map=networks_map
     )
+
+    for fam_tuple in tqdm(families, total=len(families), desc="Transport Choice Modelling"):
+            fam_name = fam_tuple[0]
+        
+            fam_schedule, fam_actions = worker(fam_tuple)
+
+            if fam_schedule is not None and not fam_schedule.empty:
+                results_schedules.append(fam_schedule)
+            if fam_actions is not None and not fam_actions.empty:
+                results_actions.append(fam_actions)
+    '''    
 
     # --- Elige ejecutor ---
     Executor = ProcessPoolExecutor
@@ -169,7 +154,6 @@ def vehicle_choice_model(
         pop_archetypes_transport=pop_archetypes_transport,
         pop_building=pop_building,
         networks_map=networks_map,
-        past_dist_calculations_init=past_dist_calculations
     )
 
     with Executor(max_workers=n_jobs) as ex:
@@ -177,13 +161,11 @@ def vehicle_choice_model(
         for fut in tqdm(as_completed(futures), total=len(families), desc="Transport Choice Modelling"):
             fam_name = futures[fut]
             try:
-                fam_schedule, fam_actions, fam_cache_delta = fut.result()
+                fam_schedule, fam_actions = fut.result()
                 if fam_schedule is not None and not fam_schedule.empty:
                     results_schedules.append(fam_schedule)
                 if fam_actions is not None and not fam_actions.empty:
                     results_actions.append(fam_actions)
-                if fam_cache_delta is not None and not fam_cache_delta.empty:
-                    cache_deltas.append(fam_cache_delta)
             except Exception as e:
                 print(f"[ERROR] familia '{fam_name}': {e}")
 
@@ -206,10 +188,6 @@ def vehicle_choice_model(
     out_level1  = os.path.join(paths['results'], f"{study_area}_new_level_1.xlsx")
     vehicles_actions.to_excel(out_actions, index=False)
     new_level1_schedules.to_excel(out_level1, index=False)
-
-    # (Opcional) Persistir el cache actualizado si te interesa guardarlo ya
-    # cache_path = os.path.join(paths['study_area'], "past_dist_calculations.xlsx")
-    # past_dist_calculations.to_excel(cache_path, index=False)
 
     return vehicles_actions, new_level1_schedules
 
@@ -266,7 +244,7 @@ def main():
     
         
         
-def update_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_family):
+def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_family):
     """
     Actualiza los tiempos de entrada/salida ('in'/'out') del agente `c_name`
     en base a los nuevos tiempos de conmutación contenidos en
@@ -316,11 +294,13 @@ def update_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
     
     todo_list['in'] = todo_list['in'].astype(int)
     todo_list['out'] = todo_list['out'].astype(int)
-       
-    return todo_list
+    
+    citizen_schedule = todo_list.copy()
+    
+    return citizen_schedule
 
 
-def update_vehicles_actions(vehicles_actions, new_family_schedule, best_transport_distime_matrix, avail_vehicles):
+def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix, avail_vehicles):
     # El objetivo es tener un df que de los datos de consumo relevante para cada actividad
     
     ''' Deshabilitado para poder evaluar el resto de funciones
@@ -339,11 +319,8 @@ def update_vehicles_actions(vehicles_actions, new_family_schedule, best_transpor
     simple_schedule['archetype'] = best_transport_distime_matrix['archetype'].iloc[0]
     # Eliminamos las columnas innecesarias
     simple_schedule = simple_schedule.drop(['todo', 'opening', 'closing', 'fixed', 'time2spend'], axis=1)
-    # Agregamos la nueva schedule a 'vehicles_actions'
-    vehicles_actions = pd.concat([vehicles_actions, simple_schedule], ignore_index=True)
-    # Devolvemos el df modificado
     
-    return vehicles_actions    
+    return simple_schedule    
     
 def schedule_simplification(new_family_schedule):
     # Inicializamos el df de salida
@@ -403,7 +380,7 @@ def vehicle_chosing(vehicle_score_matrix):
     # Si no es mejor, devuelve el anteriormente definido como mejor
     return vehicle_score_matrix[vehicle_score_matrix['vehicle'] == best_transport['vehicle']].reset_index(drop=True)
 
-def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map, past_dist_calculations):
+def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map):
     # Inicializamos la vehicle_score_matrix
     vehicle_score_matrix = pd.DataFrame()
     # Inicializamos la full_distime_matrix
@@ -419,7 +396,7 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
         # Miramos todos los trips, de uno a uno, actualizando el transport_VSM (el VSM especifico para este medio de transporte)
         for trip in citizen_route:
             # Calculamos el score de este trip
-            distime_matrix, last_P, past_dist_calculations = score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, past_dist_calculations, citizen_data)
+            distime_matrix, last_P = score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, citizen_data)
             # Añadimos info relevante
             distime_matrix['citizen'] = citizen_data['name']
             distime_matrix['vehicle'] = transport['name']
@@ -429,17 +406,17 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
         # Añadimos el nuevo transport_VSM a vehicle_score_matrix
         vehicle_score_matrix = pd.concat([vehicle_score_matrix, transport_VSM], ignore_index=True)
 
-    return full_distime_matrix, past_dist_calculations
+    return full_distime_matrix
             
-def score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, past_dist_calculations, citizen_data):
+def score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, citizen_data):
     # Completamos el trip en caso de que tenga que acudir a algún punto P
-    complete_trip, last_P, past_dist_calculations = trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, past_dist_calculations)
+    complete_trip, last_P = trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map)
     # Calculamos la matriz de distime
-    distime_matrix, past_dist_calculations = distime_calculation(networks_map, complete_trip, past_dist_calculations, pop_building, citizen_data, transport, standard=False)
+    distime_matrix = distime_calculation(networks_map, complete_trip, pop_building, citizen_data, transport, standard=False)
     # Sacamos el score en base al algoritmo especificado para ello
     distime_matrix = score_algorithm(distime_matrix)
     # Devolvemos score
-    return distime_matrix, last_P, past_dist_calculations
+    return distime_matrix, last_P
 
 def score_algorithm(distime_matrix):
     """
@@ -479,7 +456,6 @@ def haversine(lon1, lat1, lon2, lat2):
 def distime_calculation(
     networks_map,
     complete_trip,
-    past_dist_calculations: pd.DataFrame,
     pop_building: pd.DataFrame,
     citizen_data: dict,
     transport: dict,
@@ -493,10 +469,7 @@ def distime_calculation(
     coord_map = df_coords.set_index('osm_id')[['lon', 'lat']].to_dict('index')
 
     # cache dict (para lectura rápida)
-    cache = {
-        (row['step'][0], row['step'][1], row['map']): row['km']
-        for _, row in past_dist_calculations.iterrows()
-    }
+    cache = {}
     new_cache_rows = []  # acumulamos y concatenamos al final
 
     # grafos (atajo)
@@ -594,13 +567,6 @@ def distime_calculation(
             'emissions': (transport['CO2km'] * cache[cache_key]) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
         })
 
-    # --- 4) Persistir nuevas entradas de cache de una sola vez ---
-    if new_cache_rows:
-        past_dist_calculations = pd.concat(
-            [past_dist_calculations, pd.DataFrame(new_cache_rows)],
-            ignore_index=True
-        )
-
     # --- 5) Agregación final (igual que antes, pero sin overhead extra) ---
     distime_matrix = pd.DataFrame(rows)
     summed_numeric = distime_matrix.select_dtypes(include='number').sum().to_frame().T
@@ -610,7 +576,7 @@ def distime_calculation(
         archetype = distime_matrix.iloc[0]['archetype'],
         trip = [distime_matrix.iloc[0]['trip']],
     )
-    return summed_df, past_dist_calculations
+    return summed_df
 
 
 def waiting_time_calculation(distance, step_1, transport):
@@ -629,7 +595,7 @@ def benefits_calculation(citizen_data, step_1):
     
     return 0
 
-def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, past_dist_calculations):
+def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map):
     # Sacamos los valores de inicio y fin del trip
     poi_A, poi_B = trip
     # Inicializamos la lista de nueva ruta (empieza con poi_A ya metido, porque eso es así fijo)
@@ -641,7 +607,6 @@ def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     if p2 != 0:
         p2_osm_id, p2_poib_dist = find_p2(poi_B, transport, p2s, pop_building, networks_map)
         steps.append(p2_osm_id)
-        past_dist_calculations = pd.concat([past_dist_calculations, pd.DataFrame([{'step': (p2_osm_id, poi_B), 'map': 'walk', 'km': p2_poib_dist}])], ignore_index=True)
     else:
         p2_osm_id = poi_B
     # Por último añadimos la meta
@@ -652,7 +617,7 @@ def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     for step in range(len(steps)-1):
         complete_trip.append((steps[step], steps[step+1]))    
     
-    return complete_trip, p2_osm_id, past_dist_calculations
+    return complete_trip, p2_osm_id
 
 def find_p2(poi_B, transport, p2s, pop_building, networks_map):
     # Sacamos los datos de los posibles P
