@@ -629,7 +629,7 @@ def e_sys_loading(paths, study_area):
             print(f"            electric_system_{study_area}.xlsx")
             code = 'NOT_DONE'
             while code != 'DONE':
-                code = input(f"        Once you have completed the requested action, enter “DONE”.")
+                code = input(f"        Once you have completed the requested action, enter “DONE”.\n")
                 if code != 'DONE':
                     print(f'        Incorrect continuation code.')
                 else:
