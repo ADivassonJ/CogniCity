@@ -167,7 +167,7 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                 rew_row ={
                     'agent': row_f_df['name'],
                     'archetype': row_f_df['archetype'],
-                    'independent': 0 if row_f_df['dependent_type'] == 1 else 1,
+                    'independent': row_f_df['independent_type'],
                     'todo': activity, 
                     'osm_id': osm_id, 
                     'node': node,
@@ -281,7 +281,7 @@ def todolist_family_creation(
     with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam): fam[0] for fam in families}
         # Progreso
-        for fut in tqdm(as_completed(futures), total=total, desc="Procesando familias (paralelo)"):
+        for fut in tqdm(as_completed(futures), total=total, desc="Families schedules creation: "):
             fam_name = futures[fut]
             try:
                 df_level1 = fut.result()                
@@ -297,7 +297,7 @@ def todolist_family_creation(
         level_1_schedule = pd.DataFrame()
 
     # Escribir una sola vez (evita cientos de escrituras)
-    level_1_schedule.to_excel(f"{paths['results']}/{study_area}_level_1.xlsx", index=False)
+    level_1_schedule.to_excel(f"{paths['results']}/{study_area}_todolist.xlsx", index=False)
 
     return level_1_schedule
 

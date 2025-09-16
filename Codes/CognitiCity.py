@@ -65,7 +65,7 @@ def main():
     # pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])
        
     try:
-        level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_level_1.xlsx")
+        level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_todolist.xlsx")
     except Exception as e:
         level_1_results = todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths)
     

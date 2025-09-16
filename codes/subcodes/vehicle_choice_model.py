@@ -33,7 +33,7 @@ def _process_family(
 
     # Vehículos disponibles para esta familia (o vacío)
     avail_vehicles = transport_families_dict.get(f_name, pd.DataFrame())
-
+    
     # Schedule level-1 de esta familia
     level1_schedule = family  # ya es el subset
 
@@ -69,12 +69,12 @@ def _process_family(
         all_citizen_schedule = pd.concat([all_citizen_schedule, citizen_schedule], ignore_index=True)
         
         # Actualiza acciones de vehículos
-        vehicle_schedule = create_vehicles_actions(citizen_schedule, best_transport_distime_matrix, avail_vehicles)
+        vehicle_schedule = create_vehicles_actions(citizen_schedule, best_transport_distime_matrix)
         all_vehicle_schedule = pd.concat([all_vehicle_schedule, vehicle_schedule], ignore_index=True)
         
         # “Consume” vehículo si no es compartible
         vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
-        if vehicle_name not in ['walk', 'UB_diesel']:
+        if vehicle_name not in ('walk', 'UB_diesel') and not avail_vehicles.empty:
             avail_vehicles = avail_vehicles[avail_vehicles['name'] != vehicle_name]
 
     return all_citizen_schedule, all_vehicle_schedule
@@ -92,12 +92,6 @@ def vehicle_choice_model(
     n_jobs=None,        # None -> CPUs lógicas
     use_threads=False   # True si tu carga es I/O (lee/escribe mucho / red)
 ):
-    # --- Cargar cache previo (si existe) ---
-    try:
-        past_dist_calculations = pd.read_excel(f"{paths['study_area']}/past_dist_calculations.xlsx")
-    except Exception:
-        past_dist_calculations = pd.DataFrame(columns=['step','map','km'])
-
     # --- Agrupar por familia una sola vez ---
     level1_families = level_1_results.groupby('family')
     families = list(level1_families)  # [(f_name, df_sub)]
@@ -107,34 +101,7 @@ def vehicle_choice_model(
     transport_families_dict = {}
     if transport_families is not None:
         for fam_name, fam_df in transport_families:
-            transport_families_dict[fam_name] = fam_df
-    
-    '''
-    # --- Ejecutar en serie por familia ---
-    results_schedules = []
-    results_actions = []
-    cache_deltas = []
-
-    # Reutilizamos el partial para no repetir argumentos
-    worker = partial(
-        _process_family,
-        transport_families_dict=transport_families_dict,
-        pop_citizen=pop_citizen,
-        pop_archetypes_transport=pop_archetypes_transport,
-        pop_building=pop_building,
-        networks_map=networks_map
-    )
-
-    for fam_tuple in tqdm(families, total=len(families), desc="Transport Choice Modelling"):
-            fam_name = fam_tuple[0]
-        
-            fam_schedule, fam_actions = worker(fam_tuple)
-
-            if fam_schedule is not None and not fam_schedule.empty:
-                results_schedules.append(fam_schedule)
-            if fam_actions is not None and not fam_actions.empty:
-                results_actions.append(fam_actions)
-    '''    
+            transport_families_dict[fam_name] = fam_df 
 
     # --- Elige ejecutor ---
     Executor = ProcessPoolExecutor
@@ -172,16 +139,6 @@ def vehicle_choice_model(
     # --- Agregación en el proceso principal ---
     new_level1_schedules = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()
     vehicles_actions     = pd.concat(results_actions,   ignore_index=True) if results_actions   else pd.DataFrame()
-
-    # Fusionar cache: original + deltas, desduplicando por ['step','map']
-    if cache_deltas:
-        all_cache = pd.concat([past_dist_calculations] + cache_deltas, ignore_index=True)
-        # Normaliza tipos de clave por seguridad y elimina duplicados
-        if not all_cache.empty:
-            all_cache['step'] = all_cache['step'].apply(lambda x: tuple(x) if not isinstance(x, tuple) else x)
-            all_cache['map']  = all_cache['map'].astype(str)
-            all_cache = all_cache.drop_duplicates(subset=['step', 'map'], keep='first')
-        past_dist_calculations = all_cache
 
     # --- Escrituras UNA sola vez ---
     out_actions = os.path.join(paths['results'], f"{study_area}_vehicles_actions.xlsx")
@@ -228,7 +185,7 @@ def main():
     for net_type in networks:           
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
     
-    level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_level_1.xlsx")
+    level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_todolist.xlsx")
     
     pop_citizen = pd.read_parquet(f"{paths['population']}/pop_citizen.parquet")
     pop_family = pd.read_parquet(f"{paths['population']}/pop_family.parquet")
@@ -300,7 +257,7 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
     return citizen_schedule
 
 
-def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix, avail_vehicles):
+def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
     # El objetivo es tener un df que de los datos de consumo relevante para cada actividad
     
     ''' Deshabilitado para poder evaluar el resto de funciones
@@ -385,8 +342,14 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
     vehicle_score_matrix = pd.DataFrame()
     # Inicializamos la full_distime_matrix
     full_distime_matrix = pd.DataFrame()
+    
+    if citizen_data['independent_type'] == 0:
+        vehicles = pd.DataFrame()
+    else:
+        vehicles = avail_vehicles
+    
     # Añadimos a la matriz de vehiculos disponibles el publico y andar
-    avail_transport = add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport)
+    avail_transport = add_public_walk(vehicles, citizen_data, pop_archetypes_transport)
     # Iteramos los distintos transportes disponibles
     for _, transport in avail_transport.iterrows():
         # Inicializamos transport_VSM
