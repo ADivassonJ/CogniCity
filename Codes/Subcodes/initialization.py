@@ -1124,14 +1124,16 @@ def Synthetic_population_initialization(agent_populations, pop_archetypes, popul
         archetype_to_analyze = pop_archetypes['citizen']
         archetype_to_fill = pop_archetypes['family']
         
-        print("            Citizen_inventory_creation ...")
-        # Citizen_inventory_creation
+        print("            Citizen inventory creation ...")
         agent_populations['distribution'], total_presence = Citizen_inventory_creation(archetype_to_analyze, population)
-        print("            Citizen_distribution_in_families ...")
-        # Citizen_distribution_in_families
+        
+        print("            Distributing citizens among families ...")
         agent_populations['distribution'], agent_populations['citizen'], agent_populations['family'] = Citizen_distribution_in_families(archetype_to_fill, agent_populations['distribution'], total_presence, stats_synpop, pop_archetypes)
-        print("            Utilities_assignment ...")
-        # Utilities_assignment
+        
+        print("            Social class assingment ...")
+        agent_populations['family'] = social_class_assingment(agent_populations['citizen'], agent_populations['family'], pop_archetypes['family'])
+        
+        print("            Utilities assignment ...")
         agent_populations['family'], agent_populations['citizen'], agent_populations['transport'] = Utilities_assignment(agent_populations['citizen'], agent_populations['family'], pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans)
 
         print(f"        Saving data ...")
@@ -1143,6 +1145,10 @@ def Synthetic_population_initialization(agent_populations, pop_archetypes, popul
             )
             
     return agent_populations
+
+def social_class_assingment(citizen_populations, family_populations, family_archetypes):
+    
+
 
 
 def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
