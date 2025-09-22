@@ -81,6 +81,8 @@ def add_matches_to_stats_synpop(stats_synpop, df, name_column='name'):
     Returns:
        stats_synpop (DataFrame): updated df with more archetypes' statistical values
     """
+    
+    
     for col in df.columns:
         # Saltar la columna 'name' ya que no es relevante para la búsqueda del '*'
         if col == name_column:
@@ -111,35 +113,48 @@ def Archetype_documentation_initialization(paths):
        stats_synpop (DataFrame)
        stats_trans (DataFrame)
     """
+    
+    system_management = pd.read_excel(paths['system']/'system_management.xlsx')
+    
     try:
         print(f'Loading archetypes data ...')
+        
         archetypes_folder = Path(paths['archetypes'])
-        files = [f for f in archetypes_folder.iterdir() if f.is_file() and f.name.startswith('pop_archetypes_') and f.suffix == '.xlsx']
-
+        file_names = system_management['archetypes'].dropna().tolist()
+        
+        files = [
+            archetypes_folder / f"pop_archetypes_{name}.xlsx"
+            for name in file_names
+            if (archetypes_folder / f"pop_archetypes_{name}.xlsx").is_file()
+        ]
+        
         pop_archetypes = {
-            f.stem.replace('pop_archetypes_', ''): load_filter_sort_reset(f) # Issue 25
+            f.stem.replace("pop_archetypes_", ""): load_filter_sort_reset(f)
             for f in files
         }
+        
     except Exception as e:
         raise FileNotFoundError(f"[ERROR] Archetype files are not found in {paths['archetypes']}. Please fix and restart.") from e
+    
     # Validar y cargar stats_synpop
-    stats_synpop = load_or_create_stats(
-        paths['archetypes'],
-        'stats_synpop.xlsx',
-        create_stats_synpop,
-        [pop_archetypes.get('citizens'), pop_archetypes.get('families')]
-    )
+    stats_configs = [
+        ("stats_synpop.xlsx", create_stats_synpop, ["citizen", "family"]),
+        ("stats_trans.xlsx", create_stats_trans, ["transport", "family"]),
+        ("stats_class.xlsx", create_stats_class, ["transport", "family"]),
+    ]
 
-    # Validar y cargar stats_trans
-    stats_trans = load_or_create_stats(
-        paths['archetypes'],
-        'stats_trans.xlsx',
-        create_stats_trans,
-        [pop_archetypes.get('transport'), pop_archetypes.get('families')]
-    )
+    stats = {}
 
-    return pop_archetypes, stats_synpop, stats_trans
+    for filename, create_func, archetype_keys in stats_configs:
+        inputs = [pop_archetypes.get(k) for k in archetype_keys]
+        stats[Path(filename).stem] = load_or_create_stats(
+            paths['archetypes'],
+            filename,
+            create_func,
+            inputs
+        )
 
+    return pop_archetypes, stats
 
 def assign_buildings_to_nodes(building_populations: pd.DataFrame, 
                               electric_system: pd.DataFrame, 
@@ -352,6 +367,21 @@ def create_stats_trans(archetypes_path, transport_archetypes, family_archetypes)
     stats_trans.to_excel(archetypes_path/'stats_trans.xlsx', index=False)
 
     return stats_trans
+
+def create_stats_class(archetypes_path, _, family_archetypes):
+    
+    # Obtener listas de 'name' de ambos DataFrames
+    family_names = family_archetypes['name'].dropna().unique()
+    # Crear DataFrame con las combinaciones
+    stats_class = pd.DataFrame(family_names, columns=['name'])
+    # Agregar columnas vacías para los valores estadísticos
+    stats_class['Salariat'] = ''
+    stats_class['Intermediate'] = ''
+    stats_class['Working'] = ''
+
+    stats_class.to_excel(archetypes_path/'stats_class.xlsx', index=False)
+
+    return stats_class
 
 
 def Citizen_inventory_creation(df, population):
@@ -574,9 +604,9 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     study_area_path = paths[study_area]    
     try:
         print(f'        Downloading services data from {study_area} ...')
-        Services_Group_relationship = pd.read_excel(f'{study_area_path}/Services-Group relationship.xlsx')
+        Services_Group_relationship = pd.read_excel(f'{study_area_path}/Class matrix for ESeC 2008 rev.xlsx')
     except Exception:
-        print(f"    [ERROR] File 'Services-Group relationship.xlsx' is not found in the data folder ({study_area_path}).")
+        print(f"    [ERROR] File 'Class matrix for ESeC 2008 rev.xlsx' is not found in the data folder ({study_area_path}).")
         raise FileNotFoundError("Required file missing.")
 
     print(f'        Processing data (it might take a while)...')
@@ -871,12 +901,13 @@ def load_or_create_stats(archetypes_path, filename, creation_func, creation_args
         print(f'Loading statistical data from {filename} ...')
         df_stats = pd.read_excel(filepath)
         if df_stats.isnull().sum().sum() != 0:
-            raise ValueError(f"{filename} has missing values.")
+            print(f"    [ERROR] {filename} is incomplete.\n    Please fill μ, σ, max, min values on this file on the following path and rerun:\n{filepath}")
+            sys.exit()
     except Exception:
         # Si falla, crear archivo vacío y lanzar error para que el usuario lo rellene
         creation_func(archetypes_path, *creation_args)
-        raise ValueError(f"[ERROR] {filepath} is missing or incomplete. Please fill μ, σ, max, min values and rerun.")
-
+        print(f"    [ERROR] {filename} is incomplete.\n    Please fill μ, σ, max, min values on this file on the following path and rerun:\n{filepath}")
+        sys.exit()
     return df_stats
   
 
@@ -1080,8 +1111,6 @@ def random_name_surname(ref_dict):
 
 
 def services_groups_creation(df, to_keep):
-    # Primero quitamos las filas marcadas como 'not considered'
-    df = df[df['not considered'] != 'x'].reset_index(drop=True)
 
     # Diccionarios de salida, uno por grupo
     group_dicts = {}
@@ -1106,8 +1135,12 @@ def services_groups_creation(df, to_keep):
     return group_dicts
 
         
-def Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats_synpop, paths, SG_relationship, study_area, stats_trans):
+def Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area):
     system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
+    stats_synpop = stats['stats_synpop']
+    stats_trans = stats['stats_trans']
+    stats_class =stats['stats_class']
+    SG_relationship = agent_populations['building']
     
     try:
         print(f"Loading synthetic population data ...") 
@@ -1131,7 +1164,7 @@ def Synthetic_population_initialization(agent_populations, pop_archetypes, popul
         agent_populations['distribution'], agent_populations['citizen'], agent_populations['family'] = Citizen_distribution_in_families(archetype_to_fill, agent_populations['distribution'], total_presence, stats_synpop, pop_archetypes)
         
         print("            Social class assingment ...")
-        agent_populations['family'] = social_class_assingment(agent_populations['citizen'], agent_populations['family'], pop_archetypes['family'])
+        agent_populations['family'] = social_class_assingment(agent_populations['family'], stats_class)
         
         print("            Utilities assignment ...")
         agent_populations['family'], agent_populations['citizen'], agent_populations['transport'] = Utilities_assignment(agent_populations['citizen'], agent_populations['family'], pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans)
@@ -1146,10 +1179,51 @@ def Synthetic_population_initialization(agent_populations, pop_archetypes, popul
             
     return agent_populations
 
-def social_class_assingment(citizen_populations, family_populations, family_archetypes):
+import numpy as np
+import pandas as pd
+
+def pick_class_from_stats(archetype, stats_class, class_cols=None):
+    """
+    Devuelve 'Salariat'/'Intermediate'/'Working' para un archetype dado
+    usando los pesos de stats_class. Tolera strings, NaN, y que no sumen 1.
+    """
+    row = stats_class.loc[stats_class['name'] == archetype]
+    if row.empty:
+        return np.nan  # o el fallback que prefieras
+
+    s = row.iloc[0]
+
+    # Quedarse solo con las columnas de clase
+    if class_cols is None:
+        # Inferir: quitar 'name' y cualquier no-numérico tras to_numeric
+        s = s.drop(labels=['name'], errors='ignore')
+    else:
+        s = s.reindex(class_cols)  # asegura orden/consistencia
+
+    # Convertir a numérico, forzar NaN a 0 y evitar negativos
+    s = pd.to_numeric(s, errors='coerce').fillna(0).clip(lower=0)
+
+    # Si todos los pesos son 0 -> muestreo uniforme entre las clases presentes
+    total = s.sum()
+    if total <= 0:
+        return np.random.choice(s.index.tolist())
+
+    probs = (s / total).values.astype(float)
+    return np.random.choice(s.index.to_list(), p=probs)
+
+
+def social_class_assingment(family_populations, stats_class):
     
-
-
+    for idx, family in family_populations.iterrows():
+        choice = pick_class_from_stats(
+            family['archetype'],
+            stats_class,
+            class_cols=['Salariat', 'Intermediate', 'Working']  # opcional pero recomendado
+        )
+        # por ejemplo, guardarlo:
+        family_populations.at[idx, 'class'] = choice
+    
+    return family_populations
 
 def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
     poi = gpd.GeoSeries([Point(lon, lat)], crs=crs)
@@ -1373,9 +1447,10 @@ def Utilities_assignment(
     df_citizens['family'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'name'))
     df_citizens['family_archetype'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'archetype'))
     df_citizens['Home'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'Home'))
+    df_citizens['class'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'class'))
 
     # --- 4) Work/Study pools (usar LISTAS de columnas, no sets) ---
-    work_df = SG_relationship.loc[SG_relationship['archetype'] == 'work', ['osm_id', 'lat', 'lon']].copy()
+    work_df = SG_relationship.loc[SG_relationship['archetype'].isin(['Salariat', 'Intermediate', 'Working']), ['archetype', 'osm_id', 'lat', 'lon']].copy()
     study_df = SG_relationship.loc[SG_relationship['archetype'] == 'study', ['osm_id', 'lat', 'lon']].copy()
 
     # --- 5) Variables de arquetipo de ciudadano (una vez) ---
@@ -1383,6 +1458,9 @@ def Utilities_assignment(
 
     # --- 6) Asignación por ciudadano ---
     for idx, row in df_citizens.iterrows():
+        
+        class_work_df = work_df[work_df['archetype'] == row['class']]
+        
         # 6.1) escribir variables de arquetipo de ciudadano
         arche = row['archetype']
         citizen_vals = get_vehicle_stats(arche, pop_archetypes['citizen'], citizen_vars)
@@ -1422,6 +1500,9 @@ def Utilities_assignment(
                 WoS_id = fam_fixed['WoS'].iloc[0]
 
         for it in range(max_iters):
+            
+            print(f"iteration num. {it} ot of {max_iters}")
+            
             if WoS_id is not None:
                 break  # ya resuelto por reutilización
 
@@ -1431,7 +1512,7 @@ def Utilities_assignment(
                 plot_wos_debug(
                     home_lat, home_lon,
                     ring_poly=ring,
-                    work_df=work_df if df_citizens.at[idx, 'WoS_fixed'] != 1 else None,
+                    work_df=class_work_df if df_citizens.at[idx, 'WoS_fixed'] != 1 else None,
                     study_df=study_df if df_citizens.at[idx, 'WoS_fixed'] == 1 else None,
                     chosen_id=None,
                     ring_crs=ring_crs,
@@ -1440,15 +1521,17 @@ def Utilities_assignment(
 
             if df_citizens.at[idx, 'WoS_fixed'] != 1:
                 # elige uno aleatorio entre los work dentro del anillo
-                WoS_id = choose_id_in_ring(work_df, ring)
+                WoS_id = choose_id_in_ring(class_work_df, ring)
             else:
                 # si no había reutilización, busca entre study dentro del anillo
                 WoS_id = choose_id_in_ring(study_df, ring)
 
             if WoS_id is not None:
                 break  # encontrado → salir
-            rx *= expand_factor
             ry *= expand_factor
+            
+            if ry < 0:
+                ry = 0
 
         # Si no se encontró dentro de anillos, hacer fallback aleatorio
         if WoS_id is None:
@@ -1572,11 +1655,11 @@ def main():
     
     print('#'*20, ' System initialization ','#'*20)
     # Archetype documentation initialization
-    pop_archetypes, stats_synpop, stats_trans = Archetype_documentation_initialization(paths)
+    pop_archetypes, stats = Archetype_documentation_initialization(paths)
     # Geodata initialization
     agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
     # Synthetic population initialization
-    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats_synpop, paths, agent_populations['building'], study_area, stats_trans)
+    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area)
     print('#'*20, ' Initialization finalized ','#'*20)
     
 if __name__ == '__main__':
