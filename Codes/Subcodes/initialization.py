@@ -34,7 +34,7 @@ from scipy.spatial import Voronoi, cKDTree
 import geopandas as gpd
 import pyproj
 from shapely.errors import ShapelyDeprecationWarning
-from shapely.geometry import MultiPolygon, Point, Polygon
+from shapely.geometry import MultiPolygon, Point, Polygon, LineString, LinearRing
 from shapely.ops import clip_by_rect, transform, unary_union, voronoi_diagram
 
 # Distancias geodésicas
@@ -156,54 +156,35 @@ def Archetype_documentation_initialization(paths):
 
     return pop_archetypes, stats
 
-def assign_buildings_to_nodes(building_populations: pd.DataFrame, 
-                              electric_system: pd.DataFrame, 
-                              boundary_polygon: Polygon):
-    """
-    Asigna a cada edificio el nodo más cercano usando un diagrama de Voronoi recortado por un polígono límite.
-
-    Parámetros:
-    -----------
-    building_populations : pd.DataFrame
-        DataFrame con edificios. Debe tener columnas 'lon' y 'lat'.
-    electric_system : pd.DataFrame
-        DataFrame con nodos. Debe tener columnas 'long', 'lat' y la primera columna 'name'.
-    boundary_polygon : shapely.geometry.Polygon
-        Polígono límite para recortar el Voronoi.
-
-    Retorna:
-    --------
-    pd.DataFrame
-        DataFrame de edificios con columna 'node' indicando el nodo asignado.
-    """
-    # Convertir edificios a GeoDataFrame
+def assign_buildings_to_nodes(building_populations, electric_system, boundary_polygon):
+    # GeoDataFrame edificios
     buildings_gdf = gpd.GeoDataFrame(
         building_populations.copy(),
         geometry=gpd.points_from_xy(building_populations['lon'], building_populations['lat']),
-        crs='EPSG:4326'
+        crs="EPSG:4326"
     )
-    
-    # Generar Voronoi
+
+    # Voronoi para visualización
     nodes_gdf_proj, vor_gdf, boundary_proj = voronoi_from_nodes(electric_system, boundary_polygon)
-    
-    # Proyectar edificios al CRS del Voronoi
-    buildings_gdf_proj = buildings_gdf.to_crs(vor_gdf.crs)
-    
-    # Spatial join: asignar nodo según polígono de Voronoi
-    buildings_with_node = gpd.sjoin(
-        buildings_gdf_proj,
-        vor_gdf[['geometry', 'node']],
-        how='left',
-        predicate='within'
-    )
-    
-    # Volver a lon/lat
-    buildings_with_node = buildings_with_node.to_crs('EPSG:4326')
-       
-    # plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, building_populations)
-    
-    # Devolver solo el DataFrame con la nueva columna 'node'
-    return pd.DataFrame(buildings_with_node.drop(columns='geometry'))
+    buildings_proj = buildings_gdf.to_crs(vor_gdf.crs)
+
+    # Nodos como GDF
+    nodes_gdf = nodes_gdf_proj[['node', 'geometry']].copy()
+
+    # Para cada edificio, elegir nodo más cercano
+    nearest_nodes = []
+    for geom in buildings_proj.geometry:
+        distances = nodes_gdf.distance(geom)
+        nearest_idx = distances.idxmin()
+        nearest_nodes.append(nodes_gdf.loc[nearest_idx, 'node'])
+
+    buildings_proj['node'] = nearest_nodes
+    buildings_proj = buildings_proj.to_crs("EPSG:4326")
+
+    # Plot
+    #plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, building_populations)
+
+    return pd.DataFrame(buildings_proj.drop(columns='geometry'))
 
 
 def assign_data(list_variables, list_values, row):
@@ -640,7 +621,7 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
     
     SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
-
+    
     # Añadir datos de buses eléctricos aquí
     buildings_populations = add_ebus(paths, polygon, SG_relationship, study_area)
     
@@ -1246,6 +1227,11 @@ def _as_geometry_and_crs(geom_like):
     # shapely geometry
     return geom_like, None
 
+def _best_utm_epsg(lon, lat):
+    zone = int((lon + 180) // 6) + 1
+    hemi = 326 if lat >= 0 else 327  # Norte/Sur
+    return f"EPSG:{hemi}{zone:02d}"
+
 def plot_wos_debug(
     home_lat, home_lon,
     ring_poly,
@@ -1254,20 +1240,23 @@ def plot_wos_debug(
     ring_crs="EPSG:4326",
     title=None,
     show=True,
-    ax=None
+    ax=None,
+    draw_mid_circle=True
 ):
     """
     Visualiza home, anillo, candidatos (work/study) dentro del anillo y el elegido.
-    Todo en escala de grises.
+    Dibuja además un círculo concéntrico en el centro del anillo, con radio medio
+    entre el círculo exterior y el interior.
     """
     ring_geom, ring_geom_crs = _as_geometry_and_crs(ring_poly)
     if ring_geom is None:
         return
 
-    # reproyectar si hace falta
+    # reproyectar anillo a WGS84 si hace falta
     if ring_geom_crs is not None and ring_geom_crs != "EPSG:4326":
         ring_geom = gpd.GeoSeries([ring_geom], crs=ring_geom_crs).to_crs("EPSG:4326").iloc[0]
 
+    # GeoDataFrame home
     gdf_home = gpd.GeoDataFrame(
         {"name": ["home"]},
         geometry=[Point(home_lon, home_lat)],
@@ -1293,10 +1282,37 @@ def plot_wos_debug(
         fig, ax = plt.subplots(figsize=(6, 6))
         created_ax = True
 
-    # Anillo
+    # Anillo exterior
     gpd.GeoSeries([ring_geom], crs="EPSG:4326").boundary.plot(
         ax=ax, color="black", linewidth=1.5, alpha=0.8, label="Ring"
     )
+
+    # === NUEVO: círculo concéntrico de radio medio ===
+    if draw_mid_circle:
+        metric_crs = _best_utm_epsg(home_lon, home_lat)
+        ring_proj = gpd.GeoSeries([ring_geom], crs="EPSG:4326").to_crs(metric_crs).iloc[0]
+        center_proj = gpd.GeoSeries([Point(home_lon, home_lat)], crs="EPSG:4326").to_crs(metric_crs).iloc[0]
+
+        # radio exterior
+        r_outer = center_proj.distance(LineString(ring_proj.exterior.coords))
+        # radio interior (si hay varios huecos, coger el más cercano)
+        if getattr(ring_proj, "interiors", None):
+            r_inner = min(center_proj.distance(LineString(r.coords)) for r in ring_proj.interiors)
+        else:
+            r_inner = 0  # si no hay hueco, se asume círculo sólido
+
+        # radio medio
+        r_mid = 0.5 * (r_outer + r_inner)
+
+        # construir círculo medio
+        mid_circle_proj = center_proj.buffer(r_mid, resolution=128)
+        mid_circle_geo = gpd.GeoSeries([mid_circle_proj], crs=metric_crs).to_crs("EPSG:4326").iloc[0]
+
+        # dibujar perímetro del círculo medio
+        gpd.GeoSeries([mid_circle_geo.boundary], crs="EPSG:4326").plot(
+            ax=ax, linewidth=1.2, linestyle="--", color="black",
+            label=f"Mid circle (~{2*r_mid/1000:.2f} km Ø)"
+        )
 
     # Todos los candidatos (gris claro)
     if gdf_work is not None and len(gdf_work) > 0:
@@ -1501,8 +1517,6 @@ def Utilities_assignment(
 
         for it in range(max_iters):
             
-            print(f"iteration num. {it} ot of {max_iters}")
-            
             if WoS_id is not None:
                 break  # ya resuelto por reutilización
 
@@ -1516,7 +1530,7 @@ def Utilities_assignment(
                     study_df=study_df if df_citizens.at[idx, 'WoS_fixed'] == 1 else None,
                     chosen_id=None,
                     ring_crs=ring_crs,
-                    title=f"Citizen {idx} (dist_mu={rx:.2f}, dist_sigma={ry:.2f})"
+                    #title=f"Citizen {idx} (dist_mu={rx:.2f}, dist_sigma={ry:.2f})"
                 )
 
             if df_citizens.at[idx, 'WoS_fixed'] != 1:
