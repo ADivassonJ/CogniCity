@@ -56,6 +56,8 @@ def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, pro
     - proj_epsg: CRS métrico para cálculos en metros
     """
     
+    cache_path = os.path.join(paths['maps'], "cache")
+    
     # Cargar sistema eléctrico
     electric_system = e_sys_loading(paths, study_area)
 
@@ -64,6 +66,8 @@ def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, pro
     
     # Guardar resultados
     building_populations_with_node.to_parquet(f"{paths['population']}/pop_building.parquet", index=False)
+    # Borramos cache
+    shutil.rmtree(cache_path)
     
     return building_populations_with_node
 
@@ -247,6 +251,10 @@ def building_schedule_adding(osm_elements_df: pd.DataFrame,
     Añade variables de 'building_archetypes_df' a cada building de 'osm_elements_df',
     redondeando tiempos a múltiplos de `round_to` minutos.
     """
+    #  User Interface
+    print(f"        Adding schedules to buildings ...")
+    
+    
     # columnas *_mu presentes en la hoja de arquetipos
     list_building_variables = [
         col.rsplit('_', 1)[0]
@@ -255,8 +263,9 @@ def building_schedule_adding(osm_elements_df: pd.DataFrame,
     ]
 
     final_results = []
-
+    
     for idx, row_oedf in osm_elements_df.iterrows():
+        
         arche = row_oedf.get('archetype', None)
         if pd.isna(arche):
             # sin arquetipo → saltamos
@@ -290,8 +299,9 @@ def building_schedule_adding(osm_elements_df: pd.DataFrame,
 
         # Mezcla de vuelta en la fila (asumo que assign_data devuelve un dict/Serie listo para DataFrame)
         out_row = assign_data(list_building_variables, list_building_values, row_oedf)
+ 
         final_results.append(out_row)
-
+    
     return pd.DataFrame(final_results).reset_index(drop=True)
 
 
@@ -581,12 +591,14 @@ def computate_stats(row):
     return stats_value
 
 
-def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district, tags_lacking):
+def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district, building_types):
     # User Interface
     print(f'    [WARNING] Data is missing, it needs to be downloaded.')
     
     # Sacamos los datos de paths
     study_area_path = paths[study_area]
+    cache_path = os.path.join(paths['maps'], "cache")
+    
     # Nos aseguramos de que contamos con documentos criticos
     try:
         print(f"        Reading 'Class matrix for ESeC 2008 rev.xlsx' ...")
@@ -597,31 +609,47 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
         
     # User Interface
     print(f'        Processing data (it might take a while)...')
-    # Creamos eldiccionario con los datos de etiquetas a considerar
-    services_groups = services_groups_creation(Services_Group_relationship, tags_lacking)
-    # Creamos la lista con los datos finales
-    all_osm_data = []
     # En base al distrito de analisis, sacamos la ciudad a descargar
     city = city_district.get(study_area)
     
     #gdf = ox.geocode_to_gdf(city)
-    
     gdf = ox.geocode_to_gdf('Kanaleneiland')
+
     polygon = gdf.iloc[0].geometry
-        
+    # Crear si no existe
+    if not os.path.isdir(cache_path):
+        os.makedirs(cache_path, exist_ok=True)
+    # Listar archivos .geojson
+    geojson_files = [f.replace(".geojson", "") for f in os.listdir(cache_path) if f.endswith(".geojson")]
+    missing_files = [b for b in building_types if b not in geojson_files]
+    not_missing_files = [b for b in building_types if b in geojson_files]
+    
+    # User Interface
+    for not_miss in not_missing_files:
+        print(f"            {not_miss}: retrieved from cache.")
+    
+    # Creamos el diccionario con los datos de etiquetas a considerar
+    services_groups = services_groups_creation(Services_Group_relationship, missing_files)
+    
     for group_name, group_ref in services_groups.items():
         try:
+            # Descargamos datos
             df_group = get_osm_elements(polygon, group_ref)
-            df_group['archetype'] = group_name.replace('_list', '')
-            
-            input(df_group)
-            
+            df_group['archetype'] = group_name
+            # Guardamos resultados
+            df_group.to_file(f"{cache_path}/{group_name}.geojson", driver="GeoJSON")
+            # UserInterface
             print(f"            {group_name}: {len(df_group)} elements found")
         except Exception as e:
             print(f"            [ERROR] Failed to get data for {group_name}: {e}")
 
     # Concatenar todos los DataFrames
-    osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
+    # Leer todos los .geojson del path
+    geojson_files = [os.path.join(cache_path, f) for f in os.listdir(cache_path) if f.endswith(".geojson")]
+
+    # Cargar y unir en un solo GeoDataFrame
+    gdfs = [gpd.read_file(f) for f in geojson_files]
+    osm_elements_df = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=gdfs[0].crs)
     
     SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
     
@@ -705,7 +733,7 @@ def Geodata_initialization(study_area, paths, pop_archetypes):
     agent_populations['building'] = load_or_download_pois(study_area, paths, pop_archetypes['building'], special_areas_coords, city_district)
 
     # Paso 2: Cargar o descargar redes
-    networks_map = load_or_download_networks(study_area, paths['maps'], networks, special_areas_coords)
+    networks_map = load_or_download_networks(study_area, paths['maps'], networks, city_district)
 
     return agent_populations, networks_map
 
@@ -916,22 +944,8 @@ def load_or_download_pois(study_area, paths, pop_archetypes_building, special_ar
     try:
         # Intentamos leer el doc
         pop_building = pd.read_parquet(f'{pop_path}/pop_building.parquet')
-        # Si podemos (si existe) evaluamos los servicios ya evaluados
-        currently_done = (pop_building['archetype']
-            .dropna()
-            .astype(str).str.strip()
-            .unique().tolist()
-        )
-        # Creamos una lista de los servicios que faltan
-        tags_lacking = [b for b in building_types if b not in currently_done]
     except Exception:
-        # Ya que no se ha podido leer, creamos el df
-        pop_building = pd.DataFrame()
-        # Copiamos la lista de servicios a evaluar
-        tags_lacking = building_types
-    # Si hay servicios faltantes, generamos el 'pop_building' y lo devolvemos como resultado
-    if tags_lacking != []:
-        pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district, tags_lacking)
+        pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district, building_types)
     # Devolvemos el df completo
     return pop_building
     
@@ -941,6 +955,8 @@ def load_or_download_networks(study_area, study_area_path, networks, city_distri
     networks_map = {}
     missing_networks = []
     city = city_district.get(study_area)
+    
+    city = study_area
     
     print(f'Loading maps ...')
 
@@ -956,7 +972,7 @@ def load_or_download_networks(study_area, study_area_path, networks, city_distri
         print(f'    Downloading missing maps: {missing_networks}')
         for net_type in missing_networks:
             try:
-                print(f'        Downloading {net_type} network from {study_area} ...')
+                print(f'        Downloading {net_type} network from {city} ...')
 
                 # Transformar el polígono a metros para aplicar buffer
                 project = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
@@ -1142,7 +1158,7 @@ def services_groups_creation(df, to_keep):
             if surname not in group_ref[name]:
                 group_ref[name].append(surname)
         
-        group_dicts[group + "_list"] = group_ref
+        group_dicts[group] = group_ref
     
     return group_dicts
 
