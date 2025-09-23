@@ -613,9 +613,7 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
         try:
             df_group = get_osm_elements(polygon, group_ref)
             df_group['archetype'] = group_name.replace('_list', '')
-            
-            input(df_group)
-            
+            all_osm_data.append(df_group)
             print(f"            {group_name}: {len(df_group)} elements found")
         except Exception as e:
             print(f"            [ERROR] Failed to get data for {group_name}: {e}")
@@ -773,8 +771,14 @@ def get_osm_elements(polygon, poss_ref):
     
     # Crear conjunto de etiquetas para OSM
     tags = {key: True for key in poss_ref.keys()}
+    
+    print("Descarga")
+    
     # Descargar datos de OSM
     gdf = ox.geometries_from_polygon(polygon, tags).reset_index()
+    
+    print("Gestion posterior")
+    
     # Filtrar filas según poss_ref usando máscara booleana
     mask = pd.Series(False, index=gdf.index)
     for key, values in poss_ref.items():
@@ -784,7 +788,9 @@ def get_osm_elements(polygon, poss_ref):
             mask |= gdf[key].isin(values)
         else:
             mask |= gdf[key] == values
+
     filtered_gdf = gdf[mask].copy()
+    
     if filtered_gdf.empty:
         raise ValueError("No POIs have been detected in the study area.")
     
