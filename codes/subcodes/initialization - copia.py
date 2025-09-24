@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import itertools
 import math
-import os
+import folium
+import os, json
 import random
 import shutil
 import sys
@@ -56,6 +57,8 @@ def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, pro
     - proj_epsg: CRS métrico para cálculos en metros
     """
     
+    cache_path = os.path.join(paths['maps'], "cache")
+    
     # Cargar sistema eléctrico
     electric_system = e_sys_loading(paths, study_area)
 
@@ -64,6 +67,8 @@ def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, pro
     
     # Guardar resultados
     building_populations_with_node.to_parquet(f"{paths['population']}/pop_building.parquet", index=False)
+    # Borramos cache
+    shutil.rmtree(cache_path)
     
     return building_populations_with_node
 
@@ -247,6 +252,10 @@ def building_schedule_adding(osm_elements_df: pd.DataFrame,
     Añade variables de 'building_archetypes_df' a cada building de 'osm_elements_df',
     redondeando tiempos a múltiplos de `round_to` minutos.
     """
+    #  User Interface
+    print(f"        Adding schedules to buildings ...")
+    
+    
     # columnas *_mu presentes en la hoja de arquetipos
     list_building_variables = [
         col.rsplit('_', 1)[0]
@@ -255,8 +264,9 @@ def building_schedule_adding(osm_elements_df: pd.DataFrame,
     ]
 
     final_results = []
-
+    
     for idx, row_oedf in osm_elements_df.iterrows():
+        
         arche = row_oedf.get('archetype', None)
         if pd.isna(arche):
             # sin arquetipo → saltamos
@@ -290,8 +300,9 @@ def building_schedule_adding(osm_elements_df: pd.DataFrame,
 
         # Mezcla de vuelta en la fila (asumo que assign_data devuelve un dict/Serie listo para DataFrame)
         out_row = assign_data(list_building_variables, list_building_values, row_oedf)
+ 
         final_results.append(out_row)
-
+    
     return pd.DataFrame(final_results).reset_index(drop=True)
 
 
@@ -581,12 +592,14 @@ def computate_stats(row):
     return stats_value
 
 
-def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district, tags_lacking):
+def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district, building_types):
     # User Interface
     print(f'    [WARNING] Data is missing, it needs to be downloaded.')
     
     # Sacamos los datos de paths
     study_area_path = paths[study_area]
+    cache_path = os.path.join(paths['maps'], "cache")
+    
     # Nos aseguramos de que contamos con documentos criticos
     try:
         print(f"        Reading 'Class matrix for ESeC 2008 rev.xlsx' ...")
@@ -597,29 +610,48 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
         
     # User Interface
     print(f'        Processing data (it might take a while)...')
-    # Creamos eldiccionario con los datos de etiquetas a considerar
-    services_groups = services_groups_creation(Services_Group_relationship, tags_lacking)
-    # Creamos la lista con los datos finales
-    all_osm_data = []
     # En base al distrito de analisis, sacamos la ciudad a descargar
     city = city_district.get(study_area)
     
     #gdf = ox.geocode_to_gdf(city)
-    
     gdf = ox.geocode_to_gdf('Kanaleneiland')
+    
     polygon = gdf.iloc[0].geometry
-        
+    # Crear si no existe
+    if not os.path.isdir(cache_path):
+        os.makedirs(cache_path, exist_ok=True)
+    # Listar archivos .geojson
+    geojson_files = [f.replace(".geojson", "") for f in os.listdir(cache_path) if f.endswith(".geojson")]
+    missing_files = [b for b in building_types if b not in geojson_files]
+    not_missing_files = [b for b in building_types if b in geojson_files]
+    
+    # User Interface
+    for not_miss in not_missing_files:
+        print(f"            {not_miss}: retrieved from cache.")
+    
+    # Creamos el diccionario con los datos de etiquetas a considerar
+    services_groups = services_groups_creation(Services_Group_relationship, missing_files)
+    
     for group_name, group_ref in services_groups.items():
-        try:
-            df_group = get_osm_elements(polygon, group_ref)
-            df_group['archetype'] = group_name.replace('_list', '')
-            all_osm_data.append(df_group)
-            print(f"            {group_name}: {len(df_group)} elements found")
-        except Exception as e:
-            print(f"            [ERROR] Failed to get data for {group_name}: {e}")
+        # Descargamos datos
+        print(f"                Downloading data for {group_name}")
+        df_group = get_osm_elements(polygon, group_ref, group_name, cache_path)
+        df_group['archetype'] = group_name
+        # Guardamos resultados
+        df_group.to_file(f"{cache_path}/{group_name}.geojson", driver="GeoJSON")
+        # Borramos cache
+        shutil.rmtree(os.path.join(cache_path, group_name))
+        # UserInterface
+        print(f"            {group_name}: {len(df_group)} elements found")
+
 
     # Concatenar todos los DataFrames
-    osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
+    # Leer todos los .geojson del path
+    geojson_files = [os.path.join(cache_path, f) for f in os.listdir(cache_path) if f.endswith(".geojson")]
+
+    # Cargar y unir en un solo GeoDataFrame
+    gdfs = [gpd.read_file(f) for f in geojson_files]
+    osm_elements_df = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=gdfs[0].crs)
     
     SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
     
@@ -703,7 +735,7 @@ def Geodata_initialization(study_area, paths, pop_archetypes):
     agent_populations['building'] = load_or_download_pois(study_area, paths, pop_archetypes['building'], special_areas_coords, city_district)
 
     # Paso 2: Cargar o descargar redes
-    networks_map = load_or_download_networks(study_area, paths['maps'], networks, special_areas_coords)
+    networks_map = load_or_download_networks(study_area, paths['maps'], networks, city_district)
 
     return agent_populations, networks_map
 
@@ -756,7 +788,7 @@ def get_wos_action(archetype, pop_archetypes, stats_synpop):
     return get_stats_value(value, stats_synpop, archetype, 'WoS_action')
 
 
-def get_osm_elements(polygon, poss_ref):
+def get_osm_elements(polygon, poss_ref, group_name, cache_path):
     """
     Obtiene y filtra elementos de OSM dentro de un polígono de forma optimizada.
     Calcula centroides correctamente en lat/lon.
@@ -764,64 +796,101 @@ def get_osm_elements(polygon, poss_ref):
     Parámetros:
     - polygon (¿?): Área de búsqueda.
     - poss_ref (dict): Reglas de prioridad para las etiquetas.
+    group_name(str)
     
     Retorna:
     - GeoDataFrame con columnas: ['building_type', 'osm_id', 'geometry', 'lat', 'lon']
     """
     
-    # Crear conjunto de etiquetas para OSM
-    tags = {key: True for key in poss_ref.keys()}
+    # Obtenemos los key presentes en este arquetipo de POI
+    sevice_keys =list(poss_ref.keys())
     
-    print("Descarga")
+    # El path para la carpeta de las key de cada arquetipo de POI
+    g_cache_path = os.path.join(cache_path, group_name)
     
-    # Descargar datos de OSM
-    gdf = ox.geometries_from_polygon(polygon, tags).reset_index()
+    # Crear si no existe
+    if not os.path.isdir(g_cache_path):
+        os.makedirs(g_cache_path, exist_ok=True)
+    # Listar archivos .geojson
+    geojson_files = [f.replace(".geojson", "") for f in os.listdir(g_cache_path) if f.endswith(".geojson")]
+    missing_files = [b for b in sevice_keys if b not in geojson_files]
     
-    print("Gestion posterior")
-    
-    # Filtrar filas según poss_ref usando máscara booleana
-    mask = pd.Series(False, index=gdf.index)
-    for key, values in poss_ref.items():
-        if key not in gdf.columns:
-            continue
-        if isinstance(values, list):
-            mask |= gdf[key].isin(values)
-        else:
-            mask |= gdf[key] == values
+    for file in missing_files:
+        print(f"                    Downloading data for {file}")
+        # 'values' del 'key' que analizamos ahora
+        values2download = poss_ref[file]
+        # El path para la carpeta de las 'value' de cada arquetipo de POI
+        v_cache_path = os.path.join(g_cache_path, file)
 
-    filtered_gdf = gdf[mask].copy()
+        if not os.path.isdir(v_cache_path):
+            os.makedirs(v_cache_path, exist_ok=True)
+        # Listar archivos .geojson
+        geojson_subfiles = [f.replace(".geojson", "") for f in os.listdir(v_cache_path) if f.endswith(".geojson")]
+        missing_subfiles = [b for b in values2download if b not in geojson_subfiles]
+        
+        for subfile in missing_subfiles:
+            print(f"                        Downloading data for {subfile}")
+            tag = {file: subfile}
+
+            gdf = gpd.GeoDataFrame(geometry=[polygon], crs="EPSG:4326")
+
+            # Centro del polígono
+            centroid = gdf.geometry.centroid.iloc[0]
+
+            # Crear mapa
+            m = folium.Map(location=[centroid.y, centroid.x], zoom_start=16)
+            folium.GeoJson(gdf).add_to(m)
+
+            m.save("mapa.html")
+            
+            input('hevho')
+            
+            # Descargar datos de OSM
+            gdf = ox.geometries_from_polygon(polygon, tag).reset_index()
+            
+            print(f"                        [Downloaded]")
+            
+            if gdf is None or getattr(gdf, "empty", True):
+                # Si está vacío o es None, guardamos un GeoJSON vacío
+                empty_fc = {"type": "FeatureCollection", "features": []}
+                with open(f"{v_cache_path}/{subfile}.geojson", "w", encoding="utf-8") as f:
+                    json.dump(empty_fc, f, ensure_ascii=False)
+                continue
+            
+            # Reproyectar a CRS proyectado (UTM estimado) para centroides precisos
+            projected_gdf = gdf.to_crs(gdf.estimate_utm_crs())
+            # Calcular centroides en CRS proyectado
+            centroids = projected_gdf.geometry.centroid
+            # Reproyectar centroides a EPSG:4326 (lat/lon)
+            centroids_geo = centroids.to_crs(epsg=4326)
+            # Asignar lat/lon correctos
+            projected_gdf['lat'] = centroids_geo.y
+            projected_gdf['lon'] = centroids_geo.x
+            # Filtrar edificios cuyo centroide esté dentro del polígono original (no se podrán asignar a ningun bus por lo que nos da igual)
+            projected_gdf = projected_gdf[centroids_geo.within(polygon)]
+            if projected_gdf.empty:
+                raise ValueError("No building has its centroid within the study area.")
+            # Volver a CRS geográfico para la geometría original
+            projected_gdf = projected_gdf.to_crs(epsg=4326)
+            # Aplicar funciones personalizadas
+            projected_gdf['building_type'] = projected_gdf.apply(lambda row: building_type(row, poss_ref), axis=1)
+            projected_gdf['osm_id'] = projected_gdf.apply(osmid_reform, axis=1)
+            
+            geofile = projected_gdf[['building_type', 'osm_id', 'geometry', 'lat', 'lon']]
+            
+            # Guardamos resultados
+            geofile.to_file(f"{v_cache_path}/{subfile}.geojson", driver="GeoJSON")
     
-    if filtered_gdf.empty:
-        raise ValueError("No POIs have been detected in the study area.")
-    
-    # Reproyectar a CRS proyectado (UTM estimado) para centroides precisos
-    projected_gdf = filtered_gdf.to_crs(filtered_gdf.estimate_utm_crs())
-    
-    # Calcular centroides en CRS proyectado
-    centroids = projected_gdf.geometry.centroid
-    
-    # Reproyectar centroides a EPSG:4326 (lat/lon)
-    centroids_geo = centroids.to_crs(epsg=4326)
-    
-    # Asignar lat/lon correctos
-    projected_gdf['lat'] = centroids_geo.y
-    projected_gdf['lon'] = centroids_geo.x
-    
-    # Filtrar edificios cuyo centroide esté dentro del polígono original (no se podrán asignar a ningun bus por lo que nos da igual)
-    projected_gdf = projected_gdf[centroids_geo.within(polygon)]
-    
-    if projected_gdf.empty:
-        raise ValueError("No building has its centroid within the study area.")
-    
-    # Volver a CRS geográfico para la geometría original
-    projected_gdf = projected_gdf.to_crs(epsg=4326)
-    
-    # Aplicar funciones personalizadas
-    projected_gdf['building_type'] = projected_gdf.apply(lambda row: building_type(row, poss_ref), axis=1)
-    projected_gdf['osm_id'] = projected_gdf.apply(osmid_reform, axis=1)
+    # Concatenar todos los DataFrames
+    # Leer todos los .geojson del path
+    final_subfiles = [os.path.join(v_cache_path, f) for f in os.listdir(v_cache_path) if f.endswith(".geojson")]
+
+    # Cargar y unir en un solo GeoDataFrame
+    final_gdfs = [gpd.read_file(f) for f in final_subfiles]
+    results = gpd.GeoDataFrame(pd.concat(final_gdfs, ignore_index=True), crs=final_gdfs[0].crs)
     
     # Seleccionar columnas finales
-    return projected_gdf[['building_type', 'osm_id', 'geometry', 'lat', 'lon']]
+    return results
 
 
 def get_vehicle_stats(archetype, transport_archetypes, variables):
@@ -922,22 +991,8 @@ def load_or_download_pois(study_area, paths, pop_archetypes_building, special_ar
     try:
         # Intentamos leer el doc
         pop_building = pd.read_parquet(f'{pop_path}/pop_building.parquet')
-        # Si podemos (si existe) evaluamos los servicios ya evaluados
-        currently_done = (pop_building['archetype']
-            .dropna()
-            .astype(str).str.strip()
-            .unique().tolist()
-        )
-        # Creamos una lista de los servicios que faltan
-        tags_lacking = [b for b in building_types if b not in currently_done]
     except Exception:
-        # Ya que no se ha podido leer, creamos el df
-        pop_building = pd.DataFrame()
-        # Copiamos la lista de servicios a evaluar
-        tags_lacking = building_types
-    # Si hay servicios faltantes, generamos el 'pop_building' y lo devolvemos como resultado
-    if tags_lacking != []:
-        pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district, tags_lacking)
+        pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district, building_types)
     # Devolvemos el df completo
     return pop_building
     
@@ -962,7 +1017,7 @@ def load_or_download_networks(study_area, study_area_path, networks, city_distri
         print(f'    Downloading missing maps: {missing_networks}')
         for net_type in missing_networks:
             try:
-                print(f'        Downloading {net_type} network from {study_area} ...')
+                print(f'        Downloading {net_type} network from {city} ...')
 
                 # Transformar el polígono a metros para aplicar buffer
                 project = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
@@ -1148,7 +1203,7 @@ def services_groups_creation(df, to_keep):
             if surname not in group_ref[name]:
                 group_ref[name].append(surname)
         
-        group_dicts[group + "_list"] = group_ref
+        group_dicts[group] = group_ref
     
     return group_dicts
 
