@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import itertools
 import math
+import folium
+from shapely.geometry import box
 import os
 import random
 import shutil
@@ -580,62 +582,242 @@ def computate_stats(row):
 
     return stats_value
 
+def split_polygon_to_grid(
+    polygon,
+    size_m=1000,
+    crs_in="EPSG:4326",
+    min_area_ratio=0.01,  # filtra fragmentos <1% del área de la celda
+):
+    """
+    Divide `polygon` en celdas de `size_m` x `size_m` (metros), devolviendo sólo la
+    parte interior al polígono. Devuelve un GeoDataFrame en EPSG:4326 con:
+      - geometry: geometría recortada por el polígono
+      - area_km2: área de cada celda (km², calculada en CRS métrico)
+      - row, col: índices de la rejilla
+      - cell_id: identificador entero único (row-major)
+    
+    Parámetros
+    ----------
+    polygon : shapely Polygon/MultiPolygon (en `crs_in`)
+    size_m : float
+        Tamaño del lado de la celda (m).
+    crs_in : str
+        CRS de entrada del polígono.
+    min_area_ratio : float
+        Umbral para descartar intersecciones minúsculas (relativo al área de la celda).
+    """
+
+    # 0) Normaliza a GeoDataFrame y proyecta a CRS métrico (UTM local)
+    gdf_in = gpd.GeoDataFrame(geometry=[polygon], crs=crs_in)
+    gdf_m = ox.projection.project_gdf(gdf_in)   # elige UTM apropiado
+    poly_m = gdf_m.geometry.iloc[0]
+    crs_m = gdf_m.crs
+
+    # 1) Bounds y alineación a la rejilla (múltiplos de size_m)
+    minx, miny, maxx, maxy = poly_m.bounds
+    start_x = np.floor(minx / size_m) * size_m
+    start_y = np.floor(miny / size_m) * size_m
+    end_x   = np.ceil(maxx / size_m) * size_m
+    end_y   = np.ceil(maxy / size_m) * size_m
+
+    xs = np.arange(start_x, end_x, size_m)
+    ys = np.arange(start_y, end_y, size_m)
+
+    # 2) Genera celdas e interseca
+    cells = []
+    rows, cols = [], []
+    cell_area = (size_m * size_m)  # m²
+    area_cut = cell_area * float(min_area_ratio)
+
+    # recorre en orden row-major: y (filas) externo, x (columnas) interno
+    for r, y in enumerate(ys):
+        for c, x in enumerate(xs):
+            cell = box(x, y, x + size_m, y + size_m)
+            inter = cell.intersection(poly_m)
+            if inter.is_empty:
+                continue
+            # Puede ser MultiPolygon: añadimos cada parte por separado
+            if inter.geom_type == "MultiPolygon":
+                for geom in inter.geoms:
+                    if geom.area >= area_cut:
+                        cells.append(geom)
+                        rows.append(r)
+                        cols.append(c)
+            else:
+                if inter.area >= area_cut:
+                    cells.append(inter)
+                    rows.append(r)
+                    cols.append(c)
+
+    # 3) Si no hay celdas, devolvemos el polígono completo como una sola
+    if not cells:
+        cells = [poly_m]
+        rows = [0]
+        cols = [0]
+
+    # 4) Construimos GDF en métrico y añadimos métricas/índices
+    grid_m = gpd.GeoDataFrame({"row": rows, "col": cols, "geometry": cells}, crs=crs_m)
+    grid_m["cell_id"] = (grid_m["row"] * len(xs) + grid_m["col"]).astype(int)
+    grid_m["area_km2"] = grid_m.area.values / 1e6  # m² → km²
+
+    # 5) Devolvemos en WGS84 para el resto del pipeline
+    grid = grid_m.to_crs(4326).reset_index(drop=True)
+    # Orden agradable de columnas
+    grid = grid[["cell_id", "row", "col", "area_km2", "geometry"]]
+
+    return grid
+
+
+def save_split_poligon_map(polygon, grid_gdf):
+    
+    # 3) Mapa interactivo con Folium
+    # Centro del mapa en el centroide del polígono original
+    centroid = gpd.GeoSeries([polygon], crs="EPSG:4326").centroid.iloc[0]
+    m = folium.Map(location=[centroid.y, centroid.x], zoom_start=13, tiles="CartoDB positron")
+
+    # Polígono original (borde grueso)
+    folium.GeoJson(
+        polygon,
+        name="Área original",
+        style_function=lambda x: {"fill": False, "color": "#1f77b4", "weight": 3}
+    ).add_to(m)
+
+    # Celdas (relleno semitransparente)
+    folium.GeoJson(
+        grid_gdf,
+        name="Celdas 1 km²",
+        style_function=lambda x: {
+            "fillColor": "#ff7f0e",
+            "color": "#ff7f0e",
+            "weight": 1,
+            "fillOpacity": 0.25
+        },
+        tooltip=folium.features.GeoJsonTooltip(fields=["area_km2"], aliases=["Área (km²)"], localize=True)
+    ).add_to(m)
+
+    folium.LayerControl().add_to(m)
+
+    # 4) Mostrar en notebook (si procede) o guardar a HTML
+    m.save("kanaleneiland_grid_1km.html")
+    print("Mapa guardado en 'kanaleneiland_grid_1km.html'")
+
+
+import os, sys, json
+import pandas as pd
+import geopandas as gpd
+import osmnx as ox
+from shapely.geometry import Polygon
+
+def _project_to_metric(geom_wgs84):
+    """Proyecta una geometría WGS84 a un CRS métrico (UTM elegido por OSMnx)."""
+    gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs=4326)
+    gdf_m = ox.projection.project_gdf(gdf)  # UTM apropiado
+    return gdf_m.geometry.iloc[0], gdf_m.crs
+
+def _write_empty_geojson(filepath):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump({"type": "FeatureCollection", "features": []}, f)
 
 def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district):
-    # User Interface
     print(f'    [WARNING] Data is missing, it needs to be downloaded.')
-    
-    # Sacamos los datos de paths
+
     study_area_path = paths[study_area]
-    # Nos aseguramos de que contamos con documentos criticos
+
+    # Documento crítico
     try:
         print(f"        Reading 'Class matrix for ESeC 2008 rev.xlsx' ...")
         Services_Group_relationship = pd.read_excel(f'{study_area_path}/Class matrix for ESeC 2008 rev.xlsx')
     except Exception:
         print(f"    [ERROR] File 'Class matrix for ESeC 2008 rev.xlsx' is not found in the data folder ({study_area_path}).")
-        sys.exit()
-        
-    tags_lacking = building_archetypes_df['name'].unique()
-    
-    
-    # User Interface
+        sys.exit(1)
+
     print(f'        Processing data (it might take a while)...')
-    # Creamos eldiccionario con los datos de etiquetas a considerar
-    services_groups = services_groups_creation(Services_Group_relationship, tags_lacking)
-    # Creamos la lista con los datos finales
-    all_osm_data = []
-    # En base al distrito de analisis, sacamos la ciudad a descargar
+
+    services_groups = services_groups_creation(Services_Group_relationship, building_archetypes_df['name'].unique())
+
+    # Ciudad a descargar (completa)
     city = city_district.get(study_area)
-    
-    #gdf = ox.geocode_to_gdf(city)
-    
-    gdf = ox.geocode_to_gdf('Kanaleneiland')
-    polygon = gdf.iloc[0].geometry
-        
-    for group_name, group_ref in services_groups.items():
-        try:
-            df_group = get_osm_elements(polygon, group_ref)
-            df_group['archetype'] = group_name.replace('_list', '')
-            all_osm_data.append(df_group)
-            print(f"            {group_name}: {len(df_group)} elements found")
-        except Exception as e:
-            print(f"            [ERROR] Failed to get data for {group_name}: {e}")
 
-    # Concatenar todos los DataFrames
-    osm_elements_df = pd.concat(all_osm_data, ignore_index=True)
-    
+    # Polígono de la ciudad
+    gdf_city = ox.geocode_to_gdf(city).to_crs(4326)
+    polygon_wgs84 = gdf_city.iloc[0].geometry
+
+    # 1) Grid 1 km²: trabajar en métrico y volver a WGS84
+    poly_metric, metric_crs = _project_to_metric(polygon_wgs84)
+    grid_gdf_metric = split_polygon_to_grid(polygon_wgs84, size_m=1000, crs_in="EPSG:4326")
+    grid_gdf = gpd.GeoDataFrame(grid_gdf_metric, geometry='geometry', crs=metric_crs).to_crs(4326).reset_index(drop=True)
+    print(f"            '{city}' was divided into {len(grid_gdf)} cells for management.")
+
+    # 2) Carpeta cache
+    cache_path = os.path.join(paths['maps'], "cache")
+    os.makedirs(cache_path, exist_ok=True)
+
+    # 3) Celdas ya descargadas
+    geojson_files = [f for f in os.listdir(cache_path) if f.endswith(".geojson") and f[:-8].isdigit()]
+    done_ids = {int(f[:-8]) for f in geojson_files}
+    missing_ids = [i for i in range(len(grid_gdf)) if i not in done_ids]
+
+    # 4) Procesar celdas faltantes
+    for grid_id in missing_ids:
+        grid_geom = grid_gdf.at[grid_id, "geometry"]
+        all_osm_data = []
+
+        for group_name, group_ref in services_groups.items():
+            
+            input(services_groups)
+            
+            
+            try:
+                df_group = get_osm_elements(grid_geom, group_ref)  # espera geom en WGS84
+                if df_group is not None and hasattr(df_group, "empty") and not df_group.empty:
+                    if 'archetype' not in df_group.columns:
+                        df_group['archetype'] = group_name.replace('_list', '')
+                    # normalizamos CRS por si acaso
+                    if getattr(df_group, "crs", None) is not None and df_group.crs != "EPSG:4326":
+                        df_group = df_group.to_crs(4326)
+                    all_osm_data.append(df_group)
+            except Exception as e:
+                print(f"                [ERROR] {group_name} in cell {grid_id}: {e}")
+
+        out_fp = f"{cache_path}/{grid_id}.geojson"
+        if all_osm_data:
+            osm_elements_df = gpd.GeoDataFrame(pd.concat(all_osm_data, ignore_index=True), crs=4326)
+            # columnas mínimas esperadas (relleno si faltan)
+            for col in ['archetype','building_type','osm_id','lat','lon']:
+                if col not in osm_elements_df.columns and col != 'geometry':
+                    osm_elements_df[col] = pd.NA
+            try:
+                osm_elements_df.to_file(out_fp, driver="GeoJSON")
+            except ValueError:
+                # si por lo que sea queda vacío, escribimos placeholder
+                _write_empty_geojson(out_fp)
+        else:
+            _write_empty_geojson(out_fp)
+
+        total = sum(len(df) for df in all_osm_data) if all_osm_data else 0
+        print(f"                Cell {grid_id}: {total} elements found")
+
+    # 5) Concatenar todo (asumimos archivos OK)
+    geojson_paths = [os.path.join(cache_path, f) for f in os.listdir(cache_path) if f.endswith(".geojson")]
+    gdfs = [gpd.read_file(fp).to_crs(4326) for fp in geojson_paths]
+    if len(gdfs) == 0:
+        osm_elements_df = gpd.GeoDataFrame(columns=['archetype','building_type','osm_id','geometry','lat','lon'], crs=4326)
+    else:
+        osm_elements_df = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=4326)
+
+    # 6) Añadir schedule / relación con arquetipos
     SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
-    
-    coords = special_areas_coords[study_area]
-    # Intercambiar lat y lon a lon, lat
-    coords_corrected = [(lon, lat) for lat, lon in coords]
-    distric_polygon = Polygon(coords_corrected)
-    
-    # Añadir datos de buses eléctricos aquí
-    buildings_populations = add_ebus(paths, distric_polygon, SG_relationship, study_area)
-    
-    return buildings_populations
 
+    # 7) Polígono del distrito (tus coords vienen como (lat, lon) → convertimos a (lon, lat))
+    coords = special_areas_coords[study_area]
+    coords_corrected = [(lon, lat) for (lat, lon) in coords]
+    distric_polygon = Polygon(coords_corrected)
+
+    # 8) Añadir buses eléctricos
+    buildings_populations = add_ebus(paths, distric_polygon, SG_relationship, study_area)
+
+    return buildings_populations
 
 def e_sys_loading(paths, study_area):
     try:
@@ -759,24 +941,40 @@ def get_wos_action(archetype, pop_archetypes, stats_synpop):
     return get_stats_value(value, stats_synpop, archetype, 'WoS_action')
 
 
+import pandas as pd
+import geopandas as gpd
+import osmnx as ox
+
 def get_osm_elements(polygon, poss_ref):
     """
-    Obtiene y filtra elementos de OSM dentro de un polígono de forma optimizada.
-    Calcula centroides correctamente en lat/lon.
-    
+    Descarga y filtra elementos de OSM dentro de un polígono dado para UN servicio (poss_ref).
+    Calcula centroides en un CRS proyectado y retorna columnas estandarizadas.
+
     Parámetros:
-    - polygon (¿?): Área de búsqueda.
-    - poss_ref (dict): Reglas de prioridad para las etiquetas.
-    
+    - polygon (shapely Polygon/MultiPolygon): área de búsqueda.
+    - poss_ref (dict): reglas de filtrado {key: [values] | value} (p.ej. {'amenity':['school','hospital']}).
+
     Retorna:
-    - GeoDataFrame con columnas: ['building_type', 'osm_id', 'geometry', 'lat', 'lon']
+    - GeoDataFrame con columnas: ['building_type','osm_id','geometry','lat','lon'] (CRS EPSG:4326).
     """
-    
-    # Crear conjunto de etiquetas para OSM
+
+    # 1) Preparar etiquetas (una sola descarga por servicio)
+    if not poss_ref or not isinstance(poss_ref, dict):
+        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
+
     tags = {key: True for key in poss_ref.keys()}
-    # Descargar datos de OSM
-    gdf = ox.geometries_from_polygon(polygon, tags).reset_index()
-    # Filtrar filas según poss_ref usando máscara booleana
+
+    # 2) Descargar datos
+    try:
+        gdf = ox.geometries_from_polygon(polygon, tags).reset_index()
+    except Exception:
+        # Si Overpass falla, devolvemos vacío con esquema correcto
+        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
+
+    if gdf.empty:
+        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
+
+    # 3) Filtrar según poss_ref (OR entre keys/values)
     mask = pd.Series(False, index=gdf.index)
     for key, values in poss_ref.items():
         if key not in gdf.columns:
@@ -784,41 +982,32 @@ def get_osm_elements(polygon, poss_ref):
         if isinstance(values, list):
             mask |= gdf[key].isin(values)
         else:
-            mask |= gdf[key] == values
+            mask |= (gdf[key] == values)
 
-    filtered_gdf = gdf[mask].copy()
-    
-    if filtered_gdf.empty:
-        raise ValueError("No POIs have been detected in the study area.")
-    
-    # Reproyectar a CRS proyectado (UTM estimado) para centroides precisos
-    projected_gdf = filtered_gdf.to_crs(filtered_gdf.estimate_utm_crs())
-    
-    # Calcular centroides en CRS proyectado
-    centroids = projected_gdf.geometry.centroid
-    
-    # Reproyectar centroides a EPSG:4326 (lat/lon)
-    centroids_geo = centroids.to_crs(epsg=4326)
-    
-    # Asignar lat/lon correctos
-    projected_gdf['lat'] = centroids_geo.y
-    projected_gdf['lon'] = centroids_geo.x
-    
-    # Filtrar edificios cuyo centroide esté dentro del polígono original (no se podrán asignar a ningun bus por lo que nos da igual)
-    projected_gdf = projected_gdf[centroids_geo.within(polygon)]
-    
-    if projected_gdf.empty:
-        raise ValueError("No building has its centroid within the study area.")
-    
-    # Volver a CRS geográfico para la geometría original
-    projected_gdf = projected_gdf.to_crs(epsg=4326)
-    
-    # Aplicar funciones personalizadas
-    projected_gdf['building_type'] = projected_gdf.apply(lambda row: building_type(row, poss_ref), axis=1)
-    projected_gdf['osm_id'] = projected_gdf.apply(osmid_reform, axis=1)
-    
-    # Seleccionar columnas finales
-    return projected_gdf[['building_type', 'osm_id', 'geometry', 'lat', 'lon']]
+    filtered = gdf.loc[mask].copy()
+    if filtered.empty:
+        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
+
+    # 4) Centroides correctos (proyectado)
+    gdf_geo = gpd.GeoDataFrame(filtered, geometry='geometry', crs="EPSG:4326")
+    try:
+        target_crs = gpd.GeoSeries([polygon], crs="EPSG:4326").estimate_utm_crs()
+    except Exception:
+        target_crs = gdf_geo.estimate_utm_crs()
+
+    gdf_proj = gdf_geo.to_crs(target_crs)
+    centroids_proj = gdf_proj.geometry.centroid
+    centroids_geo = gpd.GeoSeries(centroids_proj, crs=target_crs).to_crs(epsg=4326)
+
+    gdf_geo['lat'] = centroids_geo.y
+    gdf_geo['lon'] = centroids_geo.x
+
+    # 5) Campos derivados (usa tus funciones existentes)
+    #    Nota: 'building_type' depende de poss_ref del servicio actual
+    gdf_geo['building_type'] = gdf_geo.apply(lambda row: building_type(row, poss_ref), axis=1)
+    gdf_geo['osm_id'] = gdf_geo.apply(osmid_reform, axis=1)
+
+    return gdf_geo[['building_type','osm_id','geometry','lat','lon']]
 
 
 def get_vehicle_stats(archetype, transport_archetypes, variables):
@@ -1381,6 +1570,7 @@ def Utilities_assignment(
     ring_crs: str = "EPSG:4326",
     expand_factor: float = 2.0,
     max_iters: int = 4):
+    
     # --- helpers ---
     def pick_building_type(osm_id):
         bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'building_type']
@@ -1516,7 +1706,7 @@ def Utilities_assignment(
 
         # 6.3) anillo con expansión
         
-        DEBUG_PLOTS = False # <----- Modificar esto para que podamos plotear los donuts
+        DEBUG_PLOTS = True # <----- Modificar esto para que podamos plotear los donuts
         
         arch_citizen = pop_archetypes['citizen']
         data_filtered = arch_citizen[arch_citizen['name'] == row_updated['archetype']].iloc[0]
