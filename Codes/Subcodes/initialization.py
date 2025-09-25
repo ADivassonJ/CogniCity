@@ -10,6 +10,7 @@ import random
 import shutil
 import sys
 import warnings
+from pyrosm import OSM
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
@@ -582,242 +583,7 @@ def computate_stats(row):
 
     return stats_value
 
-def split_polygon_to_grid(
-    polygon,
-    size_m=1000,
-    crs_in="EPSG:4326",
-    min_area_ratio=0.01,  # filtra fragmentos <1% del área de la celda
-):
-    """
-    Divide `polygon` en celdas de `size_m` x `size_m` (metros), devolviendo sólo la
-    parte interior al polígono. Devuelve un GeoDataFrame en EPSG:4326 con:
-      - geometry: geometría recortada por el polígono
-      - area_km2: área de cada celda (km², calculada en CRS métrico)
-      - row, col: índices de la rejilla
-      - cell_id: identificador entero único (row-major)
-    
-    Parámetros
-    ----------
-    polygon : shapely Polygon/MultiPolygon (en `crs_in`)
-    size_m : float
-        Tamaño del lado de la celda (m).
-    crs_in : str
-        CRS de entrada del polígono.
-    min_area_ratio : float
-        Umbral para descartar intersecciones minúsculas (relativo al área de la celda).
-    """
 
-    # 0) Normaliza a GeoDataFrame y proyecta a CRS métrico (UTM local)
-    gdf_in = gpd.GeoDataFrame(geometry=[polygon], crs=crs_in)
-    gdf_m = ox.projection.project_gdf(gdf_in)   # elige UTM apropiado
-    poly_m = gdf_m.geometry.iloc[0]
-    crs_m = gdf_m.crs
-
-    # 1) Bounds y alineación a la rejilla (múltiplos de size_m)
-    minx, miny, maxx, maxy = poly_m.bounds
-    start_x = np.floor(minx / size_m) * size_m
-    start_y = np.floor(miny / size_m) * size_m
-    end_x   = np.ceil(maxx / size_m) * size_m
-    end_y   = np.ceil(maxy / size_m) * size_m
-
-    xs = np.arange(start_x, end_x, size_m)
-    ys = np.arange(start_y, end_y, size_m)
-
-    # 2) Genera celdas e interseca
-    cells = []
-    rows, cols = [], []
-    cell_area = (size_m * size_m)  # m²
-    area_cut = cell_area * float(min_area_ratio)
-
-    # recorre en orden row-major: y (filas) externo, x (columnas) interno
-    for r, y in enumerate(ys):
-        for c, x in enumerate(xs):
-            cell = box(x, y, x + size_m, y + size_m)
-            inter = cell.intersection(poly_m)
-            if inter.is_empty:
-                continue
-            # Puede ser MultiPolygon: añadimos cada parte por separado
-            if inter.geom_type == "MultiPolygon":
-                for geom in inter.geoms:
-                    if geom.area >= area_cut:
-                        cells.append(geom)
-                        rows.append(r)
-                        cols.append(c)
-            else:
-                if inter.area >= area_cut:
-                    cells.append(inter)
-                    rows.append(r)
-                    cols.append(c)
-
-    # 3) Si no hay celdas, devolvemos el polígono completo como una sola
-    if not cells:
-        cells = [poly_m]
-        rows = [0]
-        cols = [0]
-
-    # 4) Construimos GDF en métrico y añadimos métricas/índices
-    grid_m = gpd.GeoDataFrame({"row": rows, "col": cols, "geometry": cells}, crs=crs_m)
-    grid_m["cell_id"] = (grid_m["row"] * len(xs) + grid_m["col"]).astype(int)
-    grid_m["area_km2"] = grid_m.area.values / 1e6  # m² → km²
-
-    # 5) Devolvemos en WGS84 para el resto del pipeline
-    grid = grid_m.to_crs(4326).reset_index(drop=True)
-    # Orden agradable de columnas
-    grid = grid[["cell_id", "row", "col", "area_km2", "geometry"]]
-
-    return grid
-
-
-def save_split_poligon_map(polygon, grid_gdf):
-    
-    # 3) Mapa interactivo con Folium
-    # Centro del mapa en el centroide del polígono original
-    centroid = gpd.GeoSeries([polygon], crs="EPSG:4326").centroid.iloc[0]
-    m = folium.Map(location=[centroid.y, centroid.x], zoom_start=13, tiles="CartoDB positron")
-
-    # Polígono original (borde grueso)
-    folium.GeoJson(
-        polygon,
-        name="Área original",
-        style_function=lambda x: {"fill": False, "color": "#1f77b4", "weight": 3}
-    ).add_to(m)
-
-    # Celdas (relleno semitransparente)
-    folium.GeoJson(
-        grid_gdf,
-        name="Celdas 1 km²",
-        style_function=lambda x: {
-            "fillColor": "#ff7f0e",
-            "color": "#ff7f0e",
-            "weight": 1,
-            "fillOpacity": 0.25
-        },
-        tooltip=folium.features.GeoJsonTooltip(fields=["area_km2"], aliases=["Área (km²)"], localize=True)
-    ).add_to(m)
-
-    folium.LayerControl().add_to(m)
-
-    # 4) Mostrar en notebook (si procede) o guardar a HTML
-    m.save("kanaleneiland_grid_1km.html")
-    print("Mapa guardado en 'kanaleneiland_grid_1km.html'")
-
-
-import os, sys, json
-import pandas as pd
-import geopandas as gpd
-import osmnx as ox
-from shapely.geometry import Polygon
-
-def _project_to_metric(geom_wgs84):
-    """Proyecta una geometría WGS84 a un CRS métrico (UTM elegido por OSMnx)."""
-    gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs=4326)
-    gdf_m = ox.projection.project_gdf(gdf)  # UTM apropiado
-    return gdf_m.geometry.iloc[0], gdf_m.crs
-
-def _write_empty_geojson(filepath):
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump({"type": "FeatureCollection", "features": []}, f)
-
-def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district):
-    print(f'    [WARNING] Data is missing, it needs to be downloaded.')
-
-    study_area_path = paths[study_area]
-
-    # Documento crítico
-    try:
-        print(f"        Reading 'Class matrix for ESeC 2008 rev.xlsx' ...")
-        Services_Group_relationship = pd.read_excel(f'{study_area_path}/Class matrix for ESeC 2008 rev.xlsx')
-    except Exception:
-        print(f"    [ERROR] File 'Class matrix for ESeC 2008 rev.xlsx' is not found in the data folder ({study_area_path}).")
-        sys.exit(1)
-
-    print(f'        Processing data (it might take a while)...')
-
-    services_groups = services_groups_creation(Services_Group_relationship, building_archetypes_df['name'].unique())
-
-    # Ciudad a descargar (completa)
-    city = city_district.get(study_area)
-
-    # Polígono de la ciudad
-    gdf_city = ox.geocode_to_gdf(city).to_crs(4326)
-    polygon_wgs84 = gdf_city.iloc[0].geometry
-
-    # 1) Grid 1 km²: trabajar en métrico y volver a WGS84
-    poly_metric, metric_crs = _project_to_metric(polygon_wgs84)
-    grid_gdf_metric = split_polygon_to_grid(polygon_wgs84, size_m=1000, crs_in="EPSG:4326")
-    grid_gdf = gpd.GeoDataFrame(grid_gdf_metric, geometry='geometry', crs=metric_crs).to_crs(4326).reset_index(drop=True)
-    print(f"            '{city}' was divided into {len(grid_gdf)} cells for management.")
-
-    # 2) Carpeta cache
-    cache_path = os.path.join(paths['maps'], "cache")
-    os.makedirs(cache_path, exist_ok=True)
-
-    # 3) Celdas ya descargadas
-    geojson_files = [f for f in os.listdir(cache_path) if f.endswith(".geojson") and f[:-8].isdigit()]
-    done_ids = {int(f[:-8]) for f in geojson_files}
-    missing_ids = [i for i in range(len(grid_gdf)) if i not in done_ids]
-
-    # 4) Procesar celdas faltantes
-    for grid_id in missing_ids:
-        grid_geom = grid_gdf.at[grid_id, "geometry"]
-        all_osm_data = []
-
-        for group_name, group_ref in services_groups.items():
-            
-            input(services_groups)
-            
-            
-            try:
-                df_group = get_osm_elements(grid_geom, group_ref)  # espera geom en WGS84
-                if df_group is not None and hasattr(df_group, "empty") and not df_group.empty:
-                    if 'archetype' not in df_group.columns:
-                        df_group['archetype'] = group_name.replace('_list', '')
-                    # normalizamos CRS por si acaso
-                    if getattr(df_group, "crs", None) is not None and df_group.crs != "EPSG:4326":
-                        df_group = df_group.to_crs(4326)
-                    all_osm_data.append(df_group)
-            except Exception as e:
-                print(f"                [ERROR] {group_name} in cell {grid_id}: {e}")
-
-        out_fp = f"{cache_path}/{grid_id}.geojson"
-        if all_osm_data:
-            osm_elements_df = gpd.GeoDataFrame(pd.concat(all_osm_data, ignore_index=True), crs=4326)
-            # columnas mínimas esperadas (relleno si faltan)
-            for col in ['archetype','building_type','osm_id','lat','lon']:
-                if col not in osm_elements_df.columns and col != 'geometry':
-                    osm_elements_df[col] = pd.NA
-            try:
-                osm_elements_df.to_file(out_fp, driver="GeoJSON")
-            except ValueError:
-                # si por lo que sea queda vacío, escribimos placeholder
-                _write_empty_geojson(out_fp)
-        else:
-            _write_empty_geojson(out_fp)
-
-        total = sum(len(df) for df in all_osm_data) if all_osm_data else 0
-        print(f"                Cell {grid_id}: {total} elements found")
-
-    # 5) Concatenar todo (asumimos archivos OK)
-    geojson_paths = [os.path.join(cache_path, f) for f in os.listdir(cache_path) if f.endswith(".geojson")]
-    gdfs = [gpd.read_file(fp).to_crs(4326) for fp in geojson_paths]
-    if len(gdfs) == 0:
-        osm_elements_df = gpd.GeoDataFrame(columns=['archetype','building_type','osm_id','geometry','lat','lon'], crs=4326)
-    else:
-        osm_elements_df = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=4326)
-
-    # 6) Añadir schedule / relación con arquetipos
-    SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
-
-    # 7) Polígono del distrito (tus coords vienen como (lat, lon) → convertimos a (lon, lat))
-    coords = special_areas_coords[study_area]
-    coords_corrected = [(lon, lat) for (lat, lon) in coords]
-    distric_polygon = Polygon(coords_corrected)
-
-    # 8) Añadir buses eléctricos
-    buildings_populations = add_ebus(paths, distric_polygon, SG_relationship, study_area)
-
-    return buildings_populations
 
 def e_sys_loading(paths, study_area):
     try:
@@ -879,9 +645,9 @@ def Geodata_initialization(study_area, paths, pop_archetypes):
     }
     
     city_district = {
-        "Aradas": "Aveiro",
-        "Kanaleneiland": "Utrecht",
-        "Annelinn": "Tartu",
+        "Aradas": "aveiro",
+        "Kanaleneiland": "utrecht",
+        "Annelinn": "tartu",
     }
 
     # Paso 1: Cargar o descargar POIs
@@ -1094,17 +860,11 @@ def load_or_create_stats(archetypes_path, filename, creation_func, creation_args
         sys.exit()
     return df_stats
   
-
 def load_or_download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district):
     print(f'Loading POIs data ...')
     
     pop_path = paths['population']
-    # Creamos una lista con los servicios que deveriamos tener en el documento
-    building_types = (pop_archetypes_building['name']
-        .dropna()
-        .astype(str).str.strip()
-        .unique().tolist()
-    )
+
     try:
         # Intentamos leer el doc
         pop_building = pd.read_parquet(f'{pop_path}/pop_building.parquet')
@@ -1113,8 +873,6 @@ def load_or_download_pois(study_area, paths, pop_archetypes_building, special_ar
         pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district)
     # Devolvemos el df completo
     return pop_building
-    
-
 
 def load_or_download_networks(study_area, study_area_path, networks, city_district):
     networks_map = {}

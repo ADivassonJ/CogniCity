@@ -1,80 +1,215 @@
-import geopandas as gpd
-import osmnx as ox
-from shapely.geometry import box
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Extrae .osm.pbf por ciudad desde un .osm.pbf grande (p. ej., europe-latest.osm.pbf).
+Uso en VSCode: edita las variables de la sección CONFIG y ejecuta el archivo.
+"""
+
+# =========================
+# CONFIG (edita aquí)
+# =========================
+INPUT_PBF = r"C:\Users\asier.divasson\Downloads\utrecht-250924.osm.pbf"   # Ruta al PBF grande
+CITIES = ["Utrecht"]       # Nombres tal cual los dirías en un buscador
+COUNTRY_HINT = None                           # Opcional: "Netherlands", "Estonia", "Portugal", etc.
+OUTDIR = None                                 # Carpeta de salida. None = crea "<carpeta del PBF>/cities"
+SLEEP_BETWEEN = 1.5                           # Segundos entre consultas a Nominatim (ser amable)
+USER_AGENT = "CityPBFExtractor/1.0 (contact: asierdiv@gmail.com)"  # Cambia a tu email
+
+# =========================
+# CÓDIGO (no necesitas tocar)
+# =========================
+import os
+import sys
+import time
+import json
+import shutil
+import subprocess
+from typing import Dict, List, Tuple, Optional
+
+import requests
+from shapely.geometry import shape, Polygon, MultiPolygon, mapping
 from shapely.ops import unary_union
-import folium
 
-def split_polygon_to_grid(polygon, size_m=1000, crs_in="EPSG:4326"):
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+
+
+def check_osmium() -> None:
+    exe = shutil.which("osmium")
+    if not exe:
+        raise RuntimeError(
+            "No se encontró 'osmium' en el PATH. Instala osmium-tool y asegúrate de que 'osmium --version' funciona."
+        )
+
+
+def fetch_city_geojson(city: str, country_hint: Optional[str] = None, timeout: int = 60) -> Dict:
+    q = city if not country_hint else f"{city}, {country_hint}"
+    params = {
+        "q": q,
+        "format": "jsonv2",
+        "polygon_geojson": 1,
+        "addressdetails": 1,
+        "limit": 10,
+    }
+    headers = {"User-Agent": USER_AGENT}
+    r = requests.get(NOMINATIM_URL, params=params, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    results = r.json()
+    if not results:
+        raise ValueError(f"No se encontraron resultados en Nominatim para '{q}'.")
+
+    def score(item: Dict) -> Tuple[int, float]:
+        s = 0
+        if item.get("osm_type") == "relation":
+            s += 3
+        if item.get("class") == "boundary":
+            s += 3
+        if item.get("type") in {"administrative", "city", "town", "municipality"}:
+            s += 2
+        if "geojson" in item:
+            s += 2
+        imp = float(item.get("importance", 0.0))
+        return (s, imp)
+
+    results.sort(key=score, reverse=True)
+
+    for item in results:
+        gj = item.get("geojson")
+        if not gj:
+            continue
+        geom = shape(gj)
+        if isinstance(geom, (Polygon, MultiPolygon)):
+            # Unir partes si multipolígono complejo
+            geom = geom if isinstance(geom, Polygon) else unary_union(geom)
+            return mapping(geom)
+
+    raise ValueError(f"No se obtuvo un polígono válido para '{q}'. Prueba afinando el nombre o añadiendo COUNTRY_HINT.")
+
+
+def geojson_to_poly_lines(geojson_geom: Dict, name: str) -> List[str]:
     """
-    Divide un polígono en celdas cuadradas de `size_m` x `size_m` (en metros).
-    Devuelve un GeoDataFrame con las intersecciones (solo partes dentro del polígono).
+    Convierte un GeoJSON Polygon/MultiPolygon en formato .poly compatible con osmium/osmosis.
+    Incluye contornos interiores (holes) usando secciones con prefijo '!' según el formato .poly.
     """
-    # Asegura GeoSeries con CRS
-    gdf = gpd.GeoDataFrame(geometry=[polygon], crs=crs_in).to_crs(epsg=3857)
-    poly_m = gdf.geometry.iloc[0]
+    g = shape(geojson_geom)
+    lines: List[str] = [name]
 
-    minx, miny, maxx, maxy = poly_m.bounds
-    cells = []
-    x = minx
-    while x < maxx:
-        y = miny
-        while y < maxy:
-            cell = box(x, y, x+size_m, y+size_m)
-            inter = cell.intersection(poly_m)
-            if not inter.is_empty:
-                # Puede devolver multipolígonos; normalizamos a polígonos simples
-                if inter.geom_type == "MultiPolygon":
-                    cells.extend(list(inter.geoms))
-                else:
-                    cells.append(inter)
-            y += size_m
-        x += size_m
+    def ring_to_lines(coords) -> List[str]:
+        pts = list(coords)
+        if len(pts) >= 2 and pts[0] == pts[-1]:
+            pts = pts[:-1]
+        return [f"  {x:.7f} {y:.7f}" for x, y in pts]
 
-    if not cells:
-        cells = [poly_m]
+    idx = 1
+    if isinstance(g, Polygon):
+        lines.append(str(idx))
+        lines.extend(ring_to_lines(g.exterior.coords))
+        lines.append("END")
+        # holes
+        for interior in g.interiors:
+            lines.append(f"!{idx}")
+            lines.extend(ring_to_lines(interior.coords))
+            lines.append("END")
+    elif isinstance(g, MultiPolygon):
+        for poly in g.geoms:
+            lines.append(str(idx))
+            lines.extend(ring_to_lines(poly.exterior.coords))
+            lines.append("END")
+            for interior in poly.interiors:
+                lines.append(f"!{idx}")
+                lines.extend(ring_to_lines(interior.coords))
+                lines.append("END")
+            idx += 1
+    else:
+        raise ValueError("Geometría no soportada; se esperaba Polygon o MultiPolygon.")
 
-    grid = gpd.GeoDataFrame(geometry=cells, crs="EPSG:3857").to_crs(epsg=4326)
-    # Área en km² por celda (aprox. por reproyección métrica previa)
-    grid["area_km2"] = gpd.GeoDataFrame(geometry=cells, crs="EPSG:3857").area.values / 1e6
-    return grid
+    lines.append("END")
+    return lines
 
-# 1) Descarga del polígono
-gdf_place = ox.geocode_to_gdf("Tartu")
-polygon_ll = gdf_place.iloc[0].geometry  # WGS84
 
-# 2) División en celdas de 1 km²
-grid_gdf = split_polygon_to_grid(polygon_ll, size_m=1000)
+def write_text(path: str, content_lines: List[str]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(content_lines))
+        f.write("\n")
 
-print(f"Celdas generadas: {len(grid_gdf)} | Área total aprox: {grid_gdf['area_km2'].sum():.2f} km²")
 
-# 3) Mapa interactivo con Folium
-# Centro del mapa en el centroide del polígono original
-centroid = gpd.GeoSeries([polygon_ll], crs="EPSG:4326").centroid.iloc[0]
-m = folium.Map(location=[centroid.y, centroid.x], zoom_start=13, tiles="CartoDB positron")
+def sanitize_filename(name: str) -> str:
+    bad = '<>:"/\\|?*'
+    for ch in bad:
+        name = name.replace(ch, "_")
+    return "_".join(name.split())
 
-# Polígono original (borde grueso)
-folium.GeoJson(
-    polygon_ll,
-    name="Área original",
-    style_function=lambda x: {"fill": False, "color": "#1f77b4", "weight": 3}
-).add_to(m)
 
-# Celdas (relleno semitransparente)
-folium.GeoJson(
-    grid_gdf,
-    name="Celdas 1 km²",
-    style_function=lambda x: {
-        "fillColor": "#ff7f0e",
-        "color": "#ff7f0e",
-        "weight": 1,
-        "fillOpacity": 0.25
-    },
-    tooltip=folium.features.GeoJsonTooltip(fields=["area_km2"], aliases=["Área (km²)"], localize=True)
-).add_to(m)
+def run_osmium_extract(input_pbf: str, poly_path: str, out_pbf: str, strategy: str = "smart") -> None:
+    cmd = [
+        "osmium", "extract",
+        "-p", poly_path,
+        "--strategy", strategy,
+        "--overwrite",
+        "--no-progress",
+        "-o", out_pbf,
+        input_pbf,
+    ]
+    print(f"[osmium] {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
 
-folium.LayerControl().add_to(m)
 
-# 4) Mostrar en notebook (si procede) o guardar a HTML
-m  # En Jupyter muestra el mapa
-m.save("kanaleneiland_grid_1km.html")
-print("Mapa guardado en 'kanaleneiland_grid_1km.html'")
+def main() -> None:
+    # Validaciones rápidas
+    if not os.path.isfile(INPUT_PBF):
+        print(f"[ERROR] No se encuentra el archivo PBF: {INPUT_PBF}")
+        sys.exit(1)
+
+    if not CITIES or not isinstance(CITIES, list):
+        print("[ERROR] Define CITIES como lista con al menos un nombre de ciudad.")
+        sys.exit(1)
+
+    check_osmium()
+
+    outdir = OUTDIR
+    if outdir is None:
+        parent = os.path.dirname(os.path.abspath(INPUT_PBF))
+        outdir = os.path.join(parent, "cities")
+    os.makedirs(outdir, exist_ok=True)
+
+    print(f"Entrada: {INPUT_PBF}")
+    print(f"Salida:  {outdir}")
+    print(f"Ciudades: {', '.join(CITIES)}")
+    if COUNTRY_HINT:
+        print(f"Pista de país: {COUNTRY_HINT}")
+
+    for city in CITIES:
+        name = city.strip()
+        if not name:
+            continue
+        safe = sanitize_filename(name)
+        print(f"\n==> {name}")
+
+        try:
+            # 1) Polígono de la ciudad
+            gj = fetch_city_geojson(name, country_hint=COUNTRY_HINT)
+            # 2) .poly
+            poly_lines = geojson_to_poly_lines(gj, safe)
+            poly_path = os.path.join(outdir, f"{safe}.poly")
+            write_text(poly_path, poly_lines)
+            print(f"[OK] .poly guardado: {poly_path}")
+
+            # 3) Extracción con osmium
+            out_pbf = os.path.join(outdir, f"{safe}.osm.pbf")
+            run_osmium_extract(INPUT_PBF, poly_path, out_pbf, strategy="smart")
+            print(f"[OK] .osm.pbf extraído: {out_pbf}")
+
+            # 4) Respiro para Nominatim
+            time.sleep(SLEEP_BETWEEN)
+
+        except subprocess.CalledProcessError as e:
+            print(f"[ERROR] osmium extract falló (código {e.returncode}) para {name}")
+        except Exception as e:
+            print(f"[ERROR] {name}: {e}")
+
+    print("\nListo ✅")
+
+
+if __name__ == "__main__":
+    main()
