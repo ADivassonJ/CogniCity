@@ -53,26 +53,31 @@ def main():
             else:
                 os.makedirs(paths[file_2], exist_ok=True)
     
+
     print('#'*20, ' System initialization ','#'*20)
     # Archetype documentation initialization
-    pop_archetypes, stats_synpop, stats_trans = Archetype_documentation_initialization(paths)
+    pop_archetypes, stats = Archetype_documentation_initialization(paths)
     # Geodata initialization
     agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
     # Synthetic population initialization
-    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats_synpop, paths, agent_populations['building'], study_area, stats_trans)
+    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area)
     print('#'*20, ' Initialization finalized ','#'*20)
 
     # pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])
-       
+    
     try:
         level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_todolist.xlsx")
+        print(f"{study_area}_todolist.xlsx loaded")
     except Exception as e:
+        print(f"Creating {study_area}_todolist.xlsx")
         level_1_results = todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths)
     
     try:
         vehicles_actions = pd.read_excel(f"{paths['results']}/{study_area}_vehicles_actions.xlsx")
         new_level1_schedules = pd.read_excel(f"{paths['results']}/{study_area}_new_level_1.xlsx")
+        print(f"{study_area}_vehicles_actions.xlsx and {study_area}_new_level_1.xlsx loaded")
     except Exception as e:
+        print(f"Creating {study_area}_vehicles_actions.xlsx and {study_area}_new_level_1.xlsx")
         vehicles_actions, new_level1_schedules = vehicle_choice_model(level_1_results, agent_populations['transport'], agent_populations['citizen'], paths, study_area, pop_archetypes['transport'], agent_populations['building'], networks_map)
     
 def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):

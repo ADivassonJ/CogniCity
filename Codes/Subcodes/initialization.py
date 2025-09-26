@@ -1,10 +1,41 @@
 # === Estándar de Python =======================================================
 from __future__ import annotations
 
+# === Instalación automática de dependencias ===================================
+import importlib.util
+import subprocess
+import sys
+
+modules = [
+    "folium",
+    "geopandas",
+    "matplotlib",
+    "numpy",
+    "osmnx",
+    "pandas",
+    "pyproj",
+    "haversine",
+    "scipy",
+    "shapely",
+    "pyarrow",
+    "fastparquet",
+    "tqdm", 
+    "scikit-learn",
+    "openpyxl"
+]
+
+def install_if_missing(package):
+    """Instala automáticamente un paquete si no está disponible."""
+    if importlib.util.find_spec(package) is None:
+        print(f"📦 Instalando {package}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+for mod in modules:
+    install_if_missing(mod)
+
+# === Imports estándar =========================================================
 import itertools
 import math
-import folium
-from shapely.geometry import box
 import os
 import random
 import shutil
@@ -14,36 +45,30 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-# === Terceros (instalados vía pip) ============================================
-
-
-# --- DEBUG PLOT: home, ring, candidatos y elegido --------------------------------
+# === Imports de terceros (instalados vía pip) ================================
+import folium
 import geopandas as gpd
-import matplotlib.pyplot as plt
-from shapely.geometry import Point
-
-# OSM y redes
-import osmnx as ox
-ox.settings.timeout = 500  # evita timeouts al bajar datos de OSM
-
-# Numérico / datos / visualización
 import matplotlib.pyplot as plt
 import numpy as np
+import osmnx as ox
 import pandas as pd
-from scipy.spatial import Voronoi, cKDTree
-
-# Geoespacial
-import geopandas as gpd
 import pyproj
+from haversine import Unit, haversine
+from scipy.spatial import Voronoi, cKDTree
 from shapely.errors import ShapelyDeprecationWarning
-from shapely.geometry import MultiPolygon, Point, Polygon, LineString, LinearRing
+from shapely.geometry import (
+    box,
+    LineString,
+    LinearRing,
+    MultiPolygon,
+    Point,
+    Polygon,
+)
 from shapely.ops import clip_by_rect, transform, unary_union, voronoi_diagram
 
-# Distancias geodésicas
-from haversine import Unit, haversine
-
-# === Configuración de warnings ================================================
+# === Configuración ============================================================
 warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
+ox.settings.timeout = 500  # evita timeouts al descargar datos de OSM
 
 
 def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, proj_epsg=3857):
@@ -702,12 +727,6 @@ def save_split_poligon_map(polygon, grid_gdf):
     print("Mapa guardado en 'kanaleneiland_grid_1km.html'")
 
 
-import os, sys, json
-import pandas as pd
-import geopandas as gpd
-import osmnx as ox
-from shapely.geometry import Polygon
-
 def _project_to_metric(geom_wgs84):
     """Proyecta una geometría WGS84 a un CRS métrico (UTM elegido por OSMnx)."""
     gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs=4326)
@@ -764,10 +783,6 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
         all_osm_data = []
 
         for group_name, group_ref in services_groups.items():
-            
-            input(services_groups)
-            
-            
             try:
                 df_group = get_osm_elements(grid_geom, group_ref)  # espera geom en WGS84
                 if df_group is not None and hasattr(df_group, "empty") and not df_group.empty:
@@ -941,9 +956,7 @@ def get_wos_action(archetype, pop_archetypes, stats_synpop):
     return get_stats_value(value, stats_synpop, archetype, 'WoS_action')
 
 
-import pandas as pd
-import geopandas as gpd
-import osmnx as ox
+
 
 def get_osm_elements(polygon, poss_ref):
     """
@@ -1105,9 +1118,10 @@ def load_or_download_pois(study_area, paths, pop_archetypes_building, special_ar
         .astype(str).str.strip()
         .unique().tolist()
     )
+    
     try:
         # Intentamos leer el doc
-        pop_building = pd.read_parquet(f'{pop_path}/pop_building.parquet')
+        pop_building = pd.read_parquet(f'{pop_path}\pop_building.parquet')
     except Exception:
         # Ya que no se ha podido leer, creamos el df
         pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district)
@@ -1369,9 +1383,6 @@ def Synthetic_population_initialization(agent_populations, pop_archetypes, popul
             )
             
     return agent_populations
-
-import numpy as np
-import pandas as pd
 
 def pick_class_from_stats(archetype, stats_class, class_cols=None):
     """
