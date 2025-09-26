@@ -22,6 +22,7 @@ modules = [
     "tqdm", 
     "scikit-learn",
     "openpyxl",
+    "numpy",
 ]
 
 def install_if_missing(package):
@@ -1716,7 +1717,7 @@ def Utilities_assignment(
 
         # 6.3) anillo con expansión
         
-        DEBUG_PLOTS = True # <----- Modificar esto para que podamos plotear los donuts
+        DEBUG_PLOTS = False # <----- Modificar esto para que podamos plotear los donuts
         
         arch_citizen = pop_archetypes['citizen']
         data_filtered = arch_citizen[arch_citizen['name'] == row_updated['archetype']].iloc[0]

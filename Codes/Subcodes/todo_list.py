@@ -278,6 +278,9 @@ def todolist_family_creation(
                      activities=activities, paths=paths)
     # Lanzamos en paralelo
     results = []
+    
+    input('he llegado aqui')
+
     with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam): fam[0] for fam in families}
         # Progreso
@@ -362,6 +365,8 @@ def main_td():
     
     level_1_results = todolist_family_creation(study_area, df_citizens, pop_building, system_management, paths)
     
+
+
 
 # Ejecución
 if __name__ == '__main__':

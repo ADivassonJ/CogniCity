@@ -1,3 +1,39 @@
+# === Estándar de Python =======================================================
+from __future__ import annotations
+
+# === Instalación automática de dependencias ===================================
+import importlib.util
+import subprocess
+import sys
+
+modules = [
+    "folium",
+    "geopandas",
+    "matplotlib",
+    "numpy",
+    "osmnx",
+    "pandas",
+    "pyproj",
+    "haversine",
+    "scipy",
+    "shapely",
+    "pyarrow",
+    "fastparquet",
+    "tqdm", 
+    "scikit-learn",
+    "openpyxl",
+    "numpy",
+]
+
+def install_if_missing(package):
+    """Instala automáticamente un paquete si no está disponible."""
+    if importlib.util.find_spec(package) is None:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+for mod in modules:
+    install_if_missing(mod)
+
+
 import os
 import sys
 import time
