@@ -21,13 +21,12 @@ modules = [
     "fastparquet",
     "tqdm", 
     "scikit-learn",
-    "openpyxl"
+    "openpyxl",
 ]
 
 def install_if_missing(package):
     """Instala automáticamente un paquete si no está disponible."""
     if importlib.util.find_spec(package) is None:
-        print(f"📦 Instalando {package}...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
 for mod in modules:
