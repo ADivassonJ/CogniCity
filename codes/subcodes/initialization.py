@@ -738,101 +738,82 @@ def _write_empty_geojson(filepath):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump({"type": "FeatureCollection", "features": []}, f)
 
-def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district):
+
+
+def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district, building_types):
+    # User Interface
     print(f'    [WARNING] Data is missing, it needs to be downloaded.')
-
+    
+    # Sacamos los datos de paths
     study_area_path = paths[study_area]
-
-    # Documento crítico
+    cache_path = os.path.join(paths['maps'], "cache")
+    
+    # Nos aseguramos de que contamos con documentos criticos
     try:
         print(f"        Reading 'Class matrix for ESeC 2008 rev.xlsx' ...")
         Services_Group_relationship = pd.read_excel(f'{study_area_path}/Class matrix for ESeC 2008 rev.xlsx')
     except Exception:
         print(f"    [ERROR] File 'Class matrix for ESeC 2008 rev.xlsx' is not found in the data folder ({study_area_path}).")
-        sys.exit(1)
-
+        sys.exit()
+        
+    # User Interface
     print(f'        Processing data (it might take a while)...')
-
-    services_groups = services_groups_creation(Services_Group_relationship, building_archetypes_df['name'].unique())
-
-    # Ciudad a descargar (completa)
+    # En base al distrito de analisis, sacamos la ciudad a descargar
     city = city_district.get(study_area)
+    
+    #gdf = ox.geocode_to_gdf(city)
+    gdf = ox.geocode_to_gdf('Kanaleneiland')
 
-    # Polígono de la ciudad
-    gdf_city = ox.geocode_to_gdf(city).to_crs(4326)
-    polygon_wgs84 = gdf_city.iloc[0].geometry
+    polygon = gdf.iloc[0].geometry
+    # Crear si no existe
+    if not os.path.isdir(cache_path):
+        os.makedirs(cache_path, exist_ok=True)
+    # Listar archivos .geojson
+    geojson_files = [f.replace(".geojson", "") for f in os.listdir(cache_path) if f.endswith(".geojson")]
+    missing_files = [b for b in building_types if b not in geojson_files]
+    not_missing_files = [b for b in building_types if b in geojson_files]
+    
+    # User Interface
+    for not_miss in not_missing_files:
+        print(f"            {not_miss}: retrieved from cache.")
+    
+    # Creamos el diccionario con los datos de etiquetas a considerar
+    services_groups = services_groups_creation(Services_Group_relationship, missing_files)
+    
+    for group_name, group_ref in services_groups.items():
+        try:
+            # Descargamos datos
+            df_group = get_osm_elements(polygon, group_ref)
+            df_group['archetype'] = group_name
+            # Guardamos resultados
+            df_group.to_file(f"{cache_path}/{group_name}.geojson", driver="GeoJSON")
+            # UserInterface
+            print(f"            {group_name}: {len(df_group)} elements found")
+        except Exception as e:
+            print(f"            [ERROR] Failed to get data for {group_name}: {e}")
 
-    # 1) Grid 1 km²: trabajar en métrico y volver a WGS84
-    poly_metric, metric_crs = _project_to_metric(polygon_wgs84)
-    grid_gdf_metric = split_polygon_to_grid(polygon_wgs84, size_m=1000, crs_in="EPSG:4326")
-    grid_gdf = gpd.GeoDataFrame(grid_gdf_metric, geometry='geometry', crs=metric_crs).to_crs(4326).reset_index(drop=True)
-    print(f"            '{city}' was divided into {len(grid_gdf)} cells for management.")
+    # Concatenar todos los DataFrames
+    # Leer todos los .geojson del path
+    geojson_files = [os.path.join(cache_path, f) for f in os.listdir(cache_path) if f.endswith(".geojson")]
 
-    # 2) Carpeta cache
-    cache_path = os.path.join(paths['maps'], "cache")
-    os.makedirs(cache_path, exist_ok=True)
-
-    # 3) Celdas ya descargadas
-    geojson_files = [f for f in os.listdir(cache_path) if f.endswith(".geojson") and f[:-8].isdigit()]
-    done_ids = {int(f[:-8]) for f in geojson_files}
-    missing_ids = [i for i in range(len(grid_gdf)) if i not in done_ids]
-
-    # 4) Procesar celdas faltantes
-    for grid_id in missing_ids:
-        grid_geom = grid_gdf.at[grid_id, "geometry"]
-        all_osm_data = []
-
-        for group_name, group_ref in services_groups.items():
-            try:
-                df_group = get_osm_elements(grid_geom, group_ref)  # espera geom en WGS84
-                if df_group is not None and hasattr(df_group, "empty") and not df_group.empty:
-                    if 'archetype' not in df_group.columns:
-                        df_group['archetype'] = group_name.replace('_list', '')
-                    # normalizamos CRS por si acaso
-                    if getattr(df_group, "crs", None) is not None and df_group.crs != "EPSG:4326":
-                        df_group = df_group.to_crs(4326)
-                    all_osm_data.append(df_group)
-            except Exception as e:
-                print(f"                [ERROR] {group_name} in cell {grid_id}: {e}")
-
-        out_fp = f"{cache_path}/{grid_id}.geojson"
-        if all_osm_data:
-            osm_elements_df = gpd.GeoDataFrame(pd.concat(all_osm_data, ignore_index=True), crs=4326)
-            # columnas mínimas esperadas (relleno si faltan)
-            for col in ['archetype','building_type','osm_id','lat','lon']:
-                if col not in osm_elements_df.columns and col != 'geometry':
-                    osm_elements_df[col] = pd.NA
-            try:
-                osm_elements_df.to_file(out_fp, driver="GeoJSON")
-            except ValueError:
-                # si por lo que sea queda vacío, escribimos placeholder
-                _write_empty_geojson(out_fp)
-        else:
-            _write_empty_geojson(out_fp)
-
-        total = sum(len(df) for df in all_osm_data) if all_osm_data else 0
-        print(f"                Cell {grid_id}: {total} elements found")
-
-    # 5) Concatenar todo (asumimos archivos OK)
-    geojson_paths = [os.path.join(cache_path, f) for f in os.listdir(cache_path) if f.endswith(".geojson")]
-    gdfs = [gpd.read_file(fp).to_crs(4326) for fp in geojson_paths]
-    if len(gdfs) == 0:
-        osm_elements_df = gpd.GeoDataFrame(columns=['archetype','building_type','osm_id','geometry','lat','lon'], crs=4326)
-    else:
-        osm_elements_df = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=4326)
-
-    # 6) Añadir schedule / relación con arquetipos
+    # Cargar y unir en un solo GeoDataFrame
+    gdfs = [gpd.read_file(f) for f in geojson_files]
+    osm_elements_df = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=gdfs[0].crs)
+    
     SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
-
-    # 7) Polígono del distrito (tus coords vienen como (lat, lon) → convertimos a (lon, lat))
+    
     coords = special_areas_coords[study_area]
-    coords_corrected = [(lon, lat) for (lat, lon) in coords]
+    # Intercambiar lat y lon a lon, lat
+    coords_corrected = [(lon, lat) for lat, lon in coords]
     distric_polygon = Polygon(coords_corrected)
-
-    # 8) Añadir buses eléctricos
+    
+    # Añadir datos de buses eléctricos aquí
     buildings_populations = add_ebus(paths, distric_polygon, SG_relationship, study_area)
-
+    
     return buildings_populations
+
+
+
 
 def e_sys_loading(paths, study_area):
     try:
@@ -1029,6 +1010,10 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
     # Filtrar la fila correspondiente al arquetipo
     row = transport_archetypes[transport_archetypes['name'] == archetype]
     if row.empty:
+        
+        print(f"archetype: {archetype}")
+        input(transport_archetypes)
+
         print(f"Strange mistake happend")
         return {}
 
@@ -1124,7 +1109,7 @@ def load_or_download_pois(study_area, paths, pop_archetypes_building, special_ar
         pop_building = pd.read_parquet(f'{pop_path}\pop_building.parquet')
     except Exception:
         # Ya que no se ha podido leer, creamos el df
-        pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district)
+        pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district, building_types)
     # Devolvemos el df completo
     return pop_building
     
@@ -1335,7 +1320,7 @@ def services_groups_creation(df, to_keep):
             if surname not in group_ref[name]:
                 group_ref[name].append(surname)
         
-        group_dicts[group + "_list"] = group_ref
+        group_dicts[group] = group_ref
     
     return group_dicts
 
