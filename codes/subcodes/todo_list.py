@@ -41,10 +41,9 @@ def choose_id_in_ring(cand_df, ring_poly, include_border=True):
         - ring_poly: shapely geometry, GeoSeries o GeoDataFrame
         - include_border: True -> cuenta puntos en el borde (intersects), False -> strictly within
         """
-        
         if cand_df is None or len(cand_df) == 0:
             return None
-        
+
         # 1) Candidatos como GeoDataFrame (WGS84)
         df = cand_df[['osm_id', 'lat', 'lon']].copy()
         gdf = gpd.GeoDataFrame(
@@ -52,6 +51,7 @@ def choose_id_in_ring(cand_df, ring_poly, include_border=True):
             geometry=gpd.points_from_xy(df['lon'], df['lat']),
             crs="EPSG:4326"
         )
+
         # 2) Extraer geometría del anillo y su CRS
         if isinstance(ring_poly, gpd.GeoDataFrame):
             ring_geom = ring_poly.geometry.unary_union
@@ -90,7 +90,40 @@ def choose_id_in_ring(cand_df, ring_poly, include_border=True):
 
         return subset['osm_id'].sample(1).iat[0]
 
-def create_family_level_1_schedule(pop_building, family_df, activities, paths):
+def get_vehicle_stats(archetype, transport_archetypes, variables):
+    results = {}   
+    
+    # Filtrar la fila correspondiente al arquetipo
+    row = transport_archetypes[transport_archetypes['name'] == archetype]
+    if row.empty:
+        
+        print(f"archetype: {archetype}")
+        input(transport_archetypes)
+
+        print(f"Strange mistake happend")
+        return {}
+
+    row = row.iloc[0]  # Extrae la primera (y única esperada) fila como Series
+
+    for variable in variables:
+        mu = float(row[f'{variable}_mu'])
+        sigma = float(row[f'{variable}_sigma'])
+        try:
+            max_var = float(row[f'{variable}_max'])
+        except Exception as e:
+            max_var = float('inf')
+        try:
+            min_var = float(row[f'{variable}_min'])
+        except Exception as e:
+            min_var = float(0)
+        
+        var_result = np.random.normal(mu, sigma)
+        var_result = max(min(var_result, max_var), min_var)
+        results[variable] = var_result
+
+    return results
+
+def create_family_level_1_schedule(pop_building, family_df, activities, paths, citizen_archetypes):
     """
       Summary: Crea la version inicial de los schedules de cada familia (level 1), 
     donde los agentes pueden realizar las actividades tal y como les apetezca, 
@@ -107,7 +140,7 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
     
     # No puede trabajarse sin ningun tipo de actividades asignadas
     if activities == []:
-        activities = ['WoS', 'Dutties', 'Entertainment']
+        activities = ['WoS', 'Dutties']
     # Lista para sumar la salida y vuelta al hogar
     home_travels = ['Home_in', 'Home_out']
     activities = activities + home_travels
@@ -120,9 +153,15 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
         # Vamos actividad por actividad            
         for activity in activities:
             # Miramos si tenemos alguna cantidad de esta tarea a realizar (solo existe si la cantidad es != 1)
-            try:
-                activity_amount = row_f_df[f'{activity}_amount']
-            except Exception:
+            if activity == 'Dutties':
+                results = get_vehicle_stats(row_f_df['archetype'], citizen_archetypes, ['Dutties_amount', 'Dutties_time'])
+                
+                results = {k: int(round(v)) for k, v in results.items()}
+
+                activity_amount = results['Dutties_amount']
+                time2spend = results['Dutties_time']
+                
+            else:
                 activity_amount = 1
             # Hacemos un loop para realizar la suma de tareas la X cantidad de veces necesaria
             for _ in range(int(activity_amount)):
@@ -153,14 +192,15 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                 else:
                     activity_re = activity
                 # Buscamos las horas de apertura y cierre del servicio/WoS
+                
                 opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
                 closing = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
-                try:
+                if activity == 'WoS':
                     # En caso de que el agente tenga un tiempo requerido de actividad
                     time2spend = int(row_f_df[f'{activity}_time'])
-                except Exception:
+                elif activity in ['Home_in', 'Home_out']:
                     # En caso de que el agente NO tenga un tiempo requerido de actividad
-                    time2spend = 0
+                    time2spend = 0 
                 
                 node = pop_building[pop_building['osm_id']==osm_id]['node'].iloc[0]
                 
@@ -231,7 +271,7 @@ import pandas as pd
 from tqdm import tqdm
 
 # --- Helper a nivel de módulo: debe ser importable/pickleable ---
-def _build_family_level1(family_tuple, pop_building, activities, paths):
+def _build_family_level1(family_tuple, pop_building, activities, paths, citizen_archetypes):
     """
     family_tuple: (family_name, family_df)
     Devuelve: DataFrame con el level_1 de esa familia
@@ -240,7 +280,7 @@ def _build_family_level1(family_tuple, pop_building, activities, paths):
     family_name, family_df = family_tuple
     
     # Llama a tu función existente (debe ser importable a nivel de módulo)
-    return create_family_level_1_schedule(pop_building, family_df, activities, paths)
+    return create_family_level_1_schedule(pop_building, family_df, activities, paths, citizen_archetypes)
 
 def todolist_family_creation(
     study_area,
@@ -248,6 +288,8 @@ def todolist_family_creation(
     pop_building,
     system_management,
     paths,
+    day,
+    citizen_archetypes,
     n_jobs=None,         # None -> usa número de CPUs disponibles
     use_threads=False,   # True si tu carga es I/O-bound
     chunksize=1          # >1 reduce overhead en muchísimas familias
@@ -267,7 +309,7 @@ def todolist_family_creation(
     families = list(families_iter)  # materializamos para poder mostrar progreso
     total = len(families)
 
-    # Elegir ejecutor
+    '''# Elegir ejecutor
     Executor = ProcessPoolExecutor
     if use_threads:
         from concurrent.futures import ThreadPoolExecutor
@@ -278,9 +320,6 @@ def todolist_family_creation(
                      activities=activities, paths=paths)
     # Lanzamos en paralelo
     results = []
-    
-    input('he llegado aqui')
-
     with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam): fam[0] for fam in families}
         # Progreso
@@ -291,7 +330,29 @@ def todolist_family_creation(
                 results.append(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
-                print(f"[ERROR] familia '{fam_name}': {e}")
+                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                
+                
+    # Versión SECUENCIAL del bloque (sin paralelizar)
+
+    # Preparamos función parcial con parámetros constantes
+    worker = partial(
+        _build_family_level1,
+        pop_building=pop_building,
+        activities=activities,
+        paths=paths,
+        citizen_archetypes = citizen_archetypes
+    )
+
+    results = []
+
+    # Iteración secuencial con barra de progreso
+    for fam in tqdm(families, total=total, desc="Families schedules creation (secuencial): "):
+        fam_name = fam[0]
+        df_level1 = worker(fam)
+        results.append(df_level1)
+          
+                
 
     # Un solo concat al final (mucho más rápido)
     if results:
@@ -300,7 +361,7 @@ def todolist_family_creation(
         level_1_schedule = pd.DataFrame()
 
     # Escribir una sola vez (evita cientos de escrituras)
-    level_1_schedule.to_excel(f"{paths['results']}/{study_area}_todolist.xlsx", index=False)
+    level_1_schedule.to_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx", index=False)
 
     return level_1_schedule
 
@@ -353,20 +414,27 @@ def main_td():
     
     df_citizens = pd.read_parquet(f"{paths['population']}/pop_citizen.parquet")
 
+    citizen_archetypes = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_citizen.xlsx")
+
     networks = ['drive', 'walk']
     networks_map = {}   
     for net_type in networks:           
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
+    
+    
     
     pop_building = pd.read_parquet(f"{paths['population']}/pop_building.parquet")
     
     ##############################################################################
     print(f'docs readed')
     
-    level_1_results = todolist_family_creation(study_area, df_citizens, pop_building, system_management, paths)
+    days = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
     
-
-
+    for day in days:
+        level_1_results = todolist_family_creation(study_area, df_citizens, pop_building, system_management, paths, day, citizen_archetypes)
+    
+    
+    
 
 # Ejecución
 if __name__ == '__main__':
