@@ -3,20 +3,23 @@ from __future__ import annotations
 
 import itertools
 import math
-import folium
+import json
 from shapely.geometry import box
 import os
 import random
 import shutil
 import sys
 import warnings
-from pyrosm import OSM
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple, Iterable
 
 # === Terceros (instalados vía pip) ============================================
-
+import geopandas as gpd
+import pandas as pd
+import numpy as np
+import os
+from collections import defaultdict
 
 # --- DEBUG PLOT: home, ring, candidatos y elegido --------------------------------
 import geopandas as gpd
@@ -185,7 +188,7 @@ def assign_buildings_to_nodes(building_populations, electric_system, boundary_po
     buildings_proj = buildings_proj.to_crs("EPSG:4326")
 
     # Plot
-    #plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, building_populations)
+    plot_voronoi_with_buildings(nodes_gdf_proj, vor_gdf, boundary_proj, building_populations)
 
     return pd.DataFrame(buildings_proj.drop(columns='geometry'))
 
@@ -618,37 +621,10 @@ def find_group(name, df_families, row_out):
     return None
 
 
-def Geodata_initialization(study_area, paths, pop_archetypes):
+def Geodata_initialization(study_area, paths, pop_archetypes, special_areas_coords, city_district):
     agent_populations = {}
     # Obtener redes activas desde transport_archetypes
     networks = get_active_networks(pop_archetypes['transport'])
-    
-    # Diccionario con coordenadas de los territorios especiales
-    special_areas_coords = {
-        "Aradas": [(1, 1), (1, 1)],
-        "Kanaleneiland": [(52.07892763457244, 5.081179665783377), 
-                          (52.071082860598274, 5.087677559318499), 
-                          (52.060700337662205, 5.097493321101714), 
-                          (52.0589253058436, 5.111134343014198),
-                          (52.06371772987415, 5.113155235149382),
-                          (52.06713423672216, 5.112072614362676),
-                          (52.07698296226893, 5.109504220222101),
-                          (52.07814350260757, 5.108891797422314),
-                          (52.079586294469394, 5.107820057522688),
-                          (52.081311310482626, 5.106084859589962),
-                          (52.0818131208049, 5.105013119690336),
-                          (52.08520019308004, 5.09822543371076),
-                          (52.08291081138339, 5.094959178778566),
-                          (52.08102903986475, 5.090570148713432),
-                        ],
-        "Annelinn": [(1, 1), (1, 1)],
-    }
-    
-    city_district = {
-        "Aradas": "aveiro",
-        "Kanaleneiland": "utrecht",
-        "Annelinn": "tartu",
-    }
 
     # Paso 1: Cargar o descargar POIs
     agent_populations['building'] = load_or_download_pois(study_area, paths, pop_archetypes['building'], special_areas_coords, city_district)
@@ -705,75 +681,6 @@ def get_wos_action(archetype, pop_archetypes, stats_synpop):
         pop_archetypes['citizen']['name'] == archetype, 'WoS_action'
     ].values[0]
     return get_stats_value(value, stats_synpop, archetype, 'WoS_action')
-
-
-import pandas as pd
-import geopandas as gpd
-import osmnx as ox
-
-def get_osm_elements(polygon, poss_ref):
-    """
-    Descarga y filtra elementos de OSM dentro de un polígono dado para UN servicio (poss_ref).
-    Calcula centroides en un CRS proyectado y retorna columnas estandarizadas.
-
-    Parámetros:
-    - polygon (shapely Polygon/MultiPolygon): área de búsqueda.
-    - poss_ref (dict): reglas de filtrado {key: [values] | value} (p.ej. {'amenity':['school','hospital']}).
-
-    Retorna:
-    - GeoDataFrame con columnas: ['building_type','osm_id','geometry','lat','lon'] (CRS EPSG:4326).
-    """
-
-    # 1) Preparar etiquetas (una sola descarga por servicio)
-    if not poss_ref or not isinstance(poss_ref, dict):
-        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
-
-    tags = {key: True for key in poss_ref.keys()}
-
-    # 2) Descargar datos
-    try:
-        gdf = ox.geometries_from_polygon(polygon, tags).reset_index()
-    except Exception:
-        # Si Overpass falla, devolvemos vacío con esquema correcto
-        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
-
-    if gdf.empty:
-        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
-
-    # 3) Filtrar según poss_ref (OR entre keys/values)
-    mask = pd.Series(False, index=gdf.index)
-    for key, values in poss_ref.items():
-        if key not in gdf.columns:
-            continue
-        if isinstance(values, list):
-            mask |= gdf[key].isin(values)
-        else:
-            mask |= (gdf[key] == values)
-
-    filtered = gdf.loc[mask].copy()
-    if filtered.empty:
-        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
-
-    # 4) Centroides correctos (proyectado)
-    gdf_geo = gpd.GeoDataFrame(filtered, geometry='geometry', crs="EPSG:4326")
-    try:
-        target_crs = gpd.GeoSeries([polygon], crs="EPSG:4326").estimate_utm_crs()
-    except Exception:
-        target_crs = gdf_geo.estimate_utm_crs()
-
-    gdf_proj = gdf_geo.to_crs(target_crs)
-    centroids_proj = gdf_proj.geometry.centroid
-    centroids_geo = gpd.GeoSeries(centroids_proj, crs=target_crs).to_crs(epsg=4326)
-
-    gdf_geo['lat'] = centroids_geo.y
-    gdf_geo['lon'] = centroids_geo.x
-
-    # 5) Campos derivados (usa tus funciones existentes)
-    #    Nota: 'building_type' depende de poss_ref del servicio actual
-    gdf_geo['building_type'] = gdf_geo.apply(lambda row: building_type(row, poss_ref), axis=1)
-    gdf_geo['osm_id'] = gdf_geo.apply(osmid_reform, axis=1)
-
-    return gdf_geo[['building_type','osm_id','geometry','lat','lon']]
 
 
 def get_vehicle_stats(archetype, transport_archetypes, variables):
@@ -869,10 +776,180 @@ def load_or_download_pois(study_area, paths, pop_archetypes_building, special_ar
         # Intentamos leer el doc
         pop_building = pd.read_parquet(f'{pop_path}/pop_building.parquet')
     except Exception:
+        print(f'    [Warning] Data from POIs is missing ...')
         # Ya que no se ha podido leer, creamos el df
         pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district)
     # Devolvemos el df completo
     return pop_building
+
+def download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district):
+    # Documento crítico
+    try:
+        Services_Group_relationship = pd.read_excel(
+            f"{paths[study_area]}/Class matrix for ESeC 2008 rev.xlsx"
+        )
+    except Exception:
+        print(f"    [ERROR] Falta 'Class matrix for ESeC 2008 rev.xlsx' en {paths[study_area]}")
+        sys.exit(1)
+    
+    services = pop_archetypes_building['name'].dropna().unique()
+    
+    # Diccionario de servicios
+    services_groups = services_groups_creation(
+        Services_Group_relationship,
+        services
+    )
+    
+    # Ciudad y polígono
+    city = city_district.get(study_area)
+    
+    city = 'Kanaleneiland'
+    
+    print(f"        Loading {city}.geojson ...")
+    
+    with open(os.path.join(paths['maps'], f'{city}.geojson'), "r", encoding="utf-8") as f:
+        data = json.load(f)
+        
+    
+
+    # 2. Crear el GeoDataFrame directamente desde las features
+    gdf = gpd.GeoDataFrame.from_features(data["features"])
+    
+    # Añadir la columna 'name' con building_{idx}
+    gdf["name"] = [f"building_{idx}" for idx in range(len(gdf))]
+    
+    print(f"        Characterizing POIs ...")
+    poi_gdf = poi_archetypes_from_gdf(gdf, services_groups)
+    
+    print(f"        Adding schedules to POIs ...")
+    pop_building = building_schedule_adding(poi_gdf, pop_archetypes_building)
+    
+    coords = special_areas_coords[study_area]
+    # Intercambiar lat y lon a lon, lat
+    coords_corrected = [(lon, lat) for lat, lon in coords]
+    distric_polygon = Polygon(coords_corrected)
+    
+    # Añadir datos de buses eléctricos aquí
+    print(f"    Assinging POIs to electrical nodes ...")
+    buildings_populations = add_ebus(paths, distric_polygon, pop_building, study_area)
+    
+    return buildings_populations
+    
+    
+def poi_archetypes_from_gdf(
+    gdf: gpd.GeoDataFrame,
+    services_groups: Dict[str, Dict[str, Iterable[str]]],
+    id_col: str = "name",
+    centroid_method: str = "representative_point",  # "representative_point" | "centroid"
+    force_wgs84: bool = True
+) -> pd.DataFrame:
+    """
+    Construye un DataFrame con columnas [building_type, name, lat, lon, archetype]
+    a partir de:
+      - gdf: GeoDataFrame con columnas de tags OSM (ej. 'amenity', 'building', ...) + 'geometry' + 'name'
+      - services_groups: dict {archetype: {tag: [values...]}}
+    
+    Si una feature coincide con varios arquetipos, se generan filas duplicadas
+    (una por arquetipo). 'building_type' = "{tag}_{value}".
+
+    Parámetros:
+      - id_col: nombre de la columna identificadora (por defecto 'name').
+      - centroid_method: 'representative_point' (por defecto) o 'centroid'.
+      - force_wgs84: si True, asegura EPSG:4326 para lat/lon.
+
+    Devuelve:
+      - pd.DataFrame con columnas [building_type, name, lat, lon, archetype].
+    """
+    
+    
+    if "geometry" not in gdf.columns:
+        raise ValueError("El GeoDataFrame debe tener una columna 'geometry'.")
+
+    if id_col not in gdf.columns:
+        raise ValueError(f"El GeoDataFrame debe tener la columna identificadora '{id_col}'.")
+
+    # --- 1) Mapas auxiliares: (tag, value) -> {arquetipos}; y tag -> {values}
+    tv_to_arch = defaultdict(set)  # (tag, value) -> set(archetype)
+    tag_to_values = defaultdict(set)  # tag -> set(values)
+
+    for archetype, tags in services_groups.items():
+        for tag, values in tags.items():
+            for v in values:
+                tv_to_arch[(tag, v)].add(archetype)
+                tag_to_values[tag].add(v)
+
+    # --- 2) Para cada tag presente en el gdf y en services_groups, filtrar coincidencias
+    parts = []
+    for tag, allowed_vals in tag_to_values.items():
+        if tag not in gdf.columns:
+            continue  # el gdf no tiene este tag como columna
+
+        mask = gdf[tag].isin(allowed_vals)
+        if not mask.any():
+            continue
+
+        m = gdf.loc[mask, [id_col, tag, "geometry"]].copy()
+        m["__value"] = m[tag].astype(str)
+        m["building_type"] = m["__value"].map(lambda v: f"{tag}_{v}")
+
+        # lista de arquetipos por fila según (tag, value)
+        m["archetypes"] = m["__value"].map(lambda v: sorted(tv_to_arch[(tag, v)]))
+
+        # Explode por arquetipo (duplica filas si hay varios)
+        m = m.explode("archetypes", ignore_index=True).rename(columns={"archetypes": "archetype"})
+
+        # Descarta filas sin arquetipo (defensivo)
+        m = m.dropna(subset=["archetype"])
+
+        parts.append(m[["building_type", id_col, "geometry", "archetype"]])
+
+    if not parts:
+        # No hubo coincidencias
+        return pd.DataFrame(columns=["building_type", id_col, "lat", "lon", "archetype"])
+
+    out_gdf = gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), geometry="geometry", crs=gdf.crs)
+
+    # --- 3) Asegurar WGS84 para lat/lon
+    if force_wgs84:
+        # Si no hay CRS, asumimos WGS84 (típico en datos OSM) para poder exportar lat/lon.
+        if out_gdf.crs is None:
+            out_gdf = out_gdf.set_crs(epsg=4326, allow_override=True)
+        elif out_gdf.crs.to_epsg() != 4326:
+            out_gdf = out_gdf.to_crs(epsg=4326)
+
+    # --- 4) Calcular centroide o punto representativo
+    if centroid_method == "centroid":
+        centers = out_gdf.geometry.centroid
+    elif centroid_method == "representative_point":
+        centers = out_gdf.geometry.representative_point()
+    else:
+        raise ValueError("centroid_method debe ser 'representative_point' o 'centroid'.")
+
+    # --- 5) Extraer lat/lon y formar el DataFrame final
+    lon = centers.x
+    lat = centers.y
+
+    out = pd.DataFrame({
+        "building_type": out_gdf["building_type"].astype(str),
+        id_col: out_gdf[id_col].values,
+        "lat": lat.values,
+        "lon": lon.values,
+        "archetype": out_gdf["archetype"].astype(str),
+    })
+
+    # Quitar duplicados exactos por prudencia
+    out = out.drop_duplicates(subset=["building_type", id_col, "archetype"]).reset_index(drop=True)
+
+    # Orden agradable
+    out = out.sort_values([id_col, "building_type", "archetype"]).reset_index(drop=True)
+
+    # Renombrar id_col a 'name' si el usuario lo quiere así estrictamente:
+    if id_col != "name":
+        out = out.rename(columns={id_col: "name"})
+
+    return out    
+
+
 
 def load_or_download_networks(study_area, study_area_path, networks, city_district):
     networks_map = {}
@@ -1066,6 +1143,7 @@ def services_groups_creation(df, to_keep):
     
     # Para cada grupo, filtramos filas con 'x' y construimos el diccionario correspondiente
     for group in to_keep:
+        
         group_df = df[df[group] == 'x'][['name', 'surname']].dropna()
         group_ref = {}
         
@@ -1079,12 +1157,12 @@ def services_groups_creation(df, to_keep):
             if surname not in group_ref[name]:
                 group_ref[name].append(surname)
         
-        group_dicts[group + "_list"] = group_ref
+        group_dicts[group] = group_ref
     
     return group_dicts
 
         
-def Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area):
+def Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area, special_areas_coords):
     system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
     stats_synpop = stats['stats_synpop']
     stats_trans = stats['stats_trans']
@@ -1116,7 +1194,7 @@ def Synthetic_population_initialization(agent_populations, pop_archetypes, popul
         agent_populations['family'] = social_class_assingment(agent_populations['family'], stats_class)
         
         print("            Utilities assignment ...")
-        agent_populations['family'], agent_populations['citizen'], agent_populations['transport'] = Utilities_assignment(agent_populations['citizen'], agent_populations['family'], pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans)
+        agent_populations['family'], agent_populations['citizen'], agent_populations['transport'] = Utilities_assignment(agent_populations['citizen'], agent_populations['family'], pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans, study_area, special_areas_coords)
 
         print(f"        Saving data ...")
 
@@ -1202,20 +1280,23 @@ def _best_utm_epsg(lon, lat):
 
 def plot_wos_debug(
     home_lat, home_lon,
-    ring_poly,
+    ring_poly, polygon,
     work_df=None, study_df=None,
     chosen_id=None,
     ring_crs="EPSG:4326",
     title=None,
     show=True,
     ax=None,
-    draw_mid_circle=True
+    draw_mid_circle=True,
+    polygon_label="Polygon"
 ):
     """
     Visualiza home, anillo, candidatos (work/study) dentro del anillo y el elegido.
     Dibuja además un círculo concéntrico en el centro del anillo, con radio medio
     entre el círculo exterior y el interior.
+    Ahora también permite mostrar un polígono adicional (polygon).
     """
+    # anillo
     ring_geom, ring_geom_crs = _as_geometry_and_crs(ring_poly)
     if ring_geom is None:
         return
@@ -1223,6 +1304,13 @@ def plot_wos_debug(
     # reproyectar anillo a WGS84 si hace falta
     if ring_geom_crs is not None and ring_geom_crs != "EPSG:4326":
         ring_geom = gpd.GeoSeries([ring_geom], crs=ring_geom_crs).to_crs("EPSG:4326").iloc[0]
+
+    # --- NUEVO: polígono adicional ---
+    polygon_geom = None
+    if polygon is not None:
+        polygon_geom, polygon_geom_crs = _as_geometry_and_crs(polygon)
+        if polygon_geom is not None and polygon_geom_crs is not None and polygon_geom_crs != "EPSG:4326":
+            polygon_geom = gpd.GeoSeries([polygon_geom], crs=polygon_geom_crs).to_crs("EPSG:4326").iloc[0]
 
     # GeoDataFrame home
     gdf_home = gpd.GeoDataFrame(
@@ -1235,7 +1323,7 @@ def plot_wos_debug(
         if df is None or len(df) == 0:
             return None, None
         gdf = gpd.GeoDataFrame(
-            df[['osm_id','lat','lon']].copy(),
+            df[['name','lat','lon']].copy(),
             geometry=gpd.points_from_xy(df['lon'], df['lat']),
             crs="EPSG:4326"
         )
@@ -1250,33 +1338,36 @@ def plot_wos_debug(
         fig, ax = plt.subplots(figsize=(6, 6))
         created_ax = True
 
+    # --- DIBUJO ---
+
+    # Polígono adicional (debajo de puntos y encima del fondo)
+    if polygon_geom is not None:
+        gpd.GeoSeries([polygon_geom], crs="EPSG:4326").plot(
+            ax=ax, facecolor="tab:grey", alpha=0.70, edgecolor="black",
+            linewidth=1.2, label=polygon_label
+        )
+
     # Anillo exterior
     gpd.GeoSeries([ring_geom], crs="EPSG:4326").boundary.plot(
         ax=ax, color="black", linewidth=1.5, alpha=0.8, label="Ring"
     )
 
-    # === NUEVO: círculo concéntrico de radio medio ===
+    # Círculo concéntrico de radio medio
     if draw_mid_circle:
         metric_crs = _best_utm_epsg(home_lon, home_lat)
         ring_proj = gpd.GeoSeries([ring_geom], crs="EPSG:4326").to_crs(metric_crs).iloc[0]
         center_proj = gpd.GeoSeries([Point(home_lon, home_lat)], crs="EPSG:4326").to_crs(metric_crs).iloc[0]
 
-        # radio exterior
         r_outer = center_proj.distance(LineString(ring_proj.exterior.coords))
-        # radio interior (si hay varios huecos, coger el más cercano)
         if getattr(ring_proj, "interiors", None):
             r_inner = min(center_proj.distance(LineString(r.coords)) for r in ring_proj.interiors)
         else:
-            r_inner = 0  # si no hay hueco, se asume círculo sólido
+            r_inner = 0
 
-        # radio medio
         r_mid = 0.5 * (r_outer + r_inner)
-
-        # construir círculo medio
         mid_circle_proj = center_proj.buffer(r_mid, resolution=128)
         mid_circle_geo = gpd.GeoSeries([mid_circle_proj], crs=metric_crs).to_crs("EPSG:4326").iloc[0]
 
-        # dibujar perímetro del círculo medio
         gpd.GeoSeries([mid_circle_geo.boundary], crs="EPSG:4326").plot(
             ax=ax, linewidth=1.2, linestyle="--", color="black",
             label=f"Mid circle (~{2*r_mid/1000:.2f} km Ø)"
@@ -1297,11 +1388,11 @@ def plot_wos_debug(
     # Home (cuadrado negro)
     gdf_home.plot(ax=ax, markersize=60, marker="s", color="black", label="Home")
 
-    # Elegido (estrella negra grande)
+    # Elegido (estrella)
     if chosen_id is not None:
         for gdf_cand in (gdf_work, gdf_study):
             if gdf_cand is not None and not gdf_cand.empty:
-                hit = gdf_cand[gdf_cand['osm_id'] == chosen_id]
+                hit = gdf_cand[gdf_cand['name'] == chosen_id]
                 if not hit.empty:
                     hit.plot(ax=ax, markersize=150, marker="*", color="black", label="Chosen WoS")
                     break
@@ -1317,6 +1408,7 @@ def plot_wos_debug(
         plt.show()
 
 
+
 def Utilities_assignment(
     df_citizens: pd.DataFrame,
     df_families: pd.DataFrame,
@@ -1325,19 +1417,21 @@ def Utilities_assignment(
     SG_relationship: pd.DataFrame,
     stats_synpop: pd.DataFrame,
     stats_trans: pd.DataFrame,
+    study_area, 
+    special_areas_coords,
     ring_crs: str = "EPSG:4326",
     expand_factor: float = 2.0,
     max_iters: int = 4):
     
     # --- helpers ---
-    def pick_building_type(osm_id):
-        bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'building_type']
+    def pick_building_type(name):
+        bt = SG_relationship.loc[SG_relationship['name'] == name, 'building_type']
         return bt.iat[0] if not bt.empty else np.nan
 
     def choose_id_in_ring(cand_df, ring_poly, include_border=True):
         """
-        Devuelve un osm_id aleatorio de cand_df dentro del anillo/polígono.
-        - cand_df: DataFrame con ['osm_id','lat','lon'] en EPSG:4326
+        Devuelve un name aleatorio de cand_df dentro del anillo/polígono.
+        - cand_df: DataFrame con ['name','lat','lon'] en EPSG:4326
         - ring_poly: shapely geometry, GeoSeries o GeoDataFrame
         - include_border: True -> cuenta puntos en el borde (intersects), False -> strictly within
         """
@@ -1345,7 +1439,7 @@ def Utilities_assignment(
             return None
 
         # 1) Candidatos como GeoDataFrame (WGS84)
-        df = cand_df[['osm_id', 'lat', 'lon']].copy()
+        df = cand_df[['name', 'lat', 'lon']].copy()
         gdf = gpd.GeoDataFrame(
             df,
             geometry=gpd.points_from_xy(df['lon'], df['lat']),
@@ -1388,7 +1482,7 @@ def Utilities_assignment(
         if subset.empty:
             return None
 
-        return subset['osm_id'].sample(1).iat[0]
+        return subset['name'].sample(1).iat[0]
 
     # --- 1) Variables de arquetipo de transporte (una vez) ---
     variables = [c.rsplit('_', 1)[0] for c in pop_archetypes['transport'].columns if c.endswith('_mu')]
@@ -1396,7 +1490,31 @@ def Utilities_assignment(
     # --- 2) Vehículos privados por familia ---
     df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family', 'ubication'] + variables)
 
-    Home_ids = SG_relationship.loc[SG_relationship['archetype'] == 'Home', 'osm_id'].tolist()
+    coords = special_areas_coords[study_area]
+    
+    # --- 1) Polígono a partir de tus coords (lat, lon) -> (lon, lat)
+    # coords = special_areas_coords[study_area]  # ya lo tienes
+    poly_lonlat = [(lon, lat) for (lat, lon) in coords]
+    poly = Polygon(poly_lonlat)
+
+    def point_in_poly(row):
+        lat = row["lat"]
+        lon = row["lon"]
+        if lat is None or lon is None:
+            return False
+        # Si hay NaN (float), también excluimos
+        try:
+            _ = float(lat) + float(lon)
+        except Exception:
+            return False
+        p = Point(lon, lat)  # (x=lon, y=lat)
+        return poly.covers(p)
+
+    Home_df = SG_relationship.loc[SG_relationship['archetype'] == 'Home']
+    
+    mask = Home_df.apply(point_in_poly, axis=1)
+    Home_ids = Home_df[mask]['name'].tolist()
+    
     if not Home_ids:
         raise ValueError("No hay edificios Home en SG_relationship.")
 
@@ -1435,10 +1553,10 @@ def Utilities_assignment(
     df_citizens['class'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'class'))
 
     # --- 4) Work/Study pools (usar LISTAS de columnas, no sets) ---
-    work_df = SG_relationship.loc[SG_relationship['archetype'].isin(['Salariat', 'Intermediate', 'Working']), ['archetype', 'osm_id', 'lat', 'lon']].copy()
+    work_df = SG_relationship.loc[SG_relationship['archetype'].isin(['Salariat', 'Intermediate', 'Working']), ['archetype', 'name', 'lat', 'lon']].copy()
     # Añadir columna vacía llamada 'pop'
     work_df['pop'] = 0
-    study_df = SG_relationship.loc[SG_relationship['archetype'] == 'study', ['osm_id', 'lat', 'lon']].copy()
+    study_df = SG_relationship.loc[SG_relationship['archetype'] == 'study', ['name', 'lat', 'lon']].copy()
 
     # --- 5) Variables de arquetipo de ciudadano (una vez) ---
     citizen_vars = [c.rsplit('_', 1)[0] for c in pop_archetypes['citizen'].columns if c.endswith('_mu')]
@@ -1456,7 +1574,7 @@ def Utilities_assignment(
 
         # 6.2) home georef
         home_id = df_citizens.at[idx, 'Home']
-        home_row = SG_relationship.loc[SG_relationship['osm_id'] == home_id, ['osm_id', 'lat', 'lon']]
+        home_row = SG_relationship.loc[SG_relationship['name'] == home_id, ['name', 'lat', 'lon']]
         if home_row.empty or home_row[['lat', 'lon']].isna().any(axis=None):
             continue
         home_lat = float(home_row.iloc[0]['lat'])
@@ -1464,7 +1582,7 @@ def Utilities_assignment(
 
         # 6.3) anillo con expansión
         
-        DEBUG_PLOTS = True # <----- Modificar esto para que podamos plotear los donuts
+        DEBUG_PLOTS = False # <----- Modificar esto para que podamos plotear los donuts
         
         arch_citizen = pop_archetypes['citizen']
         data_filtered = arch_citizen[arch_citizen['name'] == row_updated['archetype']].iloc[0]
@@ -1495,7 +1613,8 @@ def Utilities_assignment(
             if DEBUG_PLOTS:
                 plot_wos_debug(
                     home_lat, home_lon,
-                    ring_poly=ring,
+                    ring_poly=ring, 
+                    polygon=poly,
                     work_df=class_work_df if df_citizens.at[idx, 'WoS_fixed'] != 1 else None,
                     study_df=study_df if df_citizens.at[idx, 'WoS_fixed'] == 1 else None,
                     chosen_id=None,
@@ -1520,12 +1639,12 @@ def Utilities_assignment(
         # Si no se encontró dentro de anillos, hacer fallback aleatorio # ISSUE 46
         if WoS_id is None:
             if df_citizens.at[idx, 'WoS_fixed'] != 1:
-                WoS_id = work_df['osm_id'].sample(1).iat[0] if not work_df.empty else None
+                WoS_id = work_df['name'].sample(1).iat[0] if not work_df.empty else None
             else:
                 if not study_df.empty:
-                    WoS_id = study_df['osm_id'].sample(1).iat[0]
+                    WoS_id = study_df['name'].sample(1).iat[0]
                 elif not work_df.empty:
-                    WoS_id = work_df['osm_id'].sample(1).iat[0]
+                    WoS_id = work_df['name'].sample(1).iat[0]
 
         if WoS_id is None:
             continue  # no hay candidatos
@@ -1533,9 +1652,9 @@ def Utilities_assignment(
         df_citizens.at[idx, 'WoS'] = WoS_id
         df_citizens.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
 
-        # Añadimos los agenets al osm_id para asegurar que no usamos espacios overbooked
+        # Añadimos los agenets al name para asegurar que no usamos espacios overbooked
         if df_citizens.at[idx, 'WoS_fixed'] != 1:
-            idx = work_df.index[work_df['osm_id'] == WoS_id]
+            idx = work_df.index[work_df['name'] == WoS_id]
             for index in idx:
                 work_df.at[index, 'pop'] += 1
     
@@ -1643,13 +1762,40 @@ def main():
             else:
                 os.makedirs(paths[file_2], exist_ok=True)
     
+    # Diccionario con coordenadas de los territorios especiales
+    special_areas_coords = {
+        "Aradas": [(1, 1), (1, 1)],
+        "Kanaleneiland": [(52.07892763457244, 5.081179665783377), 
+                          (52.071082860598274, 5.087677559318499), 
+                          (52.060700337662205, 5.097493321101714), 
+                          (52.0589253058436, 5.111134343014198),
+                          (52.06371772987415, 5.113155235149382),
+                          (52.06713423672216, 5.112072614362676),
+                          (52.07698296226893, 5.109504220222101),
+                          (52.07814350260757, 5.108891797422314),
+                          (52.079586294469394, 5.107820057522688),
+                          (52.081311310482626, 5.106084859589962),
+                          (52.0818131208049, 5.105013119690336),
+                          (52.08520019308004, 5.09822543371076),
+                          (52.08291081138339, 5.094959178778566),
+                          (52.08102903986475, 5.090570148713432),
+                        ],
+        "Annelinn": [(1, 1), (1, 1)],
+    }
+    
+    city_district = {
+        "Aradas": "aveiro",
+        "Kanaleneiland": "utrecht",
+        "Annelinn": "tartu",
+    }
+    
     print('#'*20, ' System initialization ','#'*20)
     # Archetype documentation initialization
     pop_archetypes, stats = Archetype_documentation_initialization(paths)
     # Geodata initialization
-    agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
+    agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes, special_areas_coords, city_district)
     # Synthetic population initialization
-    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area)
+    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area, special_areas_coords)
     print('#'*20, ' Initialization finalized ','#'*20)
     
 if __name__ == '__main__':

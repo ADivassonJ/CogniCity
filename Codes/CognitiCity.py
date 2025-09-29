@@ -53,13 +53,40 @@ def main():
             else:
                 os.makedirs(paths[file_2], exist_ok=True)
     
+    # Diccionario con coordenadas de los territorios especiales
+    special_areas_coords = {
+        "Aradas": [(1, 1), (1, 1)],
+        "Kanaleneiland": [(52.07892763457244, 5.081179665783377), 
+                          (52.071082860598274, 5.087677559318499), 
+                          (52.060700337662205, 5.097493321101714), 
+                          (52.0589253058436, 5.111134343014198),
+                          (52.06371772987415, 5.113155235149382),
+                          (52.06713423672216, 5.112072614362676),
+                          (52.07698296226893, 5.109504220222101),
+                          (52.07814350260757, 5.108891797422314),
+                          (52.079586294469394, 5.107820057522688),
+                          (52.081311310482626, 5.106084859589962),
+                          (52.0818131208049, 5.105013119690336),
+                          (52.08520019308004, 5.09822543371076),
+                          (52.08291081138339, 5.094959178778566),
+                          (52.08102903986475, 5.090570148713432),
+                        ],
+        "Annelinn": [(1, 1), (1, 1)],
+    }
+    
+    city_district = {
+        "Aradas": "aveiro",
+        "Kanaleneiland": "utrecht",
+        "Annelinn": "tartu",
+    }
+    
     print('#'*20, ' System initialization ','#'*20)
     # Archetype documentation initialization
-    pop_archetypes, stats_synpop, stats_trans = Archetype_documentation_initialization(paths)
+    pop_archetypes, stats = Archetype_documentation_initialization(paths)
     # Geodata initialization
-    agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
+    agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes, special_areas_coords, city_district)
     # Synthetic population initialization
-    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats_synpop, paths, agent_populations['building'], study_area, stats_trans)
+    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area, special_areas_coords)
     print('#'*20, ' Initialization finalized ','#'*20)
 
     # pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])

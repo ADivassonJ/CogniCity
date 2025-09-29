@@ -591,79 +591,187 @@ def computate_stats(row):
 
     return stats_value
 
+def _safe_slug(s: str) -> str:
+    return (s or "").replace(",", "").replace("/", "-").strip().replace(" ", "_")
 
-def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district, building_types):
-    # User Interface
-    print(f'    [WARNING] Data is missing, it needs to be downloaded.')
-    
-    # Sacamos los datos de paths
-    study_area_path = paths[study_area]
-    cache_path = os.path.join(paths['maps'], "cache")
-    
-    # Nos aseguramos de que contamos con documentos criticos
-    try:
-        print(f"        Reading 'Class matrix for ESeC 2008 rev.xlsx' ...")
-        Services_Group_relationship = pd.read_excel(f'{study_area_path}/Class matrix for ESeC 2008 rev.xlsx')
-    except Exception:
-        print(f"    [ERROR] File 'Class matrix for ESeC 2008 rev.xlsx' is not found in the data folder ({study_area_path}).")
-        sys.exit()
-        
-    # User Interface
-    print(f'        Processing data (it might take a while)...')
-    # En base al distrito de analisis, sacamos la ciudad a descargar
-    city = city_district.get(study_area)
-    
-    #gdf = ox.geocode_to_gdf(city)
-    gdf = ox.geocode_to_gdf('Kanaleneiland')
-    
-    polygon = gdf.iloc[0].geometry
-    # Crear si no existe
-    if not os.path.isdir(cache_path):
-        os.makedirs(cache_path, exist_ok=True)
-    # Listar archivos .geojson
-    geojson_files = [f.replace(".geojson", "") for f in os.listdir(cache_path) if f.endswith(".geojson")]
-    missing_files = [b for b in building_types if b not in geojson_files]
-    not_missing_files = [b for b in building_types if b in geojson_files]
-    
-    # User Interface
-    for not_miss in not_missing_files:
-        print(f"            {not_miss}: retrieved from cache.")
-    
-    # Creamos el diccionario con los datos de etiquetas a considerar
-    services_groups = services_groups_creation(Services_Group_relationship, missing_files)
-    
-    for group_name, group_ref in services_groups.items():
-        # Descargamos datos
-        print(f"                Downloading data for {group_name}")
-        df_group = get_osm_elements(polygon, group_ref, group_name, cache_path)
-        df_group['archetype'] = group_name
-        # Guardamos resultados
-        df_group.to_file(f"{cache_path}/{group_name}.geojson", driver="GeoJSON")
-        # Borramos cache
-        shutil.rmtree(os.path.join(cache_path, group_name))
-        # UserInterface
-        print(f"            {group_name}: {len(df_group)} elements found")
+def _maybe_load_cache(cache_dir: str, key: str):
+    csv_path = Path(cache_dir) / f"{key}.csv"
+    if csv_path.exists():
+        try:
+            return pd.read_csv(csv_path)
+        except Exception:
+            return None
+    return None
 
+import json
+import time
+import requests
+import pandas as pd
+from typing import Dict, List, Tuple, Any, Optional
 
-    # Concatenar todos los DataFrames
-    # Leer todos los .geojson del path
-    geojson_files = [os.path.join(cache_path, f) for f in os.listdir(cache_path) if f.endswith(".geojson")]
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
-    # Cargar y unir en un solo GeoDataFrame
-    gdfs = [gpd.read_file(f) for f in geojson_files]
-    osm_elements_df = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=gdfs[0].crs)
-    
-    SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
-    
-    coords = special_areas_coords[study_area]
-    # Intercambiar lat y lon a lon, lat
-    coords_corrected = [(lon, lat) for lat, lon in coords]
-    distric_polygon = Polygon(coords_corrected)
-    
-    # Añadir datos de buses eléctricos aquí
-    buildings_populations = add_ebus(paths, distric_polygon, SG_relationship, study_area)
-    
-    return buildings_populations
+# --- Helpers ---------------------------------------------------------------
+
+def _area_query_for_city(city_name: str) -> str:
+    """
+    Devuelve un bloque Overpass que resuelve el área administrativa por nombre.
+    Intentamos con boundary=administrative y distintos admin_level (6–8)
+    y, si no, probamos place=city/town/village.
+    """
+    return f"""
+    area[name="{city_name}"]["boundary"="administrative"]["admin_level"~"^(6|7|8)$"]->.searchArea;
+    // fallback por si no hay boundary/admin_level claros:
+    (
+      area[name="{city_name}"]["place"~"^(city|town|village)$"];
+    )->.fallbackArea;
+    // Usa searchArea si existe; si no, usa fallbackArea
+    (.searchArea; - .fallbackArea;)->.maybeNone;
+    if (count(maybeNone) == 0) {{
+      // no se encontró searchArea; usar fallback
+      .fallbackArea->.searchArea;
+    }}
+    """
+
+def _build_tag_union_block(tags_by_key: Dict[str, List[str]]) -> str:
+    """
+    Construye el bloque (nwr[...]; ...;) con OR entre valores.
+    Regla:
+      - Si la lista de valores está vacía o contiene "*", interpretamos como "cualquier valor" (solo existencia de la clave).
+      - Se consultan nwr (node/way/relation).
+    """
+    parts = []
+    for k, values in tags_by_key.items():
+      # tolera None, [], ["*"] como "existe clave k"
+        values = values or []
+        exists_only = (len(values) == 0) or (len(values) == 1 and values[0] == "*")
+        if exists_only:
+            parts.append(f'  nwr["{k}"](area.searchArea);')
+        else:
+            for v in values:
+                parts.append(f'  nwr["{k}"="{v}"](area.searchArea);')
+    if not parts:
+        # Si por error viene vacío, evita consulta inválida
+        parts.append('  nwr["amenity"](area.searchArea);')
+    return "(\n" + "\n".join(parts) + "\n);"
+
+def _overpass(query: str, retries: int = 3, backoff: float = 3.0) -> dict:
+    last_err = None
+    for i in range(retries):
+        try:
+            r = requests.post(OVERPASS_URL, data={"data": query}, timeout=180)
+            if r.status_code == 429:
+                time.sleep(backoff * (i + 1))
+                continue
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_err = e
+            time.sleep(backoff * (i + 1))
+    raise RuntimeError(f"Fallo consultando Overpass: {last_err}")
+
+def _flatten_tags(tags: dict) -> dict:
+    # Normaliza campos comunes
+    out = dict(tags or {})
+    out["name"] = tags.get("name")
+    out["opening_hours"] = tags.get("opening_hours")
+    out["addr_city"] = tags.get("addr:city")
+    out["addr_street"] = tags.get("addr:street")
+    out["addr_housenumber"] = tags.get("addr:housenumber")
+    return out
+
+def _extract_lonlat(el: dict) -> Tuple[Optional[float], Optional[float]]:
+    # node: lon/lat directos; way/rel: usar 'center' si Overpass out center
+    if el.get("type") == "node":
+        return el.get("lon"), el.get("lat")
+    center = el.get("center") or {}
+    return center.get("lon"), center.get("lat")
+
+# --- Core ------------------------------------------------------------------
+
+def consultar_osm_por_diccionario(ciudad: str,
+                                  diccionario: Dict[str, Dict[str, List[str]]],
+                                  guardar_por_categoria: bool = False,
+                                  solo_con_horarios: bool = False) -> pd.DataFrame:
+    """
+    ciudad: nombre tal como lo entiende OSM/Nominatim (p.ej. 'Madrid', 'Sevilla, España')
+    diccionario: {
+      "Home": {"building": ["house", "residential"]},
+      "study": {"amenity": ["school"], "building": ["university"]}
+    }
+    """
+    # 1) Resolver área
+    area_block = _area_query_for_city(ciudad)
+
+    # 2) Consultar por cada categoría y acumular
+    frames = []
+    for categoria, tags_by_key in diccionario.items():
+        tag_union = _build_tag_union_block(tags_by_key)
+
+        query = f"""
+        [out:json][timeout:180];
+        {area_block}
+        {tag_union}
+        out tags center;
+        """
+        data = _overpass(query)
+
+        rows = []
+        for el in data.get("elements", []):
+            osm_type = el.get("type")
+            osm_id = el.get("id")
+            lon, lat = _extract_lonlat(el)
+            tags = _flatten_tags(el.get("tags", {}))
+
+            # Decidir si cae dentro (solo_con_horarios)
+            if solo_con_horarios and not tags.get("opening_hours"):
+                continue
+
+            # Capturar key/value que lo hicieron coincidir (opcional: heurística simple)
+            # Buscamos la primera (key, value) de tags_by_key que case con tags reales
+            match_key, match_val = None, None
+            for k, values in tags_by_key.items():
+                if k in tags:
+                    if (not values) or (values == ["*"]):
+                        match_key, match_val = k, tags.get(k)
+                        break
+                    elif tags.get(k) in values:
+                        match_key, match_val = k, tags.get(k)
+                        break
+
+            rows.append({
+                "category": categoria,
+                "match_key": match_key,
+                "match_value": match_val,
+                "osm_type": osm_type,
+                "osm_id": osm_id,
+                "name": tags.get("name"),
+                "opening_hours": tags.get("opening_hours"),
+                "lon": lon,
+                "lat": lat,
+                "addr_city": tags.get("addr:city"),
+                "addr_street": tags.get("addr:street"),
+                "addr_housenumber": tags.get("addr:housenumber"),
+                "tags_json": json.dumps(el.get("tags", {}), ensure_ascii=False)
+            })
+
+        df = pd.DataFrame(rows)
+        if not df.empty and guardar_por_categoria:
+            safe_city = ciudad.replace(",", "").replace("/", "-").strip().replace(" ", "_")
+            safe_cat = categoria.replace("/", "-").strip().replace(" ", "_")
+            df.to_csv(f"osm_{safe_city}_{safe_cat}.csv", index=False, encoding="utf-8-sig")
+        frames.append(df)
+
+    # 3) Concatenar y guardar global
+    if frames:
+        full = pd.concat(frames, ignore_index=True) if any([not f.empty for f in frames]) else pd.DataFrame()
+    else:
+        full = pd.DataFrame()
+
+    safe_city = ciudad.replace(",", "").replace("/", "-").strip().replace(" ", "_")
+    if not full.empty:
+        full.to_csv(f"osm_{safe_city}_todos.csv", index=False, encoding="utf-8-sig")
+    return full
 
 
 def e_sys_loading(paths, study_area):

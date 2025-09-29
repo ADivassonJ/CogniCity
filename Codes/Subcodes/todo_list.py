@@ -37,7 +37,7 @@ def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
 def choose_id_in_ring(cand_df, ring_poly, include_border=True):
         """
         Devuelve un osm_id aleatorio de cand_df dentro del anillo/polígono.
-        - cand_df: DataFrame con ['osm_id','lat','lon'] en EPSG:4326
+        - cand_df: DataFrame con ['name','lat','lon'] en EPSG:4326
         - ring_poly: shapely geometry, GeoSeries o GeoDataFrame
         - include_border: True -> cuenta puntos en el borde (intersects), False -> strictly within
         """
@@ -46,28 +46,22 @@ def choose_id_in_ring(cand_df, ring_poly, include_border=True):
             return None
         
         # 1) Candidatos como GeoDataFrame (WGS84)
-        df = cand_df[['osm_id', 'lat', 'lon']].copy()
+        df = cand_df[['name', 'lat', 'lon']].copy()
         gdf = gpd.GeoDataFrame(
             df,
             geometry=gpd.points_from_xy(df['lon'], df['lat']),
             crs="EPSG:4326"
         )
         # 2) Extraer geometría del anillo y su CRS
-        if isinstance(ring_poly, gpd.GeoDataFrame):
-            ring_geom = ring_poly.geometry.unary_union
-            ring_crs = ring_poly.crs
-        elif isinstance(ring_poly, gpd.GeoSeries):
-            ring_geom = ring_poly.unary_union
-            ring_crs = ring_poly.crs
-        else:
-            ring_geom = ring_poly
-            ring_crs = None
+        ring_geom = ring_poly
+        ring_crs = None
 
         if ring_geom is None:
             return None
 
         # 3) Alinear CRS si hace falta
         if ring_crs is not None and gdf.crs is not None and ring_crs != gdf.crs:
+            print('hace falta')
             ring_geom = gpd.GeoSeries([ring_geom], crs=ring_crs).to_crs(gdf.crs).iloc[0]
 
         # 4) Dos fases: sindex (intersects) -> filtro exacto (within/intersects)
@@ -76,6 +70,7 @@ def choose_id_in_ring(cand_df, ring_poly, include_border=True):
             idx_hits = list(gdf.sindex.query(ring_geom, predicate="intersects"))
             cand = gdf.iloc[idx_hits] if idx_hits else gdf  # si sindex vacío, cae al refinado global
         except Exception:
+            input('NO prefiltrado. Creo que este input sobra')
             cand = gdf  # sin sindex, refinado global
 
         # 5) Predicado exacto
@@ -86,9 +81,13 @@ def choose_id_in_ring(cand_df, ring_poly, include_border=True):
 
         subset = cand.loc[mask.values]
         if subset.empty:
+            
+            input(cand)
+            
+            input(f"subset es .empty")
             return None
 
-        return subset['osm_id'].sample(1).iat[0]
+        return subset['name'].sample(1).iat[0]
 
 def create_family_level_1_schedule(pop_building, family_df, activities, paths):
     """
@@ -132,8 +131,8 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                 except Exception:
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
-                    available_options = pop_building[pop_building['archetype'] == activity][{'osm_id','lat', 'lon'}] # ISSUE 33
-                    last_poi_data = pop_building[pop_building['osm_id'] == rew_row['osm_id']].iloc[0]                    
+                    available_options = pop_building[pop_building['archetype'] == activity][{'name','lat', 'lon'}] # ISSUE 33
+                    last_poi_data = pop_building[pop_building['name'] == rew_row['name']].iloc[0]                    
                     ring = ring_from_poi(last_poi_data['lat'], last_poi_data['lon'], row_f_df['dist_poi_mu'], row_f_df['dist_poi_sigma'])
                     # Elegimos uno aleatorio del grupo de validos
                     osm_id = choose_id_in_ring(available_options, ring)       
@@ -153,8 +152,12 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                 else:
                     activity_re = activity
                 # Buscamos las horas de apertura y cierre del servicio/WoS
-                opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
-                closing = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
+                
+                
+                print(f"osm_id: {osm_id}")
+                
+                opening = pop_building[(pop_building['name'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
+                closing = pop_building[(pop_building['name'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
                 try:
                     # En caso de que el agente tenga un tiempo requerido de actividad
                     time2spend = int(row_f_df[f'{activity}_time'])
@@ -162,14 +165,14 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths):
                     # En caso de que el agente NO tenga un tiempo requerido de actividad
                     time2spend = 0
                 
-                node = pop_building[pop_building['osm_id']==osm_id]['node'].iloc[0]
+                node = pop_building[pop_building['name']==osm_id]['node'].iloc[0]
                 
                 rew_row ={
                     'agent': row_f_df['name'],
                     'archetype': row_f_df['archetype'],
                     'independent': row_f_df['independent_type'],
                     'todo': activity, 
-                    'osm_id': osm_id, 
+                    'name': osm_id, 
                     'node': node,
                     'opening': opening, 
                     'closing': closing, 
@@ -193,8 +196,8 @@ def sort_route(osm_ids, helper):
     # Esta funcion deberia devolver el df ordenado con los verdaderos siempor de out
     # recuerda que el helper siempre debe ser el primero
 
-    dependants = osm_ids[osm_ids['osm_id'] != helper['osm_id'].iloc[0]].copy().reset_index(drop=True)  
-    helper = osm_ids[osm_ids['osm_id'] == helper['osm_id'].iloc[0]].copy().reset_index(drop=True)
+    dependants = osm_ids[osm_ids['name'] != helper['name'].iloc[0]].copy().reset_index(drop=True)  
+    helper = osm_ids[osm_ids['name'] == helper['name'].iloc[0]].copy().reset_index(drop=True)
                        
     # Detectar si la columna 'in' o 'out' está presente
     target_col = 'in' if 'in' in dependants.columns else 'out'
@@ -260,14 +263,14 @@ def todolist_family_creation(
     activities = [a for a in system_management['activities'].tolist() if pd.notna(a)]
 
     # (Opcional) Únicos de building por si lo reactivas para level_2
-    # pop_building_unique = pop_building.drop_duplicates(subset='osm_id')
+    # pop_building_unique = pop_building.drop_duplicates(subset='name')
 
     # Agrupar ciudadanos por familia
     families_iter = df_citizens.groupby('family')
     families = list(families_iter)  # materializamos para poder mostrar progreso
     total = len(families)
 
-    # Elegir ejecutor
+    '''# Elegir ejecutor
     Executor = ProcessPoolExecutor
     if use_threads:
         from concurrent.futures import ThreadPoolExecutor
@@ -288,7 +291,28 @@ def todolist_family_creation(
                 results.append(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
-                print(f"[ERROR] familia '{fam_name}': {e}")
+                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                
+                
+    # Versión SECUENCIAL del bloque (sin paralelizar)
+
+    # Preparamos función parcial con parámetros constantes
+    worker = partial(
+        _build_family_level1,
+        pop_building=pop_building,
+        activities=activities,
+        paths=paths
+    )
+
+    results = []
+
+    # Iteración secuencial con barra de progreso
+    for fam in tqdm(families, total=total, desc="Families schedules creation (secuencial): "):
+        fam_name = fam[0]
+        df_level1 = worker(fam)
+        results.append(df_level1)
+          
+                
 
     # Un solo concat al final (mucho más rápido)
     if results:
