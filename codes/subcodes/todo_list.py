@@ -141,14 +141,9 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
     
     activities = ['WoS', 'Dutties']
     home_activities = ['Home_in', 'Home_out']
-    # orden deseado
-    order = ["Home_out", "WoS", "Dutties", "Home_in"]
     
     wos_halftime = False
-    
-    day= 'Su' ##############################################################################################################################################
-  
-    
+
     if day in ['Fr', 'Sa', 'Su']:
         if day in ['Sa', 'Su']:
             if (system_management[f'{day}_morning'].iloc[0] == False) & (system_management[f'{day}_afternoon'].iloc[0] == False):
@@ -156,7 +151,6 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
         if system_management[f'{day}_afternoon'].iloc[0] == False:
             wos_halftime = True
     
-      
     # Inicializamos el df en el que meteremos los schedules
     todolist_family = []
     
@@ -186,7 +180,10 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
                     available_options = pop_building[pop_building['archetype'] == activity][{'osm_id','lat', 'lon'}] # ISSUE 33
-                    last_poi_data = pop_building[pop_building['osm_id'] == rew_row['osm_id']].iloc[0]                    
+                    try:
+                        last_poi_data = pop_building[pop_building['osm_id'] == rew_row['osm_id']].iloc[0]
+                    except Exception:
+                        last_poi_data = pop_building[pop_building['osm_id'] == row_f_df['Home']].iloc[0]
                     ring = ring_from_poi(last_poi_data['lat'], last_poi_data['lon'], row_f_df['dist_poi_mu'], row_f_df['dist_poi_sigma'])
                     # Elegimos uno aleatorio del grupo de validos
                     osm_id = choose_id_in_ring(available_options, ring)
@@ -222,7 +219,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 
                 node = pop_building[pop_building['osm_id']==osm_id]['node'].iloc[0]
                 
-                rew_row ={
+                rew_row =[{
                     'agent': row_f_df['name'],
                     'archetype': row_f_df['archetype'],
                     'independent': row_f_df['independent_type'],
@@ -234,17 +231,18 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                     'fixed': fixed, 
                     'time2spend': time2spend, 
                     'family': row_f_df['family'],
-                    'family_archetype': row_f_df['family_archetype']
-                }
+                    'family_archetype': row_f_df['family_archetype'],
+                    'trip': 1 if activity == 'WoS' else 2
+                }]
                 # La añadimos    
-                todolist_agent.append(rew_row)
+                todolist_agent.extend(rew_row)
             
         for h_activ in home_activities:
                 
             home = row_f_df['Home']
             home_node = pop_building[pop_building['osm_id'] == row_f_df['Home']].iloc[0]['node']
                 
-            rew_row ={
+            rew_row =[{
                 'agent': row_f_df['name'],
                 'archetype': row_f_df['archetype'],
                 'independent': row_f_df['independent_type'],
@@ -256,15 +254,11 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 'fixed': False, 
                 'time2spend': 0, 
                 'family': row_f_df['family'],
-                'family_archetype': row_f_df['family_archetype']
-            }
-            # La añadimos    
-            todolist_agent.append(rew_row)
-                
-        priority = {name: i for i, name in enumerate(order)}
-
-        for d in todolist_agent:
-            d['trip'] = priority.get(d['todo'], len(order))
+                'family_archetype': row_f_df['family_archetype'],
+                'trip': 0 if h_activ == 'Home_out' else 3
+            }]
+            # La añadimos
+            todolist_agent.extend(rew_row)
             
         if not any(d['todo'] in ("WoS", "Dutties") for d in todolist_agent):
             todolist_agent = [{
@@ -279,12 +273,13 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 'fixed': False, 
                 'time2spend': 0, 
                 'family': row_f_df['family'],
-                'family_archetype': row_f_df['family_archetype']
+                'family_archetype': row_f_df['family_archetype'],
+                'trip': 0
             }]
                
         # Añadimos a los resultados
-        todolist_family.append(todolist_agent)
-        
+        todolist_family.extend(todolist_agent)    
+    
     # Devolvemos el df de salida
     return todolist_family
 
@@ -398,8 +393,8 @@ def todolist_family_creation(
     # Iteración secuencial con barra de progreso
     for fam in tqdm(families, total=total, desc="Families schedules creation (secuencial): "):
         df_level1 = _build_family_level1(day, fam, pop_building, activities, citizen_archetypes, system_management)
-        results.append(df_level1)
-        
+        results.extend(df_level1)
+    
     # Un solo concat al final (mucho más rápido)
     if results:
         level_1_schedule = pd.DataFrame(results)
