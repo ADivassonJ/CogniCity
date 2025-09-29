@@ -385,8 +385,6 @@ def todolist_family_creation(
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
                 print(f"[ERROR] familia '{fam_name}': {e}")'''
-                  
-    # Versión SECUENCIAL del bloque (sin paralelizar)
    
     results = []
 

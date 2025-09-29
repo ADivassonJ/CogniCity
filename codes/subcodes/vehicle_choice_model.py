@@ -89,6 +89,7 @@ def vehicle_choice_model(
     pop_archetypes_transport,
     pop_building,
     networks_map,
+    days,
     n_jobs=None,        # None -> CPUs lógicas
     use_threads=False   # True si tu carga es I/O (lee/escribe mucho / red)
 ):
@@ -197,7 +198,9 @@ def main():
     ##############################################################################
     print(f'docs readed')
     
-    vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map)
+    days = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+    
+    vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map, days)
     
         
         
