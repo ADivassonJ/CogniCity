@@ -123,7 +123,7 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
 
     return results
 
-def create_family_level_1_schedule(pop_building, family_df, activities, paths, citizen_archetypes):
+def create_family_level_1_schedule(day, pop_building, family_df, activities, system_management, citizen_archetypes):
     """
       Summary: Crea la version inicial de los schedules de cada familia (level 1), 
     donde los agentes pueden realizar las actividades tal y como les apetezca, 
@@ -138,69 +138,87 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths, c
         todolist_family (DataFrame): Descripcion de level 1 del daily schedule de los agentes.
     """
     
-    # No puede trabajarse sin ningun tipo de actividades asignadas
-    if activities == []:
-        activities = ['WoS', 'Dutties']
-    # Lista para sumar la salida y vuelta al hogar
-    home_travels = ['Home_in', 'Home_out']
-    activities = activities + home_travels
+    
+    activities = ['WoS', 'Dutties']
+    home_activities = ['Home_in', 'Home_out']
+    # orden deseado
+    order = ["Home_out", "WoS", "Dutties", "Home_in"]
+    
+    wos_halftime = False
+    
+    day= 'Su' ##############################################################################################################################################
+  
+    
+    if day in ['Fr', 'Sa', 'Su']:
+        if day in ['Sa', 'Su']:
+            if (system_management[f'{day}_morning'].iloc[0] == False) & (system_management[f'{day}_afternoon'].iloc[0] == False):
+                activities = ['Dutties']
+        if system_management[f'{day}_afternoon'].iloc[0] == False:
+            wos_halftime = True
+    
+      
     # Inicializamos el df en el que meteremos los schedules
-    todolist_family = pd.DataFrame()
+    todolist_family = []
+    
     # Pasamos por cada agente que constitulle la familia 
-    for idx_f_df, row_f_df in family_df.iterrows():
-        # contador
-        trip = 1
+    for _, row_f_df in family_df.iterrows():
+        
+        todolist_agent = []
+        
         # Vamos actividad por actividad            
         for activity in activities:
+            activity_amount = 1
             # Miramos si tenemos alguna cantidad de esta tarea a realizar (solo existe si la cantidad es != 1)
             if activity == 'Dutties':
                 results = get_vehicle_stats(row_f_df['archetype'], citizen_archetypes, ['Dutties_amount', 'Dutties_time'])
-                
                 results = {k: int(round(v)) for k, v in results.items()}
-
                 activity_amount = results['Dutties_amount']
                 time2spend = results['Dutties_time']
+            elif (activity == 'WoS') & (day in ['Sa', 'Su']):               
+                WoS_key = row_f_df['WoS_subgroup'].split("_", 1)[0]             
+                if row_f_df['class'] == 'Salariat' or WoS_key == 'office':
+                    # Si es clase alta o trabaja en oficina, no trabaja los sabados y domingos
+                    continue
                 
-            else:
-                activity_amount = 1
             # Hacemos un loop para realizar la suma de tareas la X cantidad de veces necesaria
             for _ in range(int(activity_amount)):
-                try:
-                    # En caso de que el agente cuente ya con un edificio especifico para realizar la accion acude a él
-                    osm_id = row_f_df[activity.split('_')[0]]
-                except Exception:
+                if activity == 'Dutties':
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
                     available_options = pop_building[pop_building['archetype'] == activity][{'osm_id','lat', 'lon'}] # ISSUE 33
                     last_poi_data = pop_building[pop_building['osm_id'] == rew_row['osm_id']].iloc[0]                    
                     ring = ring_from_poi(last_poi_data['lat'], last_poi_data['lon'], row_f_df['dist_poi_mu'], row_f_df['dist_poi_sigma'])
                     # Elegimos uno aleatorio del grupo de validos
-                    osm_id = choose_id_in_ring(available_options, ring)       
-                try:
+                    osm_id = choose_id_in_ring(available_options, ring)
+                else:
+                    # En caso de que el agente cuente ya con un edificio especifico para realizar la accion acude a él
+                    osm_id = row_f_df[activity.split('_')[0]]
+                       
+                if activity == 'WoS':
                     # Si el agente tiene una hora de accion especifica fixed True, si no False
-                    fixed = True if row_f_df[f'{activity}_fixed'] == 1 else False
-                except Exception:
+                    fixed = True if row_f_df[f'WoS_fixed'] == 1 else False
+                else:
                     # En caso de que el agente NO tenga una hora especifica de accceso y salida
                     fixed = False
+                    
                 # Si la actividad es el curro fixed sera WoS, si no Service 
-                fixed_word = 'WoS' if activity == 'WoS' else 'Service'
+                fixed_word = 'WoS' if ((activity == 'WoS') & fixed == False) else 'Service'
+                
                 # Los casos de work y home son distintos. En el documento a referenciar tienen etiquetas distintas a su nombre de actividad
                 if activity == 'WoS':
                     activity_re = 'work'
-                elif activity in ['Home_in', 'Home_out']:
-                    activity_re = 'Home'
                 else:
                     activity_re = activity
                 # Buscamos las horas de apertura y cierre del servicio/WoS
                 
                 opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
                 closing = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
+                
                 if activity == 'WoS':
                     # En caso de que el agente tenga un tiempo requerido de actividad
-                    time2spend = int(row_f_df[f'{activity}_time'])
-                elif activity in ['Home_in', 'Home_out']:
-                    # En caso de que el agente NO tenga un tiempo requerido de actividad
-                    time2spend = 0 
+                    time2spend = int(row_f_df['WoS_time'])
+                    if wos_halftime:
+                        time2spend = time2spend/2
                 
                 node = pop_building[pop_building['osm_id']==osm_id]['node'].iloc[0]
                 
@@ -216,16 +234,57 @@ def create_family_level_1_schedule(pop_building, family_df, activities, paths, c
                     'fixed': fixed, 
                     'time2spend': time2spend, 
                     'family': row_f_df['family'],
-                    'family_archetype': row_f_df['family_archetype'],
-                    'trip': trip if activity != 'Home_out' else 0
+                    'family_archetype': row_f_df['family_archetype']
                 }
                 # La añadimos    
-                todolist_family = pd.concat([todolist_family, pd.DataFrame([rew_row])], ignore_index=True)
+                todolist_agent.append(rew_row)
+            
+        for h_activ in home_activities:
                 
-                trip += 1
+            home = row_f_df['Home']
+            home_node = pop_building[pop_building['osm_id'] == row_f_df['Home']].iloc[0]['node']
                 
-    # Ordenamos la schedule por hora de 'in' 
-    todolist_family = todolist_family.reset_index(drop=True)
+            rew_row ={
+                'agent': row_f_df['name'],
+                'archetype': row_f_df['archetype'],
+                'independent': row_f_df['independent_type'],
+                'todo': h_activ, 
+                'osm_id': home, 
+                'node': home_node,
+                'opening': 0, 
+                'closing': int(24*60), 
+                'fixed': False, 
+                'time2spend': 0, 
+                'family': row_f_df['family'],
+                'family_archetype': row_f_df['family_archetype']
+            }
+            # La añadimos    
+            todolist_agent.append(rew_row)
+                
+        priority = {name: i for i, name in enumerate(order)}
+
+        for d in todolist_agent:
+            d['trip'] = priority.get(d['todo'], len(order))
+            
+        if not any(d['todo'] in ("WoS", "Dutties") for d in todolist_agent):
+            todolist_agent = [{
+                'agent': row_f_df['name'],
+                'archetype': row_f_df['archetype'],
+                'independent': row_f_df['independent_type'],
+                'todo': 'Home_out', 
+                'osm_id': home, 
+                'node': home_node,
+                'opening': 0, 
+                'closing': int(24*60), 
+                'fixed': False, 
+                'time2spend': 0, 
+                'family': row_f_df['family'],
+                'family_archetype': row_f_df['family_archetype']
+            }]
+               
+        # Añadimos a los resultados
+        todolist_family.append(todolist_agent)
+        
     # Devolvemos el df de salida
     return todolist_family
 
@@ -271,7 +330,7 @@ import pandas as pd
 from tqdm import tqdm
 
 # --- Helper a nivel de módulo: debe ser importable/pickleable ---
-def _build_family_level1(family_tuple, pop_building, activities, paths, citizen_archetypes):
+def _build_family_level1(day, family_tuple, pop_building, activities, citizen_archetypes, system_management):
     """
     family_tuple: (family_name, family_df)
     Devuelve: DataFrame con el level_1 de esa familia
@@ -280,7 +339,7 @@ def _build_family_level1(family_tuple, pop_building, activities, paths, citizen_
     family_name, family_df = family_tuple
     
     # Llama a tu función existente (debe ser importable a nivel de módulo)
-    return create_family_level_1_schedule(pop_building, family_df, activities, paths, citizen_archetypes)
+    return create_family_level_1_schedule(day, pop_building, family_df, activities, system_management, citizen_archetypes)
 
 def todolist_family_creation(
     study_area,
@@ -331,32 +390,19 @@ def todolist_family_creation(
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
                 print(f"[ERROR] familia '{fam_name}': {e}")'''
-                
-                
+                  
     # Versión SECUENCIAL del bloque (sin paralelizar)
-
-    # Preparamos función parcial con parámetros constantes
-    worker = partial(
-        _build_family_level1,
-        pop_building=pop_building,
-        activities=activities,
-        paths=paths,
-        citizen_archetypes = citizen_archetypes
-    )
-
+   
     results = []
 
     # Iteración secuencial con barra de progreso
     for fam in tqdm(families, total=total, desc="Families schedules creation (secuencial): "):
-        fam_name = fam[0]
-        df_level1 = worker(fam)
+        df_level1 = _build_family_level1(day, fam, pop_building, activities, citizen_archetypes, system_management)
         results.append(df_level1)
-          
-                
-
+        
     # Un solo concat al final (mucho más rápido)
     if results:
-        level_1_schedule = pd.concat(results, ignore_index=True)
+        level_1_schedule = pd.DataFrame(results)
     else:
         level_1_schedule = pd.DataFrame()
 
@@ -420,8 +466,6 @@ def main_td():
     networks_map = {}   
     for net_type in networks:           
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
-    
-    
     
     pop_building = pd.read_parquet(f"{paths['population']}/pop_building.parquet")
     
