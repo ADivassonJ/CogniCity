@@ -47,7 +47,11 @@ def _process_family(
     for c_name in family_members:
         citizen_todolist = level1_citizens.get_group(c_name).sort_values(by='trip', ascending=True).reset_index(drop=True).copy()
         citizen_data = pop_citizen.loc[pop_citizen['name'] == c_name].iloc[0]
-
+        
+        # If 'citizen_todolist' only has one row, mean they did not left home, so no vehicle moving nether
+        if len(citizen_todolist) == 1:
+            continue
+        
         # Ruta del ciudadano
         citizen_route = route_creation(citizen_todolist)
         
@@ -89,7 +93,7 @@ def vehicle_choice_model(
     pop_archetypes_transport,
     pop_building,
     networks_map,
-    days,
+    day,
     n_jobs=None,        # None -> CPUs lógicas
     use_threads=False   # True si tu carga es I/O (lee/escribe mucho / red)
 ):
@@ -114,7 +118,7 @@ def vehicle_choice_model(
     results_schedules = []
     results_actions = []
     cache_deltas = []
-
+            
     worker = partial(
         _process_family,
         transport_families_dict=transport_families_dict,
@@ -123,10 +127,10 @@ def vehicle_choice_model(
         pop_building=pop_building,
         networks_map=networks_map,
     )
-
+    
     with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam_tuple): fam_tuple[0] for fam_tuple in families}
-        for fut in tqdm(as_completed(futures), total=len(families), desc="Transport Choice Modelling"):
+        for fut in tqdm(as_completed(futures), total=len(families), desc=f"Transport Choice Modelling ({day})"):
             fam_name = futures[fut]
             try:
                 fam_schedule, fam_actions = fut.result()
@@ -142,8 +146,8 @@ def vehicle_choice_model(
     vehicles_actions     = pd.concat(results_actions,   ignore_index=True) if results_actions   else pd.DataFrame()
 
     # --- Escrituras UNA sola vez ---
-    out_actions = os.path.join(paths['results'], f"{study_area}_vehicles_actions.xlsx")
-    out_level1  = os.path.join(paths['results'], f"{study_area}_new_level_1.xlsx")
+    out_actions = os.path.join(paths['results'], f"{study_area}_{day}_vehicles.xlsx")
+    out_level1  = os.path.join(paths['results'], f"{study_area}_{day}_schedule.xlsx")
     vehicles_actions.to_excel(out_actions, index=False)
     new_level1_schedules.to_excel(out_level1, index=False)
 
@@ -186,7 +190,7 @@ def main():
     for net_type in networks:           
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
     
-    level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_todolist.xlsx")
+    
     
     pop_citizen = pd.read_parquet(f"{paths['population']}/pop_citizen.parquet")
     pop_family = pd.read_parquet(f"{paths['population']}/pop_family.parquet")
@@ -200,7 +204,13 @@ def main():
     
     days = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
     
-    vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map, days)
+    days = ['Sa', 'Su']
+    
+    for day in days:
+        
+        level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
+        
+        vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map, day)
     
         
         
@@ -322,7 +332,7 @@ def schedule_simplification(new_family_schedule):
         simple_schedule = pd.concat([simple_schedule, pd.DataFrame([new_row])], ignore_index=True)
     return simple_schedule.sort_values(by='in', ascending=True).reset_index(drop=True)
 
-def vehicle_chosing(vehicle_score_matrix):   
+def vehicle_chosing(vehicle_score_matrix): 
     # Sumamos los scores por transporte
     simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False)['score'].sum()
     # Sacamos el transporte con menos score
