@@ -202,16 +202,43 @@ def main():
     ##############################################################################
     print(f'docs readed')
     
-    days = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+    # Días que quieres considerar
+    days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
+
+    found_schedule = set()
+    found_vehicles = set()
+
+    for file in paths['results'].glob('*.xlsx'):
+        name = file.stem  # sin extensión
+        parts = name.split('_')
+        if len(parts) < 3:
+            continue
+        # asumiendo formato: study_area_day_kind
+        study, day, kind = parts[-3], parts[-2], parts[-1].lower()
+        if day not in days:
+            continue
+        if kind == 'schedule':
+            found_schedule.add(day)
+        elif kind == 'vehicles':
+            found_vehicles.add(day)
+
+    # Faltantes por tipo
+    missing_schedule = days - found_schedule
+    missing_vehicles = days - found_vehicles
+
+    # Faltantes en general (en al menos uno)
+    days_missing = missing_schedule | missing_vehicles
     
-    days = ['Sa', 'Su']
-    
-    for day in days:
-        
-        level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
-        
-        vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map, day)
-    
+    # In case of having days to model
+    if days_missing:
+        # We act on each different day
+        for day in days_missing:
+            # Input reading
+            level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
+            # Vehicle Choice Modeling
+            vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map, day)
+    else:
+        print(f"All days already modeled.")
         
         
 def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_family):
