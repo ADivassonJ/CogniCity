@@ -465,11 +465,41 @@ def main_td():
     ##############################################################################
     print(f'docs readed')
     
-    days = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+    days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
+
+    found_schedule = set()
+    found_vehicles = set()
+    found_todolist = set()
+
+    for file in paths['results'].glob('*.xlsx'):
+        name = file.stem  # sin extensión
+        parts = name.split('_')
+        if len(parts) < 3:
+            continue
+        # asumiendo formato: study_area_day_kind
+        study, day, kind = parts[-3], parts[-2], parts[-1].lower()
+        if day not in days:
+            continue
+        if kind == 'schedule':
+            found_schedule.add(day)
+        elif kind == 'vehicles':
+            found_vehicles.add(day)
+        elif kind == 'todolist':
+            found_todolist.add(day)
+
+    # Faltantes por tipo
+    missing_schedule = days - found_schedule
+    missing_vehicles = days - found_vehicles
+
+    days_missing_todolist = days - found_todolist
+    # Faltantes en general (en al menos uno)
+    days_missing_schedules = missing_schedule | missing_vehicles
     
-    for day in days:
-        level_1_results = todolist_family_creation(study_area, df_citizens, pop_building, system_management, paths, day, citizen_archetypes)
-    
+    if days_missing_todolist:
+        for day in days_missing_todolist:
+            level_1_results = todolist_family_creation(study_area, df_citizens, pop_building, system_management, paths, day, citizen_archetypes)
+    else:
+        print(f"All days' todo lists already modeled.")
     
     
 

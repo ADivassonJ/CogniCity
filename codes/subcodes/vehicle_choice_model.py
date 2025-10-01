@@ -207,6 +207,7 @@ def main():
 
     found_schedule = set()
     found_vehicles = set()
+    found_todolist = set()
 
     for file in paths['results'].glob('*.xlsx'):
         name = file.stem  # sin extensión
@@ -221,24 +222,27 @@ def main():
             found_schedule.add(day)
         elif kind == 'vehicles':
             found_vehicles.add(day)
+        elif kind == 'todolist':
+            found_todolist.add(day)
 
     # Faltantes por tipo
     missing_schedule = days - found_schedule
     missing_vehicles = days - found_vehicles
 
+    days_missing_todolist = days - found_todolist
     # Faltantes en general (en al menos uno)
-    days_missing = missing_schedule | missing_vehicles
+    days_missing_schedules = missing_schedule | missing_vehicles
     
     # In case of having days to model
-    if days_missing:
+    if days_missing_schedules:
         # We act on each different day
-        for day in days_missing:
+        for day in days_missing_schedules:
             # Input reading
             level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
             vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map, day)
     else:
-        print(f"All days already modeled.")
+        print(f"All days' schedules already modeled.")
         
         
 def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_family):
