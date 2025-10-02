@@ -106,14 +106,30 @@ def main():
     found_schedule = set()
     found_vehicles = set()
     found_todolist = set()
+    
+    schedule_done = False
+    vehicles_done = False
+    todolist_done = False
+    
+    final_schedule = []
+    final_vehicles = []
+    final_todolist = []
 
     for file in paths['results'].glob('*.xlsx'):
         name = file.stem  # sin extensión
         parts = name.split('_')
-        if len(parts) < 3:
+        if len(parts) == 2:
+            kind = parts[-1].lower()
+            if kind == 'schedule':
+                schedule_done = True
+            elif kind == 'vehicles':
+                vehicles_done = True
+            elif kind == 'todolist':
+                todolist_done = True
+        elif (len(parts) != 3):
             continue
-        # asumiendo formato: study_area_day_kind
-        study, day, kind = parts[-3], parts[-2], parts[-1].lower()
+        # Formato: studyarea_day_kind
+        day, kind = parts[-2], parts[-1].lower()
         if day not in days:
             continue
         if kind == 'schedule':
@@ -131,22 +147,85 @@ def main():
     # Faltantes en general (en al menos uno)
     days_missing_schedules = missing_schedule | missing_vehicles
     
-    if days_missing_todolist:
+    #################### TODOLIST ################
+    
+    if days_missing_todolist and (not todolist_done):
         for day in days_missing_todolist:
-            level_1_results = todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths, day, pop_archetypes['citizen'])
-    else:
-        print(f"All days' todo lists already modeled.")
+            todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths, day, pop_archetypes['citizen'])
         
+    if not todolist_done:
+        print(f"All weekdays modelated: Generating {study_area}_todolist.xlsx ...")
+        for file in paths['results'].glob('*_todolist.xlsx'):
+            #aqui los sumamos todos los acabados en _todolist (kind == 'todolist') y creamos una nueva columna ('day') que especifique su valor de parts[-2]
+            current = pd.read_excel(file)
+            parts = file.stem.split('_')
+            current = current.copy()
+            current['day'] = parts[-2]
+            final_todolist.append(current)
+        # Path to convined results
+        final_todolist_path = os.path.join(paths['results'], f"{study_area}_todolist.xlsx")
+        # Creamos df con los datos compilados
+        df = pd.concat(final_todolist, ignore_index=True)        
+        df.to_excel(final_todolist_path, index=False)
+    
+    for file in paths['results'].glob('*_todolist.xlsx'):
+        parts = file.stem.split('_')
+        if len(parts) != 3:
+            continue
+        file.unlink()
+    
+    #################### SCHEDULES ################
+    
     # In case of having days to model
-    if days_missing_schedules:
+    if days_missing_schedules and ((not schedule_done) or (not vehicles_done)):
         # We act on each different day
         for day in days_missing_schedules:
             # Input reading
-            level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
+            todolist = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
-            vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, agent_populations['transport'], agent_populations['citizen'], paths, study_area, pop_archetypes['transport'], agent_populations['building'], networks_map, day)
-    else:
-        print(f"All days' schedules already modeled.")
+            vehicle_choice_model(todolist, agent_populations['transport'], agent_populations['citizen'], paths, study_area, pop_archetypes['transport'], agent_populations['building'], networks_map, day)
+    
+    if not vehicles_done:
+        print(f"All weekdays modelated: Generating {study_area}_vehicles.xlsx ...")
+        for file in paths['results'].glob('*_vehicles.xlsx'):
+            #aqui los sumamos todos los acabados en _vehicles (kind == 'vehicles') y creamos una nueva columna ('day') que especifique su valor de parts[-2]
+            current = pd.read_excel(file)
+            parts = file.stem.split('_')
+            current = current.copy()
+            current['day'] = parts[-2]
+            final_vehicles.append(current)
+        # Path to convined results
+        final_vehicles_path = os.path.join(paths['results'], f"{study_area}_vehicles.xlsx")
+        # Creamos df con los datos compilados
+        df = pd.concat(final_vehicles, ignore_index=True)        
+        df.to_excel(final_vehicles_path, index=False)
+        
+    for file in paths['results'].glob('*_vehicles.xlsx'):
+        parts = file.stem.split('_')
+        if len(parts) != 3:
+            continue
+        file.unlink()
+    
+    if not schedule_done:
+        print(f"All weekdays modelated: Generating {study_area}_schedule.xlsx ...")
+        for file in paths['results'].glob('*_schedule.xlsx'):
+            #aqui los sumamos todos los acabados en _schedule (kind == 'schedule') y creamos una nueva columna ('day') que especifique su valor de parts[-2]
+            current = pd.read_excel(file)
+            parts = file.stem.split('_')
+            current = current.copy()
+            current['day'] = parts[-2]
+            final_schedule.append(current)
+        # Path to convined results
+        final_schedule_path = os.path.join(paths['results'], f"{study_area}_schedule.xlsx")
+        # Creamos df con los datos compilados
+        df = pd.concat(final_schedule, ignore_index=True)        
+        df.to_excel(final_schedule_path, index=False)
+
+    for file in paths['results'].glob('*_schedule.xlsx'):
+        parts = file.stem.split('_')
+        if len(parts) != 3:
+            continue
+        file.unlink()
 
 def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
     # Suponiendo que df_citizens y df_families ya están definidos
