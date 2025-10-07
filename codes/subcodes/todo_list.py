@@ -500,8 +500,6 @@ def main_td():
             level_1_results = todolist_family_creation(study_area, df_citizens, pop_building, system_management, paths, day, citizen_archetypes)
     else:
         print(f"All days' todo lists already modeled.")
-    
-    
 
 # Ejecución
 if __name__ == '__main__':

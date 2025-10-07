@@ -1838,13 +1838,7 @@ def voronoi_from_nodes(electric_system: pd.DataFrame, boundary_polygon: Polygon)
     
     return nodes_gdf_proj, vor_gdf, boundary_proj
 
-
-def main():
-    # Input
-    population = 450
-    study_area = 'Kanaleneiland'
-    
-    ## Code initialization
+def paths_initialization(study_area):
     # Paths initialization
     paths = {}
     
@@ -1869,7 +1863,7 @@ def main():
             elif row['pre'] == 'p':
                 user_is_stupid = True
                 while user_is_stupid:    
-                    response = input(f"Data for the case study '{study_area}' was not found.\nDo you want to copy data from standar scenario or do you want to create your own? [Y (copy)/N (create)]\n")
+                    response = input(f"Data for the case study '{study_area}' was not found.\nDo you want to copy data from standar scenario or do you want to create your own? [Y/N]\n")
                     if response == 'Y':
                         user_is_stupid = False
                         shutil.copytree(paths['base_scenario'], paths[file_2])
@@ -1880,15 +1874,35 @@ def main():
                         print(f"Your response was not valid, please respond Y (yes) or N (no).")
             else:
                 os.makedirs(paths[file_2], exist_ok=True)
-    
+    return paths, system_management
+
+def Documents_initialisation(population, study_area):
     print('#'*20, ' System initialization ','#'*20)
+    
+    # Modules initialization
+    # CODE HERE
+    
+    # Paths initialization
+    paths, system_management = paths_initialization(study_area)
+    
     # Archetype documentation initialization
     pop_archetypes, stats = Archetype_documentation_initialization(paths)
+    
     # Geodata initialization
     agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
+    
     # Synthetic population initialization
     agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area)
+    
     print('#'*20, ' Initialization finalized ','#'*20)
     
+    # Return generated or loaded data
+    return paths, system_management, pop_archetypes, agent_populations, networks_map
+    
 if __name__ == '__main__':
-    main()
+    
+    # Input
+    population = 450
+    study_area = 'Kanaleneiland'
+    
+    Documents_initialisation(population, study_area)
