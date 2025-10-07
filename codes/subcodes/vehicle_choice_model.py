@@ -80,6 +80,33 @@ def _process_family(
         vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
         if vehicle_name not in ('walk', 'UB_diesel') and not avail_vehicles.empty:
             avail_vehicles = avail_vehicles[avail_vehicles['name'] != vehicle_name]
+    
+    # aqui tenemos que añadir cualquier vehiculo no utilizado :)
+    
+    # sacamos los datos de family
+    filtered = family[family['todo'].str.contains(r'Home|Home_in|Home_out', na=False)]
+    
+    family_home = filtered.iloc[0]['osm_id']
+    family_node = filtered.iloc[0]['node']
+    family_archetype = filtered.iloc[0]['family_archetype']
+
+    for _, vehicle in avail_vehicles.iterrows():
+      
+        new_row = [{
+            'agent': vehicle['name'],
+            'archetype': vehicle['archetype'],
+            'independent': 0,
+            'osm_id': family_home,
+            'node': family_node,
+            'family': f_name,
+            'family_archetype': family_archetype,
+            'trip': 0,
+            'in': 0,
+            'out': 24*60,
+            'user': None,
+        }]      
+        
+        all_vehicle_schedule = pd.concat([all_vehicle_schedule, pd.DataFrame(new_row)], ignore_index=True)
 
     return all_citizen_schedule, all_vehicle_schedule
 
@@ -118,7 +145,17 @@ def vehicle_choice_model(
     results_schedules = []
     results_actions = []
     cache_deltas = []
-            
+        
+    
+    '''for fam_tuple in families:
+        fam_schedule, fam_actions= _process_family(fam_tuple,
+                                                    transport_families_dict,
+                                                    pop_citizen,
+                                                    pop_archetypes_transport,
+                                                    pop_building,
+                                                    networks_map)'''
+        
+        
     worker = partial(
         _process_family,
         transport_families_dict=transport_families_dict,

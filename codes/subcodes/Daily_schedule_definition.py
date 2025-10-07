@@ -52,7 +52,7 @@ except Exception as e:
     from subcodes.todo_list import todolist_family_creation
     from subcodes.vehicle_choice_model import vehicle_choice_model
 
-def delete_used_files(file_type):
+def delete_used_files(file_type, paths):
     # We search for used files
     for file in paths['results'].glob(f'*_{file_type}.xlsx'):
         # We analyze docs names
@@ -147,19 +147,19 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
     # Convining docs
     docs_convining(files_done['todolist'], 'todolist', study_area, paths)
     # Delete used files
-    delete_used_files('todolist')
+    delete_used_files('todolist', paths)
     
     ## Vehicles
     # Convining docs
     docs_convining(files_done['vehicles'], 'vehicles', study_area, paths)
     # Delete used files
-    delete_used_files('vehicles')
+    delete_used_files('vehicles', paths)
     
     ## Schedule
     # Convining docs
     docs_convining(files_done['schedule'], 'schedule', study_area, paths)
     # Delete used files
-    delete_used_files('schedule')
+    delete_used_files('schedule', paths)
         
         
         

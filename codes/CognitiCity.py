@@ -51,10 +51,6 @@ def main():
 
     # pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])
     
-    
-    print(pop_archetypes['citizen'])
-    input(agent_populations['citizen'])
-    
     Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations)
     
     
