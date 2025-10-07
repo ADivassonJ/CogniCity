@@ -47,6 +47,7 @@ def main():
     population = 450
     study_area = 'Kanaleneiland'
     
+    
     paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
 
     # pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])

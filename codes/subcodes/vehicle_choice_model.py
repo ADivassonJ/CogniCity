@@ -227,8 +227,6 @@ def main():
     for net_type in networks:           
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
     
-    
-    
     pop_citizen = pd.read_parquet(f"{paths['population']}/pop_citizen.parquet")
     pop_family = pd.read_parquet(f"{paths['population']}/pop_family.parquet")
     pop_building = pd.read_parquet(f"{paths['population']}/pop_building.parquet")
@@ -280,7 +278,6 @@ def main():
             vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map, day)
     else:
         print(f"All days' schedules already modeled.")
-        
         
 def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_family):
     """
@@ -401,8 +398,9 @@ def schedule_simplification(new_family_schedule):
     return simple_schedule.sort_values(by='in', ascending=True).reset_index(drop=True)
 
 def vehicle_chosing(vehicle_score_matrix): 
+   
     # Sumamos los scores por transporte
-    simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False)['score'].sum()
+    simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False).sum()
     # Sacamos el transporte con menos score
     best_transport = simplified_df.loc[simplified_df['score'].idxmin()]
     # Sacamos del original walk y public transport
@@ -414,9 +412,24 @@ def vehicle_chosing(vehicle_score_matrix):
     # Evaluamos se el modal split es mejor que lo previo    
     if score_public_walk['score'].sum() < best_transport['score']:
         # Si es mejor, devolvemos esto como resultado
-        return public_walk.loc[idx]
-    # Si no es mejor, devuelve el anteriormente definido como mejor
-    return vehicle_score_matrix[vehicle_score_matrix['vehicle'] == best_transport['vehicle']].reset_index(drop=True)
+        current_transport = public_walk.loc[idx]
+    else:
+        # Si no es mejor, devuelve el anteriormente definido como mejor
+        current_transport = vehicle_score_matrix[vehicle_score_matrix['vehicle'] == best_transport['vehicle']].reset_index(drop=True)
+    
+    ####################################################
+    # Aqui es donde debemos meter el modelo de Qiaochu #
+    ####################################################
+    '''
+    Basicamente, su modelo, mira el transporte actual y evalua la probabilidad de que cambie del que tenia a 
+    uno más V2G-related. Por lo tanto, y a menos de que me exprese alguna modificacion. Habría que añadir su
+    modulo aqui y considerar el current_transport como el actual y evaluar si cambia o no.
+    
+    Parece que no se concibe la opcion de que el current sea V2G, por lo que
+    
+    '''
+    
+    return current_transport
 
 def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map):
     # Inicializamos la vehicle_score_matrix
@@ -449,7 +462,7 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
             full_distime_matrix = pd.concat([full_distime_matrix, pd.DataFrame([distime_matrix])], ignore_index=True)
         # Añadimos el nuevo transport_VSM a vehicle_score_matrix
         vehicle_score_matrix = pd.concat([vehicle_score_matrix, transport_VSM], ignore_index=True)
-
+    
     return full_distime_matrix
             
 def score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, citizen_data):
@@ -466,7 +479,6 @@ def score_algorithm(distime_matrix):
     """
     Aqui definimos el algoritmo de toma de decisiones
     """
-    
     distime_matrix = distime_matrix.iloc[0]
     # Asegurarse de que distime_matrix está desconectado de slices
     distime_matrix = distime_matrix.copy()

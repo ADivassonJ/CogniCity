@@ -9,6 +9,10 @@ from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 from shapely.geometry import Point
+from concurrent.futures import ProcessPoolExecutor, as_completed  # o ThreadPoolExecutor
+from functools import partial
+import pandas as pd
+from tqdm import tqdm
 
 def update_warnings(message, path):
     """
@@ -318,11 +322,6 @@ def sort_route(osm_ids, helper):
     combined_df = combined_df.sort_values(by=target_col, ascending=ascending).reset_index(drop=True)
     
     return combined_df       
-
-from concurrent.futures import ProcessPoolExecutor, as_completed  # o ThreadPoolExecutor
-from functools import partial
-import pandas as pd
-from tqdm import tqdm
 
 # --- Helper a nivel de módulo: debe ser importable/pickleable ---
 def _build_family_level1(day, family_tuple, pop_building, activities, citizen_archetypes, system_management):
