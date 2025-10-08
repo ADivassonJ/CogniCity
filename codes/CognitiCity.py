@@ -53,12 +53,7 @@ def main():
     # pop_error_printing(agent_populations['citizen'], agent_populations['family'], pop_archetypes['citizen'], pop_archetypes['family'])
     
     Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations)
-    
-    
-    
-    
-    
-    
+
 
 def pop_error_printing(df_citizens, df_families, citizen_archetypes, family_archetypes):
     # Suponiendo que df_citizens y df_families ya están definidos

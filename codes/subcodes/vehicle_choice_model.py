@@ -67,7 +67,7 @@ def _process_family(
         
         # Escoge vehículo
         best_transport_distime_matrix = vehicle_chosing(distime_matrix)
-
+        
         # Actualiza schedule de la familia con la elección
         citizen_schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, family)
         all_citizen_schedule = pd.concat([all_citizen_schedule, citizen_schedule], ignore_index=True)
@@ -104,6 +104,7 @@ def _process_family(
             'in': 0,
             'out': 24*60,
             'user': None,
+            'ETC [kWh]': 0,
         }]      
         
         all_vehicle_schedule = pd.concat([all_vehicle_schedule, pd.DataFrame(new_row)], ignore_index=True)
@@ -264,7 +265,6 @@ def main():
     missing_schedule = days - found_schedule
     missing_vehicles = days - found_vehicles
 
-    days_missing_todolist = days - found_todolist
     # Faltantes en general (en al menos uno)
     days_missing_schedules = missing_schedule | missing_vehicles
     
@@ -337,21 +337,26 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
 
 def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
     # El objetivo es tener un df que de los datos de consumo relevante para cada actividad
-    
-    ''' Deshabilitado para poder evaluar el resto de funciones
-    
+       
     # Antes de iniciar, aseguramos que no sea walk o publico o walk_public
     if best_transport_distime_matrix['vehicle'].iloc[0] in ['walk', 'public']:
         # Devolvemos el df sin modificaciones
-        return vehicles_actions
-    '''
-
+        return pd.DataFrame()
+    
     # Simplificamos el 'new_family_schedule', para guardar la info como lo hariamos para el output
     simple_schedule = schedule_simplification(new_family_schedule.sort_values(by='trip', ascending=True).reset_index(drop=True).copy())
+    
     # Ahora duplicamos pero metemos el vehiculo en vez de la persona
     simple_schedule['user'] = simple_schedule['agent']
     simple_schedule['agent'] = best_transport_distime_matrix['vehicle'].iloc[0]
     simple_schedule['archetype'] = best_transport_distime_matrix['archetype'].iloc[0]
+    
+    for idx, row in simple_schedule.iterrows():
+        if idx == 0:
+            simple_schedule.at[idx, 'ETC [kWh]'] = 0
+            continue
+        simple_schedule.at[idx, 'ETC [kWh]'] = best_transport_distime_matrix.at[idx-1,'mjkm'] + simple_schedule.at[idx-1, 'ETC [kWh]']
+
     # Eliminamos las columnas innecesarias
     simple_schedule = simple_schedule.drop(['todo', 'opening', 'closing', 'fixed', 'time2spend'], axis=1)
     
@@ -607,20 +612,21 @@ def distime_calculation(
 
         # 3.b) Otras métricas
         waiting_time = waiting_time_calculation(cache[cache_key], step_1, transport)
-        benefits     = benefits_calculation(citizen_data, step_1)
-
+        benefits     = benefits_calculation(citizen_data, step_1)        
+        
         rows.append({
-            'citizen':   citizen_data['name'],
-            'vehicle':   transport['name'],
-            'archetype': transport['archetype'],
-            'trip':      trip,
-            'distance':  cache[cache_key],
-            'walk_time': (cache[cache_key] / citizen_data['walk_speed']) if (map_type == 'walk' and cache[cache_key] > 0) else 0,
-            'travel_time': (cache[cache_key] / transport['v']) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
-            'wait_time': waiting_time,
-            'cost':      (transport['Ekm']   * cache[cache_key]) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
-            'benefits':  benefits,
-            'emissions': (transport['CO2km'] * cache[cache_key]) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
+            'citizen':      citizen_data['name'],
+            'vehicle':      transport['name'],
+            'archetype':    transport['archetype'],
+            'trip':         trip,
+            'distance':     cache[cache_key],
+            'walk_time':    (cache[cache_key] / citizen_data['walk_speed']) if (map_type == 'walk' and cache[cache_key] > 0) else 0,
+            'travel_time':  (cache[cache_key] / transport['v']) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
+            'wait_time':    waiting_time,
+            'cost':         (transport['Ekm']   * cache[cache_key]) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
+            'mjkm':         (transport['mjkm']   * cache[cache_key]) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
+            'benefits':     benefits,
+            'emissions':    (transport['CO2km'] * cache[cache_key]) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
         })
 
     # --- 5) Agregación final (igual que antes, pero sin overhead extra) ---
