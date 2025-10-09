@@ -726,20 +726,6 @@ def save_split_poligon_map(polygon, grid_gdf):
     m.save("kanaleneiland_grid_1km.html")
     print("Mapa guardado en 'kanaleneiland_grid_1km.html'")
 
-
-def _project_to_metric(geom_wgs84):
-    """Proyecta una geometría WGS84 a un CRS métrico (UTM elegido por OSMnx)."""
-    gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs=4326)
-    gdf_m = ox.projection.project_gdf(gdf)  # UTM apropiado
-    return gdf_m.geometry.iloc[0], gdf_m.crs
-
-def _write_empty_geojson(filepath):
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump({"type": "FeatureCollection", "features": []}, f)
-
-
-
 def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district, building_types):
     # User Interface
     print(f'    [WARNING] Data is missing, it needs to be downloaded.')
@@ -761,8 +747,8 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     # En base al distrito de analisis, sacamos la ciudad a descargar
     city = city_district.get(study_area)
     
-    #gdf = ox.geocode_to_gdf(city)
-    gdf = ox.geocode_to_gdf('Kanaleneiland')
+    gdf = ox.geocode_to_gdf(city)
+    #gdf = ox.geocode_to_gdf('Kanaleneiland')
 
     polygon = gdf.iloc[0].geometry
     # Crear si no existe
@@ -781,17 +767,55 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     services_groups = services_groups_creation(Services_Group_relationship, missing_files)
     
     for group_name, group_ref in services_groups.items():
-        try:
-            # Descargamos datos
-            df_group = get_osm_elements(polygon, group_ref)
-            df_group['archetype'] = group_name
-            # Guardamos resultados
-            df_group.to_file(f"{cache_path}/{group_name}.geojson", driver="GeoJSON")
-            # UserInterface
-            print(f"            {group_name}: {len(df_group)} elements found")
-        except Exception as e:
-            print(f"            [ERROR] Failed to get data for {group_name}: {e}")
-
+        
+        if not group_name in ['work', 'Entertainment', 'Salariat', 'Intermediate', 'Working', 'Home']:
+            try:
+                # Descargamos datos
+                df_group = get_osm_elements(polygon, group_ref)
+                df_group['archetype'] = group_name
+                # Guardamos resultados
+                df_group.to_file(f"{cache_path}/{group_name}.geojson", driver="GeoJSON")
+                # UserInterface
+                print(f"            {group_name}: {len(df_group)} elements found")
+            except Exception as e:
+                print(f"            [ERROR] Failed to get data for {group_name}: {e}")
+        else:
+            
+            if not os.path.isdir(f"{cache_path}/{group_name}"):
+                    os.makedirs(f"{cache_path}/{group_name}", exist_ok=True)
+                
+            # Listar archivos .geojson
+            geojson_files_2 = [f.replace(".geojson", "") for f in os.listdir(f"{cache_path}/{group_name}") if f.endswith(".geojson")]
+            missing_files_2 = [b for b in group_ref if b not in geojson_files_2]
+            not_missing_files_2 = [b for b in group_ref if b in geojson_files_2]
+            
+            # User Interface
+            for not_miss in not_missing_files_2:
+                print(f"            {group_name}_{not_miss}: retrieved from cache.")
+            
+            for key in missing_files_2:
+                
+                smaller = {key: group_ref[key]}
+                
+                try:
+                    # Descargamos datos
+                    df_group = get_osm_elements(polygon, smaller)
+                    df_group['archetype'] = group_name
+                    # Guardamos resultados
+                    df_group.to_file(f"{cache_path}/{group_name}/{key}.geojson", driver="GeoJSON")
+                    # UserInterface
+                    print(f"            {group_name}_{key}: {len(df_group)} elements found")
+                except Exception as e:
+                    print(f"            [ERROR] Failed to get data for {group_name}_{key}: {e}")
+            # Concatenar todos los DataFrames
+            # Leer todos los .geojson del path
+            geojson_files_2 = [os.path.join(f"{cache_path}/{group_name}", f) for f in os.listdir(f"{cache_path}/{group_name}") if f.endswith(".geojson")]
+            
+            # Cargar y unir en un solo GeoDataFrame
+            gdfs_2 = [gpd.read_file(f) for f in geojson_files_2]
+            osm_elements_df_2 = gpd.GeoDataFrame(pd.concat(gdfs_2, ignore_index=True), crs=gdfs_2[0].crs)
+            osm_elements_df_2.to_file(f"{cache_path}/{group_name}.geojson", driver="GeoJSON")
+            
     # Concatenar todos los DataFrames
     # Leer todos los .geojson del path
     geojson_files = [os.path.join(cache_path, f) for f in os.listdir(cache_path) if f.endswith(".geojson")]
@@ -811,8 +835,6 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     buildings_populations = add_ebus(paths, distric_polygon, SG_relationship, study_area)
     
     return buildings_populations
-
-
 
 
 def e_sys_loading(paths, study_area):
@@ -847,38 +869,10 @@ def find_group(name, df_families, row_out):
             return row[row_out]
     return None
 
-
-def Geodata_initialization(study_area, paths, pop_archetypes):
+def Geodata_initialization(study_area, paths, pop_archetypes, special_areas_coords, city_district):
     agent_populations = {}
     # Obtener redes activas desde transport_archetypes
     networks = get_active_networks(pop_archetypes['transport'])
-    
-    # Diccionario con coordenadas de los territorios especiales
-    special_areas_coords = {
-        "Aradas": [(1, 1), (1, 1)],
-        "Kanaleneiland": [(52.07892763457244, 5.081179665783377), 
-                          (52.071082860598274, 5.087677559318499), 
-                          (52.060700337662205, 5.097493321101714), 
-                          (52.0589253058436, 5.111134343014198),
-                          (52.06371772987415, 5.113155235149382),
-                          (52.06713423672216, 5.112072614362676),
-                          (52.07698296226893, 5.109504220222101),
-                          (52.07814350260757, 5.108891797422314),
-                          (52.079586294469394, 5.107820057522688),
-                          (52.081311310482626, 5.106084859589962),
-                          (52.0818131208049, 5.105013119690336),
-                          (52.08520019308004, 5.09822543371076),
-                          (52.08291081138339, 5.094959178778566),
-                          (52.08102903986475, 5.090570148713432),
-                        ],
-        "Annelinn": [(1, 1), (1, 1)],
-    }
-    
-    city_district = {
-        "Aradas": "Aveiro",
-        "Kanaleneiland": "Utrecht",
-        "Annelinn": "Tartu",
-    }
 
     # Paso 1: Cargar o descargar POIs
     agent_populations['building'] = load_or_download_pois(study_area, paths, pop_archetypes['building'], special_areas_coords, city_district)
@@ -887,7 +881,6 @@ def Geodata_initialization(study_area, paths, pop_archetypes):
     networks_map = load_or_download_networks(study_area, paths['maps'], networks, city_district)
 
     return agent_populations, networks_map
-
 
 def get_active_networks(transport_archetypes_df):
     active_maps = transport_archetypes_df.loc[
@@ -899,7 +892,6 @@ def get_active_networks(transport_archetypes_df):
         active_maps.append('walk')
     
     return active_maps
-
 
 def get_stats_value(value, stats_synpop: pd.DataFrame,
                     family_arch: str, citizen_arch: str,
@@ -929,15 +921,11 @@ def get_stats_value(value, stats_synpop: pd.DataFrame,
 
     return 1 if fallback_min_if_missing else 0
 
-
 def get_wos_action(archetype, pop_archetypes, stats_synpop):
     value = pop_archetypes['citizen'].loc[
         pop_archetypes['citizen']['name'] == archetype, 'WoS_action'
     ].values[0]
     return get_stats_value(value, stats_synpop, archetype, 'WoS_action')
-
-
-
 
 def get_osm_elements(polygon, poss_ref):
     """
@@ -1003,7 +991,6 @@ def get_osm_elements(polygon, poss_ref):
 
     return gdf_geo[['building_type','osm_id','geometry','lat','lon']]
 
-
 def get_vehicle_stats(archetype, transport_archetypes, variables):
     results = {}   
     
@@ -1036,7 +1023,6 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
         results[variable] = var_result
 
     return results
-
 
 def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch):
     """
@@ -1075,7 +1061,6 @@ def is_it_any_archetype(archetype_to_fill, df_distribution, ind_arch):
     
     # Filtering and resetting the index
     return archetype_to_fill[~mask].reset_index(drop=True)
-
 
 def load_or_create_stats(archetypes_path, filename, creation_func, creation_args):
     filepath = archetypes_path / filename
@@ -1325,7 +1310,7 @@ def services_groups_creation(df, to_keep):
     return group_dicts
 
         
-def Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area):
+def Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area, special_areas_coords, city_district):
     system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
     stats_synpop = stats['stats_synpop']
     stats_trans = stats['stats_trans']
@@ -1357,7 +1342,7 @@ def Synthetic_population_initialization(agent_populations, pop_archetypes, popul
         agent_populations['family'] = social_class_assingment(agent_populations['family'], stats_class)
         
         print("            Utilities assignment ...")
-        agent_populations['family'], agent_populations['citizen'], agent_populations['transport'] = Utilities_assignment(agent_populations['citizen'], agent_populations['family'], pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans)
+        agent_populations['family'], agent_populations['citizen'], agent_populations['transport'] = Utilities_assignment(agent_populations['citizen'], agent_populations['family'], pop_archetypes, paths, SG_relationship, stats_synpop, stats_trans, study_area, special_areas_coords)
 
         print(f"        Saving data ...")
 
@@ -1563,6 +1548,8 @@ def Utilities_assignment(
     SG_relationship: pd.DataFrame,
     stats_synpop: pd.DataFrame,
     stats_trans: pd.DataFrame,
+    study_area, 
+    special_areas_coords,
     ring_crs: str = "EPSG:4326",
     expand_factor: float = 2.0,
     max_iters: int = 4):
@@ -1635,6 +1622,8 @@ def Utilities_assignment(
     df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family', 'ubication'] + variables)
 
     Home_ids = SG_relationship.loc[SG_relationship['archetype'] == 'Home', 'osm_id'].tolist()
+    
+    
     if not Home_ids:
         raise ValueError("No hay edificios Home en SG_relationship.")
 
@@ -1879,8 +1868,32 @@ def paths_initialization(study_area):
 def Documents_initialisation(population, study_area):
     print('#'*20, ' System initialization ','#'*20)
     
-    # Modules initialization
-    # CODE HERE
+    # Diccionario con coordenadas de los territorios especiales
+    special_areas_coords = {
+        "Aradas": [(1, 1), (1, 1)],
+        "Kanaleneiland": [(52.07892763457244, 5.081179665783377), 
+                          (52.071082860598274, 5.087677559318499), 
+                          (52.060700337662205, 5.097493321101714), 
+                          (52.0589253058436, 5.111134343014198),
+                          (52.06371772987415, 5.113155235149382),
+                          (52.06713423672216, 5.112072614362676),
+                          (52.07698296226893, 5.109504220222101),
+                          (52.07814350260757, 5.108891797422314),
+                          (52.079586294469394, 5.107820057522688),
+                          (52.081311310482626, 5.106084859589962),
+                          (52.0818131208049, 5.105013119690336),
+                          (52.08520019308004, 5.09822543371076),
+                          (52.08291081138339, 5.094959178778566),
+                          (52.08102903986475, 5.090570148713432),
+                        ],
+        "Annelinn": [(1, 1), (1, 1)],
+    }
+    
+    city_district = {
+        "Aradas": "Aveiro",
+        "Kanaleneiland": "Utrecht",
+        "Annelinn": "Tartu",
+    }
     
     # Paths initialization
     paths, system_management = paths_initialization(study_area)
@@ -1889,10 +1902,10 @@ def Documents_initialisation(population, study_area):
     pop_archetypes, stats = Archetype_documentation_initialization(paths)
     
     # Geodata initialization
-    agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes)
+    agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes, special_areas_coords, city_district)
     
     # Synthetic population initialization
-    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area)
+    agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area, special_areas_coords, city_district)
     
     print('#'*20, ' Initialization finalized ','#'*20)
     

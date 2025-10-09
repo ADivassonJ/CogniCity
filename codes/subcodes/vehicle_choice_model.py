@@ -334,7 +334,6 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
     
     return citizen_schedule
 
-
 def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
     # El objetivo es tener un df que de los datos de consumo relevante para cada actividad
        
