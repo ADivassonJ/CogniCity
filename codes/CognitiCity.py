@@ -44,7 +44,7 @@ from subcodes.Daily_schedule_definition import Daily_schedule_definition
 ### Main
 def main():
     # Input
-    population = 450
+    population = 45000
     study_area = 'Kanaleneiland'
     
     

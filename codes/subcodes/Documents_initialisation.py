@@ -1539,6 +1539,26 @@ def plot_wos_debug(
     if created_ax and show:
         plt.show()
 
+def only_inside_district(Home_ids, geometry_latlon, pop_building):
+    # Convertir a (lon, lat) para shapely
+    poly_lonlat = [(lon, lat) for (lat, lon) in geometry_latlon]
+    poly = Polygon(poly_lonlat)  # se cierra automáticamente
+
+    # --- Filtrar pop_building a solo los Home_ids y limpiar coords ---
+    buildings_home = pop_building[pop_building['osm_id'].isin(Home_ids)].copy()
+    buildings_home = buildings_home.rename(columns={"latitude": "lat", "longitude": "lon"})  # por si acaso
+    buildings_home = buildings_home[pd.notna(buildings_home['lat']) & pd.notna(buildings_home['lon'])]
+    buildings_home[['lat','lon']] = buildings_home[['lat','lon']].astype(float)
+
+    # --- Puntos dentro del polígono (estrictamente dentro) ---
+    # Si quieres incluir los del borde, cambia 'contains' por 'covers'
+    mask_inside = buildings_home.apply(
+        lambda r: poly.contains(Point(r['lon'], r['lat'])),
+        axis=1
+    )
+    homes_inside = buildings_home[mask_inside].copy()
+    
+    return homes_inside['osm_id'].tolist()
 
 def Utilities_assignment(
     df_citizens: pd.DataFrame,
@@ -1623,19 +1643,21 @@ def Utilities_assignment(
 
     Home_ids = SG_relationship.loc[SG_relationship['archetype'] == 'Home', 'osm_id'].tolist()
     
+    # Filtramos las casas para que solo haya en el distrito
+    homes_inside = only_inside_district(Home_ids, special_areas_coords[study_area], SG_relationship)
     
-    if not Home_ids:
+    if not homes_inside:
         raise ValueError("No hay edificios Home en SG_relationship.")
 
-    shuffled_Home_ids = random.sample(Home_ids, len(Home_ids))
+    shuffled_homes_inside = random.sample(homes_inside, len(homes_inside))
     counter = 0
 
     for idx_df_f, row_df_f in df_families.iterrows():
-        if counter >= len(shuffled_Home_ids):
-            shuffled_Home_ids = random.sample(Home_ids, len(Home_ids))
+        if counter >= len(shuffled_homes_inside):
+            shuffled_homes_inside = random.sample(homes_inside, len(homes_inside))
             counter = 0
 
-        Home_id = shuffled_Home_ids[counter]
+        Home_id = shuffled_homes_inside[counter]
         counter += 1
 
         df_families.at[idx_df_f, 'Home'] = Home_id
@@ -1760,7 +1782,7 @@ def Utilities_assignment(
         df_citizens.at[idx, 'WoS'] = WoS_id
         df_citizens.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
 
-        # Añadimos los agenets al osm_id para asegurar que no usamos espacios overbooked
+        # Añadimos los agentes al osm_id para asegurar que no usamos espacios overbooked
         if df_citizens.at[idx, 'WoS_fixed'] != 1:
             idx = work_df.index[work_df['osm_id'] == WoS_id]
             for index in idx:

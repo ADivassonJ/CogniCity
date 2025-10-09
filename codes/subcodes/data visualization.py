@@ -249,20 +249,15 @@ def main():
         print(f"[WARN] No se cargaron mapas de red: {e}")
 
     # --- Lee resultados / población ---
-    level_1_results = pd.read_excel(paths['results'] / f"{study_area}_level_1.xlsx")
-    pop_citizen   = pd.read_excel(paths['population'] / "pop_citizen.xlsx")
-    pop_family    = pd.read_excel(paths['population'] / "pop_family.xlsx")
-    pop_building  = pd.read_excel(paths['population'] / "pop_building.xlsx")
-    pop_transport = pd.read_excel(paths['population'] / "pop_transport.xlsx")
-    pop_archetypes_transport = pd.read_excel(paths['archetypes'] / "pop_archetypes_transport.xlsx")
+    pop_building = pd.read_parquet(f"{paths['population']}/pop_building.parquet")
 
-    Kanaleneiland_vehicles_actions = pd.read_excel(paths['results'] / f"{study_area}_vehicles_actions.xlsx")
-    Kanaleneiland_new_level_1      = pd.read_excel(paths['results'] / f"{study_area}_new_level_1.xlsx")
+    Kanaleneiland_vehicles_actions = pd.read_excel(paths['results'] / f"{study_area}_Mo_vehicles.xlsx")
+    Kanaleneiland_new_level_1      = pd.read_excel(paths['results'] / f"{study_area}_Mo_schedule.xlsx")
 
     print("docs readed")
 
     # --- Generar mapa (usa pop_building si trae geometry/lat/lon; si no, descargará de OSM) ---
-    out_html = str(paths['results'] / f"{study_area}_agents_by_hour_map.html")
+    out_html = str(paths['results'] / f"{study_area}_Mo.html")
     build_map(
         df_veh=Kanaleneiland_vehicles_actions,
         df_lvl1=Kanaleneiland_new_level_1,
