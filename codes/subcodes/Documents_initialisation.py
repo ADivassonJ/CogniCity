@@ -1,51 +1,14 @@
-# === Estándar de Python =======================================================
 from __future__ import annotations
 
-# === Instalación automática de dependencias ===================================
-import importlib.util
-import subprocess
-import sys
-
-modules = [
-    "folium",
-    "geopandas",
-    "matplotlib",
-    "numpy",
-    "osmnx",
-    "pandas",
-    "pyproj",
-    "haversine",
-    "scipy",
-    "shapely",
-    "pyarrow",
-    "fastparquet",
-    "tqdm", 
-    "scikit-learn",
-    "openpyxl",
-    "numpy",
-]
-
-def install_if_missing(package):
-    """Instala automáticamente un paquete si no está disponible."""
-    if importlib.util.find_spec(package) is None:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-for mod in modules:
-    install_if_missing(mod)
-
-# === Imports estándar =========================================================
+# estándar
 import itertools
-import math
 import os
 import random
 import shutil
 import sys
-import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple
 
-# === Imports de terceros (instalados vía pip) ================================
+# terceros
 import folium
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -53,22 +16,12 @@ import numpy as np
 import osmnx as ox
 import pandas as pd
 import pyproj
+from tqdm import tqdm
 from haversine import Unit, haversine
 from scipy.spatial import Voronoi, cKDTree
 from shapely.errors import ShapelyDeprecationWarning
-from shapely.geometry import (
-    box,
-    LineString,
-    LinearRing,
-    MultiPolygon,
-    Point,
-    Polygon,
-)
+from shapely.geometry import box, MultiPolygon, Point, Polygon
 from shapely.ops import clip_by_rect, transform, unary_union, voronoi_diagram
-
-# === Configuración ============================================================
-warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
-ox.settings.timeout = 500  # evita timeouts al descargar datos de OSM
 
 
 def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, proj_epsg=3857):
@@ -1423,122 +1376,6 @@ def _best_utm_epsg(lon, lat):
     hemi = 326 if lat >= 0 else 327  # Norte/Sur
     return f"EPSG:{hemi}{zone:02d}"
 
-def plot_wos_debug(
-    home_lat, home_lon,
-    ring_poly,
-    work_df=None, study_df=None,
-    chosen_id=None,
-    ring_crs="EPSG:4326",
-    title=None,
-    show=True,
-    ax=None,
-    draw_mid_circle=True
-):
-    """
-    Visualiza home, anillo, candidatos (work/study) dentro del anillo y el elegido.
-    Dibuja además un círculo concéntrico en el centro del anillo, con radio medio
-    entre el círculo exterior y el interior.
-    """
-    ring_geom, ring_geom_crs = _as_geometry_and_crs(ring_poly)
-    if ring_geom is None:
-        return
-
-    # reproyectar anillo a WGS84 si hace falta
-    if ring_geom_crs is not None and ring_geom_crs != "EPSG:4326":
-        ring_geom = gpd.GeoSeries([ring_geom], crs=ring_geom_crs).to_crs("EPSG:4326").iloc[0]
-
-    # GeoDataFrame home
-    gdf_home = gpd.GeoDataFrame(
-        {"name": ["home"]},
-        geometry=[Point(home_lon, home_lat)],
-        crs="EPSG:4326"
-    )
-
-    def _prep_candidates(df):
-        if df is None or len(df) == 0:
-            return None, None
-        gdf = gpd.GeoDataFrame(
-            df[['osm_id','lat','lon']].copy(),
-            geometry=gpd.points_from_xy(df['lon'], df['lat']),
-            crs="EPSG:4326"
-        )
-        mask = gdf.geometry.within(ring_geom)
-        return gdf, gdf.loc[mask.values]
-
-    gdf_work, gdf_work_in = _prep_candidates(work_df)
-    gdf_study, gdf_study_in = _prep_candidates(study_df)
-
-    created_ax = False
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(6, 6))
-        created_ax = True
-
-    # Anillo exterior
-    gpd.GeoSeries([ring_geom], crs="EPSG:4326").boundary.plot(
-        ax=ax, color="black", linewidth=1.5, alpha=0.8, label="Ring"
-    )
-
-    # === NUEVO: círculo concéntrico de radio medio ===
-    if draw_mid_circle:
-        metric_crs = _best_utm_epsg(home_lon, home_lat)
-        ring_proj = gpd.GeoSeries([ring_geom], crs="EPSG:4326").to_crs(metric_crs).iloc[0]
-        center_proj = gpd.GeoSeries([Point(home_lon, home_lat)], crs="EPSG:4326").to_crs(metric_crs).iloc[0]
-
-        # radio exterior
-        r_outer = center_proj.distance(LineString(ring_proj.exterior.coords))
-        # radio interior (si hay varios huecos, coger el más cercano)
-        if getattr(ring_proj, "interiors", None):
-            r_inner = min(center_proj.distance(LineString(r.coords)) for r in ring_proj.interiors)
-        else:
-            r_inner = 0  # si no hay hueco, se asume círculo sólido
-
-        # radio medio
-        r_mid = 0.5 * (r_outer + r_inner)
-
-        # construir círculo medio
-        mid_circle_proj = center_proj.buffer(r_mid, resolution=128)
-        mid_circle_geo = gpd.GeoSeries([mid_circle_proj], crs=metric_crs).to_crs("EPSG:4326").iloc[0]
-
-        # dibujar perímetro del círculo medio
-        gpd.GeoSeries([mid_circle_geo.boundary], crs="EPSG:4326").plot(
-            ax=ax, linewidth=1.2, linestyle="--", color="black",
-            label=f"Mid circle (~{2*r_mid/1000:.2f} km Ø)"
-        )
-
-    # Todos los candidatos (gris claro)
-    if gdf_work is not None and len(gdf_work) > 0:
-        gdf_work.plot(ax=ax, markersize=8, color="0.8", alpha=0.4, label="Work (all)")
-    if gdf_study is not None and len(gdf_study) > 0:
-        gdf_study.plot(ax=ax, markersize=8, color="0.8", alpha=0.4, label="Study (all)")
-
-    # Dentro del anillo (gris más oscuro)
-    if gdf_work_in is not None and len(gdf_work_in) > 0:
-        gdf_work_in.plot(ax=ax, markersize=20, color="0.4", label="Work in ring")
-    if gdf_study_in is not None and len(gdf_study_in) > 0:
-        gdf_study_in.plot(ax=ax, markersize=20, color="0.4", label="Study in ring")
-
-    # Home (cuadrado negro)
-    gdf_home.plot(ax=ax, markersize=60, marker="s", color="black", label="Home")
-
-    # Elegido (estrella negra grande)
-    if chosen_id is not None:
-        for gdf_cand in (gdf_work, gdf_study):
-            if gdf_cand is not None and not gdf_cand.empty:
-                hit = gdf_cand[gdf_cand['osm_id'] == chosen_id]
-                if not hit.empty:
-                    hit.plot(ax=ax, markersize=150, marker="*", color="black", label="Chosen WoS")
-                    break
-
-    ax.set_aspect("equal", adjustable="datalim")
-    ax.set_xlabel("lon")
-    ax.set_ylabel("lat")
-    if title:
-        ax.set_title(title)
-    ax.legend(loc="best")
-
-    if created_ax and show:
-        plt.show()
-
 def only_inside_district(Home_ids, geometry_latlon, pop_building):
     # Convertir a (lon, lat) para shapely
     poly_lonlat = [(lon, lat) for (lat, lon) in geometry_latlon]
@@ -1560,6 +1397,21 @@ def only_inside_district(Home_ids, geometry_latlon, pop_building):
     
     return homes_inside['osm_id'].tolist()
 
+def calculate_centroid(coords):
+    """
+    Calcula el centroide (latitud, longitud) de un polígono definido por coordenadas.
+    
+    Args:
+        coordenadas (list of tuple): Lista de tuplas (lat, lon)
+    
+    Returns:
+        tuple: (latitud_centroide, longitud_centroide)
+    """
+    # Shapely usa el orden (x, y) → (longitud, latitud)
+    poligono = Polygon([(lon, lat) for lat, lon in coords])
+    centroide = poligono.centroid
+    return (centroide.y, centroide.x)
+
 def Utilities_assignment(
     df_citizens: pd.DataFrame,
     df_families: pd.DataFrame,
@@ -1572,13 +1424,20 @@ def Utilities_assignment(
     special_areas_coords,
     ring_crs: str = "EPSG:4326",
     expand_factor: float = 2.0,
-    max_iters: int = 4):
+    max_iters: int = 4,
+    disk: bool = True):
     
     # --- helpers ---
     def pick_building_type(osm_id):
+        if "_" in osm_id:
+            return 'outside'
         bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'building_type']
         return bt.iat[0] if not bt.empty else np.nan
 
+    def choose_id(pop_buildings):
+        sorted = pop_buildings.sort_values(by='distr_dist').reset_index(drop=True)
+        return sorted['osm_id'].iloc[0] if not sorted.empty else None
+    
     def choose_id_in_ring(cand_df, ring_poly, include_border=True):
         """
         Devuelve un osm_id aleatorio de cand_df dentro del anillo/polígono.
@@ -1652,7 +1511,7 @@ def Utilities_assignment(
     shuffled_homes_inside = random.sample(homes_inside, len(homes_inside))
     counter = 0
 
-    for idx_df_f, row_df_f in df_families.iterrows():
+    for idx_df_f, row_df_f in tqdm(df_families.iterrows(), total=df_families.shape[0], desc="                Vehicles generation: "):
         if counter >= len(shuffled_homes_inside):
             shuffled_homes_inside = random.sample(homes_inside, len(homes_inside))
             counter = 0
@@ -1677,6 +1536,8 @@ def Utilities_assignment(
                     **stats_variables}
                 df_priv_vehicle.loc[len(df_priv_vehicle)] = new_vehicle_row
 
+    print("                Data being processed ...")
+    
     # --- 3) Atributos de familia y Home por ciudadano ---
     df_citizens['family'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'name'))
     df_citizens['family_archetype'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'archetype'))
@@ -1684,18 +1545,28 @@ def Utilities_assignment(
     df_citizens['class'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'class'))
 
     # --- 4) Work/Study pools (usar LISTAS de columnas, no sets) ---
+    #    Meter distancias al centroide del distrito    
+    centroid = calculate_centroid(special_areas_coords[study_area])
+    
     work_df = SG_relationship.loc[SG_relationship['archetype'].isin(['Salariat', 'Intermediate', 'Working']), ['archetype', 'osm_id', 'lat', 'lon']].copy()
     # Añadir columna vacía llamada 'pop'
     work_df['pop'] = 0
     study_df = SG_relationship.loc[SG_relationship['archetype'] == 'study', ['osm_id', 'lat', 'lon']].copy()
 
+    if disk:
+        for idx_wd, row_wd in tqdm(work_df.iterrows()):
+            work_df.at[idx_wd,'distr_dist'] = haversine(centroid, (row_wd['lat'], row_wd['lon']), unit=Unit.METERS)
+        
+        for idx_wd, row_wd in tqdm(study_df.iterrows()):
+            study_df.at[idx_wd,'distr_dist'] = haversine(centroid, (row_wd['lat'], row_wd['lon']), unit=Unit.METERS)
+
     # --- 5) Variables de arquetipo de ciudadano (una vez) ---
     citizen_vars = [c.rsplit('_', 1)[0] for c in pop_archetypes['citizen'].columns if c.endswith('_mu')]
 
     # --- 6) Asignación por ciudadano ---
-    for idx, row in df_citizens.iterrows():
+    for idx, row in tqdm(df_citizens.iterrows(), total=df_citizens.shape[0], desc="                Utilities assignation: "):
         
-        class_work_df = work_df[(work_df['archetype'] == row['class']) & (work_df['pop'] < 15)]
+        class_work_df = work_df[(work_df['archetype'] == row['class']) & (work_df['pop'] < 1)]
         
         # 6.1) escribir variables de arquetipo de ciudadano
         arche = row['archetype']
@@ -1708,17 +1579,15 @@ def Utilities_assignment(
         home_row = SG_relationship.loc[SG_relationship['osm_id'] == home_id, ['osm_id', 'lat', 'lon']]
         if home_row.empty or home_row[['lat', 'lon']].isna().any(axis=None):
             continue
-        home_lat = float(home_row.iloc[0]['lat'])
-        home_lon = float(home_row.iloc[0]['lon'])
-
-        # 6.3) anillo con expansión
-        
-        DEBUG_PLOTS = False # <----- Modificar esto para que podamos plotear los donuts
         
         arch_citizen = pop_archetypes['citizen']
         data_filtered = arch_citizen[arch_citizen['name'] == row_updated['archetype']].iloc[0]
+        
+        if not disk:
+            home_lat = float(home_row.iloc[0]['lat'])
+            home_lon = float(home_row.iloc[0]['lon'])    
+            rx, ry = float(data_filtered['dist_wos_mu']), float(data_filtered['dist_wos_sigma'])
 
-        rx, ry = float(data_filtered['dist_wos_mu']), float(data_filtered['dist_wos_sigma'])
         WoS_id = None
         
         # Asifgnamos los valores de poi_mu y poi_sigma
@@ -1735,22 +1604,27 @@ def Utilities_assignment(
             if not fam_fixed.empty:
                 WoS_id = fam_fixed['WoS'].iloc[0]
 
+        # aqui ponemos la probabilidad de que se quede en casa
+        homestay = df_citizens.at[idx, 'homestay']
+        r_value_hs = random.random()
+        
+        homestay_cond = r_value_hs < homestay
+        
+        if homestay_cond:
+            WoS_id = home_id               
+                
         for it in range(max_iters):
             if WoS_id is not None:
                 break  # ya resuelto por reutilización
-
+            
+            if disk:
+                if df_citizens.at[idx, 'WoS_fixed'] != 1:
+                    WoS_id = choose_id(class_work_df)
+                else:
+                    WoS_id = choose_id(study_df)
+                break
+            
             ring = ring_from_poi(home_lat, home_lon, rx, ry, crs=ring_crs)
-
-            if DEBUG_PLOTS:
-                plot_wos_debug(
-                    home_lat, home_lon,
-                    ring_poly=ring,
-                    work_df=class_work_df if df_citizens.at[idx, 'WoS_fixed'] != 1 else None,
-                    study_df=study_df if df_citizens.at[idx, 'WoS_fixed'] == 1 else None,
-                    chosen_id=None,
-                    ring_crs=ring_crs,
-                    #title=f"Citizen {idx} (dist_mu={rx:.2f}, dist_sigma={ry:.2f})"
-                )
 
             if df_citizens.at[idx, 'WoS_fixed'] != 1:
                 # elige uno aleatorio entre los work dentro del anillo
@@ -1764,23 +1638,22 @@ def Utilities_assignment(
             ry *= expand_factor
             
             if ry < 0:
-                ry = 0
+                ry = 0   
 
-        # Si no se encontró dentro de anillos, hacer fallback aleatorio # ISSUE 46
+        # Si no se encontró dentro del area, hacer fuera
         if WoS_id is None:
-            if df_citizens.at[idx, 'WoS_fixed'] != 1:
-                WoS_id = work_df['osm_id'].sample(1).iat[0] if not work_df.empty else None
-            else:
-                if not study_df.empty:
-                    WoS_id = study_df['osm_id'].sample(1).iat[0]
-                elif not work_df.empty:
-                    WoS_id = work_df['osm_id'].sample(1).iat[0]
-
-        if WoS_id is None:
-            continue  # no hay candidatos
-        
+            WoS_id = f"outside_{row['name']}"
+            outside_cond = True
+        else:
+            outside_cond = False
         df_citizens.at[idx, 'WoS'] = WoS_id
-        df_citizens.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
+        
+        if homestay_cond:
+            df_citizens.at[idx, 'WoS_subgroup'] = 'Home'
+        elif outside_cond:
+            df_citizens.at[idx, 'WoS_subgroup'] = 'unknown'
+        else:
+            df_citizens.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
 
         # Añadimos los agentes al osm_id para asegurar que no usamos espacios overbooked
         if df_citizens.at[idx, 'WoS_fixed'] != 1:
@@ -2190,7 +2063,7 @@ def Documents_initialisation(population, study_area):
 if __name__ == '__main__':
     
     # Input
-    population = 450
+    population = 4500
     study_area = 'Kanaleneiland'
     
     Documents_initialisation(population, study_area)

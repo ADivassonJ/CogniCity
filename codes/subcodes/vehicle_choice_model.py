@@ -405,6 +405,9 @@ def vehicle_chosing(vehicle_score_matrix):
    
     # Sumamos los scores por transporte
     simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False).sum()
+    
+    input(simplified_df)
+    
     # Sacamos el transporte con menos score
     best_transport = simplified_df.loc[simplified_df['score'].idxmin()]
     # Sacamos del original walk y public transport

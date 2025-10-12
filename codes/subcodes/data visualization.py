@@ -107,7 +107,7 @@ def normalize_actions(df_veh: pd.DataFrame, df_lvl1: pd.DataFrame) -> pd.DataFra
         if c not in dl.columns:
             raise ValueError(f"df_lvl1 sin columna '{c}'")
 
-    acts = pd.concat([dv[need], dl[need]], ignore_index=True)
+    acts = dl[need].copy()
     acts["in"] = acts["in"].astype(int)
     acts["out"] = acts["out"].astype(int)
     acts["osm_id"] = acts["osm_id"].astype(str)

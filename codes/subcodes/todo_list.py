@@ -166,17 +166,21 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
         # Vamos actividad por actividad            
         for activity in activities:
             activity_amount = 1
+            
             # Miramos si tenemos alguna cantidad de esta tarea a realizar (solo existe si la cantidad es != 1)
             if activity == 'Dutties':
                 results = get_vehicle_stats(row_f_df['archetype'], citizen_archetypes, ['Dutties_amount', 'Dutties_time'])
                 results = {k: int(round(v)) for k, v in results.items()}
                 activity_amount = results['Dutties_amount']
                 time2spend = results['Dutties_time']
-            elif (activity == 'WoS') & (day in ['Sa', 'Su']):               
+            elif (activity == 'WoS') & (day in ['Sa', 'Su']) & (row_f_df['WoS_subgroup'] != 'Home'):
                 WoS_key = row_f_df['WoS_subgroup'].split("_", 1)[0]             
                 if row_f_df['class'] == 'Salariat' or WoS_key == 'office':
                     # Si es clase alta o trabaja en oficina, no trabaja los sabados y domingos
                     continue
+            elif (activity == 'WoS') & (row_f_df['WoS_subgroup'] == 'Home'):
+                # O no trabaja o lo hace desde casa, en cualquier caso, no computa
+                continue
                 
             # Hacemos un loop para realizar la suma de tareas la X cantidad de veces necesaria
             for _ in range(int(activity_amount)):
@@ -324,7 +328,7 @@ def sort_route(osm_ids, helper):
     return combined_df       
 
 # --- Helper a nivel de módulo: debe ser importable/pickleable ---
-def _build_family_level1(day, family_tuple, pop_building, activities, citizen_archetypes, system_management):
+def _build_family_level1(family_tuple, day, pop_building, activities, citizen_archetypes, system_management):
     """
     family_tuple: (family_name, family_df)
     Devuelve: DataFrame con el level_1 de esa familia
@@ -367,29 +371,28 @@ def todolist_family_creation(
     if use_threads:
         from concurrent.futures import ThreadPoolExecutor
         Executor = ThreadPoolExecutor
-    
+
     # Preparamos función parcial con parámetros constantes
-    worker = partial(_build_family_level1, pop_building=pop_building,
-                     activities=activities, paths=paths)
+    worker = partial(_build_family_level1, day=day, pop_building=pop_building,
+                     activities=activities, citizen_archetypes=citizen_archetypes, system_management=system_management)
     # Lanzamos en paralelo
     results = []
     with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam): fam[0] for fam in families}
         # Progreso
-        for fut in tqdm(as_completed(futures), total=total, desc="Families schedules creation: "):
+        for fut in tqdm(as_completed(futures), total=total, desc=f"Families todo list creation ({day}): "):
             fam_name = futures[fut]
             try:
                 df_level1 = fut.result()                
-                results.append(df_level1)
+                results.extend(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
                 print(f"[ERROR] familia '{fam_name}': {e}")'''
-   
-    results = []
-
+    
     # Iteración secuencial con barra de progreso
-    for fam in tqdm(families, total=total, desc="Families schedules creation (secuencial): "):
-        df_level1 = _build_family_level1(day, fam, pop_building, activities, citizen_archetypes, system_management)
+    results = []
+    for fam in tqdm(families, total=total, desc=f"/secuential/ Families todo list creation ({day}): "):
+        df_level1 = _build_family_level1(fam, day, pop_building, activities, citizen_archetypes, system_management)
         results.extend(df_level1)
     
     # Un solo concat al final (mucho más rápido)
