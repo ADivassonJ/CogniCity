@@ -1436,6 +1436,7 @@ def Utilities_assignment(
 
     def choose_id(pop_buildings):
         sorted = pop_buildings.sort_values(by='distr_dist').reset_index(drop=True)
+        
         return sorted['osm_id'].iloc[0] if not sorted.empty else None
     
     def choose_id_in_ring(cand_df, ring_poly, include_border=True):
@@ -1536,13 +1537,14 @@ def Utilities_assignment(
                     **stats_variables}
                 df_priv_vehicle.loc[len(df_priv_vehicle)] = new_vehicle_row
 
-    print("                Data being processed ...")
-    
     # --- 3) Atributos de familia y Home por ciudadano ---
-    df_citizens['family'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'name'))
-    df_citizens['family_archetype'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'archetype'))
-    df_citizens['Home'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'Home'))
-    df_citizens['class'] = df_citizens['name'].apply(lambda n: find_group(n, df_families, 'class'))
+    for i in tqdm(range(len(df_citizens)), total=len(df_citizens),
+              desc="                Atributes assignation: "):
+        n = df_citizens.at[i, 'name']
+        df_citizens.at[i, 'family'] = find_group(n, df_families, 'name')
+        df_citizens.at[i, 'family_archetype'] = find_group(n, df_families, 'archetype')
+        df_citizens.at[i, 'Home'] = find_group(n, df_families, 'Home')
+        df_citizens.at[i, 'class'] = find_group(n, df_families, 'class')
 
     # --- 4) Work/Study pools (usar LISTAS de columnas, no sets) ---
     #    Meter distancias al centroide del distrito    
@@ -1554,10 +1556,10 @@ def Utilities_assignment(
     study_df = SG_relationship.loc[SG_relationship['archetype'] == 'study', ['osm_id', 'lat', 'lon']].copy()
 
     if disk:
-        for idx_wd, row_wd in tqdm(work_df.iterrows()):
+        for idx_wd, row_wd in work_df.iterrows():
             work_df.at[idx_wd,'distr_dist'] = haversine(centroid, (row_wd['lat'], row_wd['lon']), unit=Unit.METERS)
         
-        for idx_wd, row_wd in tqdm(study_df.iterrows()):
+        for idx_wd, row_wd in study_df.iterrows():
             study_df.at[idx_wd,'distr_dist'] = haversine(centroid, (row_wd['lat'], row_wd['lon']), unit=Unit.METERS)
 
     # --- 5) Variables de arquetipo de ciudadano (una vez) ---
@@ -2063,7 +2065,7 @@ def Documents_initialisation(population, study_area):
 if __name__ == '__main__':
     
     # Input
-    population = 4500
+    population = 10000
     study_area = 'Kanaleneiland'
     
     Documents_initialisation(population, study_area)
