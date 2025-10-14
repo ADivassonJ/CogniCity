@@ -1425,7 +1425,7 @@ def Utilities_assignment(
     ring_crs: str = "EPSG:4326",
     expand_factor: float = 2.0,
     max_iters: int = 4,
-    disk: bool = True):
+    disk: bool = False):
     
     # --- helpers ---
     def pick_building_type(osm_id):
