@@ -1563,6 +1563,9 @@ def Utilities_assignment(
     work_df['pop'] = 0
     study_df = SG_relationship.loc[SG_relationship['archetype'] == 'study', ['osm_id', 'lat', 'lon']].copy()
 
+    
+    
+    
     # --- 5) Variables de arquetipo de ciudadano (una vez) ---
     citizen_vars = [c.rsplit('_', 1)[0] for c in pop_archetypes['citizen'].columns if c.endswith('_mu')]
 

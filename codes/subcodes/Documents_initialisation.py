@@ -62,12 +62,10 @@ def add_matches_to_stats_synpop(stats_synpop, df, name_column='name'):
        stats_synpop (DataFrame): updated df with more archetypes' statistical values
     """
     
-    
     for col in df.columns:
         # Saltar la columna 'name' ya que no es relevante para la búsqueda del '*'
         if col == name_column:
             continue
-        
         # Iterar por cada celda de la columna
         for index, value in df[col].items():
             # Convertir el valor a string
@@ -428,7 +426,10 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
         # Update stats with actual distribution
         df_stats_families = df_stats_families.copy()
         df_stats_families.loc[:, 'stat_presence'] = df_stats_families['archetype'].map(archetype_counts).fillna(0).astype(int)
-        df_stats_families.loc[:, 'stat_percentage'] = (df_stats_families['stat_presence'] / df_stats_families['stat_presence'].sum()) * 100
+        df_stats_families['stat_percentage'] = (
+            df_stats_families['stat_presence'].astype(float)
+            / df_stats_families['stat_presence'].sum()
+        ) * 100
         df_stats_families.loc[:, 'error'] = df_stats_families.apply(
             lambda row: (row['stat_percentage'] - row['percentage']) / row['percentage'] if row['percentage'] != 0 else 0,
             axis=1
@@ -1044,7 +1045,7 @@ def load_or_download_pois(study_area, paths, pop_archetypes_building, special_ar
     
     try:
         # Intentamos leer el doc
-        pop_building = pd.read_parquet(f'{pop_path}\pop_building.parquet')
+        pop_building = pd.read_parquet(f'{pop_path}/pop_building.parquet')
     except Exception:
         # Ya que no se ha podido leer, creamos el df
         pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district, building_types)
@@ -1423,8 +1424,7 @@ def Utilities_assignment(
     study_area, 
     special_areas_coords,
     ring_crs: str = "EPSG:4326",
-    expand_factor: float = 2.0,
-    max_iters: int = 4,
+    max_iters: int = 99,
     disk: bool = False):
     
     # --- helpers ---
@@ -1568,7 +1568,7 @@ def Utilities_assignment(
     # --- 6) Asignación por ciudadano ---
     for idx, row in tqdm(df_citizens.iterrows(), total=df_citizens.shape[0], desc="                Utilities assignation: "):
         
-        class_work_df = work_df[(work_df['archetype'] == row['class']) & (work_df['pop'] < 1)]
+        class_work_df = work_df[(work_df['archetype'] == row['class']) & (work_df['pop'] < 14)]
         
         # 6.1) escribir variables de arquetipo de ciudadano
         arche = row['archetype']
@@ -1592,7 +1592,7 @@ def Utilities_assignment(
 
         WoS_id = None
         
-        # Asifgnamos los valores de poi_mu y poi_sigma
+        # Asignamos los valores de poi_mu y poi_sigma copiandolos de los arquetipos (pues se calculara cada vez)
         df_citizens['dist_poi_mu'], df_citizens['dist_poi_sigma'] = float(data_filtered['dist_poi_mu']), float(data_filtered['dist_poi_sigma'])
 
         # Si el ciudadano es "fijo" y ya hay WoS en la familia, reutiliza y evita anillos
@@ -1637,7 +1637,7 @@ def Utilities_assignment(
 
             if WoS_id is not None:
                 break  # encontrado → salir
-            ry *= expand_factor
+            ry += float(data_filtered['dist_wos_sigma'])
             
             if ry < 0:
                 ry = 0   

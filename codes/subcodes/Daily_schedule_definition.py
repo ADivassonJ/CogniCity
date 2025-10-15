@@ -40,9 +40,6 @@ def docs_convining(final_doc_done, file_type, study_area, paths):
         print(f"All weekdays modelated: Generating {study_area}_{file_type}.xlsx ...")
         for file in paths['results'].glob(f'*_{file_type}.xlsx'):
             #aqui los sumamos todos los acabados en _{file_type} (kind == '{file_type}') y creamos una nueva columna ('day') que especifique su valor de parts[-2]
-            
-            input(file)
-            
             current = pd.read_excel(file)
             parts = file.stem.split('_')
             current = current.copy()

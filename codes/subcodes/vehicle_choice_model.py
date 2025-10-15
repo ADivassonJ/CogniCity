@@ -148,7 +148,8 @@ def vehicle_choice_model(
     cache_deltas = []
         
     
-    '''for fam_tuple in families:
+    
+    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                     transport_families_dict,
                                                     pop_citizen,
@@ -401,13 +402,29 @@ def schedule_simplification(new_family_schedule):
         simple_schedule = pd.concat([simple_schedule, pd.DataFrame([new_row])], ignore_index=True)
     return simple_schedule.sort_values(by='in', ascending=True).reset_index(drop=True)
 
-def vehicle_chosing(vehicle_score_matrix): 
-   
+def vehicle_chosing(vehicle_score_matrix, simplified: bool=True): 
+    
+    if simplified:
+        mask = vehicle_score_matrix['vehicle'] == 'walk'
+        walk_df = vehicle_score_matrix.loc[mask]
+        
+        if (walk_df['conmu_time'] < 15).all():
+            return walk_df.reset_index(drop=True)
+        else:
+            mask = (vehicle_score_matrix['vehicle'] != 'walk') & (vehicle_score_matrix['vehicle'] != 'Public_transport')
+            rest_df = vehicle_score_matrix.loc[mask]
+            
+            if rest_df.empty:
+                mask = vehicle_score_matrix['vehicle'] == 'Public_transport'
+                pt_df = vehicle_score_matrix.loc[mask]
+                return pt_df.reset_index(drop=True)
+            else:
+                vehicle = rest_df['vehicle'].iloc[0]
+                v_df = vehicle_score_matrix[vehicle_score_matrix['vehicle'] == vehicle]
+                return v_df.reset_index(drop=True)
+
     # Sumamos los scores por transporte
-    simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False).sum()
-    
-    input(simplified_df)
-    
+    simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False).sum()   
     # Sacamos el transporte con menos score
     best_transport = simplified_df.loc[simplified_df['score'].idxmin()]
     # Sacamos del original walk y public transport

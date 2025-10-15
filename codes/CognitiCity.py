@@ -1,50 +1,29 @@
-# === Estándar de Python =======================================================
-from __future__ import annotations
-
-# === Instalación automática de dependencias ===================================
-import importlib.util
-import subprocess
-import sys
-
-modules = [
-    "folium",
-    "geopandas",
-    "matplotlib",
-    "numpy",
-    "osmnx",
-    "pandas",
-    "pyproj",
-    "haversine",
-    "scipy",
-    "shapely",
-    "pyarrow",
-    "fastparquet",
-    "tqdm", 
-    "scikit-learn",
-    "openpyxl",
-    "numpy",
-]
-
-def install_if_missing(package):
-    """Instala automáticamente un paquete si no está disponible."""
-    if importlib.util.find_spec(package) is None:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-for mod in modules:
-    install_if_missing(mod)
-
-
+# === Importaciones estándar ===================================================
 import os
 import sys
 import pandas as pd
+
+# === Librerías externas =======================================================
+import folium
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import numpy as np
+import osmnx as ox
+import pyproj
+from haversine import haversine
+from scipy import stats
+from shapely.geometry import Point, Polygon
+from tqdm import tqdm
+from sklearn.cluster import KMeans
+
+# === Módulos locales ==========================================================
 from subcodes.Documents_initialisation import Documents_initialisation
 from subcodes.Daily_schedule_definition import Daily_schedule_definition
-
 
 ### Main
 def main():
     # Input
-    population = 1000
+    population = 100
     study_area = 'Kanaleneiland'
     
     paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)

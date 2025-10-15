@@ -187,7 +187,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 if activity == 'Dutties':
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
-                    available_options = pop_building[pop_building['archetype'] == activity][{'osm_id','lat', 'lon'}] # ISSUE 33
+                    available_options = pop_building[pop_building['archetype'] == activity][['osm_id', 'lat', 'lon']] # ISSUE 33
                     try:
                         last_poi_data = pop_building[pop_building['osm_id'] == rew_row['osm_id']].iloc[0]
                     except Exception:
