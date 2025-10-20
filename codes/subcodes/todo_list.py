@@ -216,8 +216,12 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                     activity_re = activity
                 # Buscamos las horas de apertura y cierre del servicio/WoS
                 
-                opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
-                closing = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
+                if row_f_df['Home'] == row_f_df['WoS']:
+                    opening = 0
+                    closing = 24*60
+                else:
+                    opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
+                    closing = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
                 
                 if activity == 'WoS':
                     # En caso de que el agente tenga un tiempo requerido de actividad
@@ -366,7 +370,7 @@ def todolist_family_creation(
     families = list(families_iter)  # materializamos para poder mostrar progreso
     total = len(families)
 
-    '''# Elegir ejecutor
+    # Elegir ejecutor
     Executor = ProcessPoolExecutor
     if use_threads:
         from concurrent.futures import ThreadPoolExecutor
@@ -387,13 +391,13 @@ def todolist_family_creation(
                 results.extend(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
-                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                print(f"[ERROR] familia '{fam_name}': {e}")
     
-    # Iteración secuencial con barra de progreso
+    '''# Iteración secuencial con barra de progreso
     results = []
     for fam in tqdm(families, total=total, desc=f"/secuential/ Families todo list creation ({day}): "):
         df_level1 = _build_family_level1(fam, day, pop_building, activities, citizen_archetypes, system_management)
-        results.extend(df_level1)
+        results.extend(df_level1)'''
     
     # Un solo concat al final (mucho más rápido)
     if results:

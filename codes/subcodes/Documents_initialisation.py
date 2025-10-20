@@ -404,8 +404,8 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
         'presence': archetype_to_fill['presence'],
         'percentage': archetype_to_fill['presence'] / archetype_to_fill['presence'].sum()*100,
         'stat_presence': 0,
-        'stat_percentage': 0,
-        'error': 0
+        'stat_percentage': 0.0,
+        'error': 0.0
     })
     
     while True:
@@ -529,8 +529,18 @@ def Citizen_distribution_in_families(archetype_to_fill, df_distribution, total_p
             continue
 
         # Update population distribution
+        # Update population distribution
         mask = df_distribution['population'].notna() & merged_df['participants'].notna()
-        df_distribution.loc[mask, 'population'] = df_distribution.loc[mask, 'population'] - merged_df.loc[mask, 'participants']
+
+        # Aseguramos que ambos sean numéricos y compatibles
+        df_distribution['population'] = pd.to_numeric(df_distribution['population'], errors='coerce')
+        merged_df['participants'] = pd.to_numeric(merged_df['participants'], errors='coerce')
+
+        # Realizamos la resta como float (para evitar errores de tipo)
+        df_distribution.loc[mask, 'population'] = (
+            df_distribution.loc[mask, 'population'].astype(float)
+            - merged_df.loc[mask, 'participants'].astype(float)
+        )
 
         # Add created citizens
         df_citizens = pd.concat([df_citizens, df_part_citizens], ignore_index=True)

@@ -55,6 +55,10 @@ def _process_family(
         # Ruta del ciudadano
         citizen_route = route_creation(citizen_todolist)
         
+        # El agente se queda en casa
+        if citizen_route == []:
+            continue
+            
         # Calcula matriz dist/tiempo y actualiza cache local
         distime_matrix = VSM_calculation(
             citizen_route,
@@ -495,7 +499,7 @@ def score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     # Calculamos la matriz de distime
     distime_matrix = distime_calculation(networks_map, complete_trip, pop_building, citizen_data, transport, standard=False)
     # Sacamos el score en base al algoritmo especificado para ello
-    distime_matrix = score_algorithm(distime_matrix)
+    distime_matrix = score_algorithm(distime_matrix)    
     # Devolvemos score
     return distime_matrix, last_P
 
