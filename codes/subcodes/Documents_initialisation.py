@@ -42,9 +42,6 @@ def add_ebus(paths, polygon, building_populations, study_area, buffer_m=500, pro
     # Asignar edificios a los nodos usando los Voronoi
     building_populations_with_node = assign_buildings_to_nodes(building_populations, electric_system, polygon)
     
-    # Guardar resultados
-    building_populations_with_node.to_parquet(f"{paths['population']}/pop_building.parquet", index=False)
-    
     return building_populations_with_node
 
 
@@ -840,7 +837,34 @@ def Geodata_initialization(study_area, paths, pop_archetypes, special_areas_coor
 
     # Paso 1: Cargar o descargar POIs
     agent_populations['building'] = load_or_download_pois(study_area, paths, pop_archetypes['building'], special_areas_coords, city_district)
-
+    pop_building = agent_populations['building']
+    
+    paths['new_POIs'] = f"{paths['maps']}\\new_POIs"
+    
+    ## Guardamos los charging points (si hay) en paths['maps']
+    # Crear si no existe
+    if not os.path.isdir(paths['new_POIs']):
+        os.makedirs(paths['new_POIs'], exist_ok=True)
+        
+    if not os.path.isfile(f"{paths['new_POIs']}/charging_station.xlsx"):
+        charging_station = pop_building[pop_building['archetype'] == 'charging_station'].reset_index(drop=True)
+        charging_station.to_excel(f"{paths['new_POIs']}/charging_station.xlsx", index=False)
+        print(f"    [WARNING] No document relating to “charging_station” has been detected in the “new_POIs” folder.")
+        print(f"    Unless the user modifies this file, the system will only consider the current quantity and")
+        print(f"    distribution of “charging_station”, with a total of {len(charging_station)} for the current case.")
+    else:
+        pop_building_simp = pop_building[pop_building['archetype'] != 'charging_station']
+        charging_station = pd.read_excel(f"{paths['new_POIs']}/charging_station.xlsx")
+        agent_populations['building'] = pd.concat([pop_building_simp, charging_station], ignore_index=True).reset_index(drop=True)
+        print(f"    [NOTE] Document relating to “charging_station” detected [Data copied].")
+    
+    if not os.path.isfile(f"{paths['new_POIs']}/share_mob_hubs.xlsx"):
+        print(f"    [WARNING] No document relating to “share_mob_hubs” has been detected in the “new_POIs” folder.")
+        print(f"    Unless the user inserts this file, the system will not consider this service.")
+    
+    # Guardar resultados
+    agent_populations['building'].to_parquet(f"{paths['population']}/pop_building.parquet", index=False)
+    
     # Paso 2: Cargar o descargar redes
     networks_map = load_or_download_networks(study_area, paths['maps'], networks, city_district)
 
@@ -912,7 +936,7 @@ def get_osm_elements(polygon, poss_ref):
 
     # 2) Descargar datos
     try:
-        gdf = ox.geometries_from_polygon(polygon, tags).reset_index()
+        gdf = ox.geometries_from_polygon(polygon, tags).reset_index(drop=True)
     except Exception:
         # Si Overpass falla, devolvemos vacío con esquema correcto
         return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
@@ -1191,7 +1215,7 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     columns_to_keep = [col for col in row.columns if 'arch' in col.lower()] ########################## CUIDADO CON ESTO ASIER DEL FUTURO
     row_filtered = row[columns_to_keep]
     # Transponer y reformatear el DataFrame
-    transposed = row_filtered.T.reset_index()
+    transposed = row_filtered.T.reset_index(drop=True)
     transposed.columns = ['name', 'participants']  
     # Unir con df_distribution para comparar los valores
     merged_df = pd.merge(df_distribution, transposed, on='name', how='left')

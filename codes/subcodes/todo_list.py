@@ -244,6 +244,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                     'time2spend': time2spend, 
                     'family': row_f_df['family'],
                     'family_archetype': row_f_df['family_archetype'],
+                    'class': row_f_df['class'],
                     'trip': 1 if activity == 'WoS' else 2
                 }]
                 # La añadimos    
@@ -267,6 +268,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 'time2spend': 0, 
                 'family': row_f_df['family'],
                 'family_archetype': row_f_df['family_archetype'],
+                'class': row_f_df['class'],
                 'trip': 0 if h_activ == 'Home_out' else 3
             }]
             # La añadimos
@@ -286,6 +288,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 'time2spend': 0, 
                 'family': row_f_df['family'],
                 'family_archetype': row_f_df['family_archetype'],
+                'class': row_f_df['class'],
                 'trip': 0
             }]
                

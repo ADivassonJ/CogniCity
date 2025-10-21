@@ -3,6 +3,7 @@ import sys
 import math
 from tqdm import tqdm
 import numpy as np
+import random
 import osmnx as ox
 import pandas as pd
 import networkx as nx
@@ -23,6 +24,7 @@ import os
 # ------- WORKER: procesa una familia completa -------
 def _process_family(
     family_tuple,
+    paths,
     transport_families_dict,
     pop_citizen,
     pop_archetypes_transport,
@@ -79,6 +81,22 @@ def _process_family(
         # Actualiza acciones de vehículos
         vehicle_schedule = create_vehicles_actions(citizen_schedule, best_transport_distime_matrix)
         all_vehicle_schedule = pd.concat([all_vehicle_schedule, vehicle_schedule], ignore_index=True)
+        
+        ####################################################
+        # Aqui es donde debemos meter el modelo de Qiaochu #
+        ####################################################
+        '''
+        Basicamente, su modelo, mira el transporte actual y evalua la probabilidad de que cambie del que tenia a 
+        uno más V2G-related. Por lo tanto, y a menos de que me exprese alguna modificacion. Habría que añadir su
+        modulo aqui y considerar el current_transport como el actual y evaluar si cambia o no.
+        
+        Parece que no se concibe la opcion de que el current sea V2G, por lo que
+        
+        '''  
+        
+        results = WP3_parameters_simplified(paths, avail_vehicles, best_transport_distime_matrix, citizen_schedule, vehicle_schedule)
+        
+        input(results)
         
         # “Consume” vehículo si no es compartible
         vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
@@ -153,16 +171,17 @@ def vehicle_choice_model(
         
     
     
-    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
+                                                   paths,
                                                     transport_families_dict,
                                                     pop_citizen,
                                                     pop_archetypes_transport,
                                                     pop_building,
-                                                    networks_map)'''
+                                                    networks_map)
         
         
-    worker = partial(
+    '''worker = partial(
         _process_family,
         transport_families_dict=transport_families_dict,
         pop_citizen=pop_citizen,
@@ -182,7 +201,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and not fam_actions.empty:
                     results_actions.append(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")
+                print(f"[ERROR] familia '{fam_name}': {e}")'''
 
     # --- Agregación en el proceso principal ---
     new_level1_schedules = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()
@@ -233,12 +252,15 @@ def main():
     for net_type in networks:           
         networks_map[net_type + "_map"] = ox.load_graphml(paths['maps'] / (net_type + '.graphml'))
     
-    pop_citizen = pd.read_parquet(f"{paths['population']}/pop_citizen.parquet")
-    pop_family = pd.read_parquet(f"{paths['population']}/pop_family.parquet")
-    pop_building = pd.read_parquet(f"{paths['population']}/pop_building.parquet")
-    pop_transport = pd.read_parquet(f"{paths['population']}/pop_transport.parquet")
+    agent_populations = {}
+    pop_archetypes = {}
     
-    pop_archetypes_transport = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_transport.xlsx")
+    agent_populations['citizen'] = pd.read_parquet(f"{paths['population']}/pop_citizen.parquet")
+    agent_populations['family'] = pd.read_parquet(f"{paths['population']}/pop_family.parquet")
+    agent_populations['building'] = pd.read_parquet(f"{paths['population']}/pop_building.parquet")
+    agent_populations['transport'] = pd.read_parquet(f"{paths['population']}/pop_transport.parquet")
+    
+    pop_archetypes['transport'] = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_transport.xlsx")
     
     ##############################################################################
     print(f'docs readed')
@@ -278,9 +300,9 @@ def main():
         # We act on each different day
         for day in days_missing_schedules:
             # Input reading
-            level_1_results = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
+            todolist = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
-            vehicles_actions, new_level2_schedules = vehicle_choice_model(level_1_results, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map, day)
+            vehicles_actions, new_level2_schedules = vehicle_choice_model(todolist, pop_transport, pop_citizen, paths, study_area, pop_archetypes_transport, pop_building, networks_map, day)
     else:
         print(f"All days' schedules already modeled.")
         
@@ -406,6 +428,246 @@ def schedule_simplification(new_family_schedule):
         simple_schedule = pd.concat([simple_schedule, pd.DataFrame([new_row])], ignore_index=True)
     return simple_schedule.sort_values(by='in', ascending=True).reset_index(drop=True)
 
+def WP3_parameters_simplified(paths: list, avail_vehicles: pd.DataFrame, current_transport: pd.DataFrame, citizen_schedule: pd.DataFrame,vehicle_schedule: pd.DataFrame, choices3: bool=True):
+    def Mode_choice(choices3: bool,
+                    IS_Gaso: bool, IS_EV: bool, IS_PT: bool, IS_Bike: bool,
+                    EV_OWNERSHIP: bool, HAVING_KIDS: bool,
+                    AGE: int, INCOME: int, 
+                    COST: float, COST_EV2G: float, COST_CSV2G: float, 
+                    WALK_TIME: float, WALK_TIME_EV2G: float, WALKING_TIME_CV2G: float, 
+                    TRAVEL_TIME: float, TRAVEL_TIME_EV2G: float, TRAVEL_TIME_CSV2G: float,
+                    WAIT_TIME: float=20.5, PARK_COST: float=0, SOC_PEV: float=0):
+        
+        B_Cost_all          = -0.05 if choices3 else -0.03
+        B_Parkcost_GasoEV   = -0.03 
+        B_TravelTime_PTBike = -0.02 if choices3 else -0.05
+        B_WalkTime_all      = -0.04 if choices3 else -0.03
+        B_WaitTime_PT       = -0.16 if choices3 else -0.14
+        B_SOC_PEV           = 0.01
+        ASC_EV2G_PTUser             = -1.27 if choices3 else 0
+        ASC_EV2G_GasoEVUser         = -1.76 if choices3 else 0
+        ASC_EV2G_BikeUser           = -2.66 if choices3 else 0
+        B_TravelTime_V2G_PTBikeUser = -0.05 if choices3 else 0
+        B_EV_OWNERSHIP_EV2G         = 0.52 if choices3 else 0
+        B_HAVING_KIDS_EV2G          = -0.37 if choices3 else 0
+        ASC_CSV2G_PTUser        = -1.27 if choices3 else -1.17 # SURE?
+        ASC_CSV2G_GasoEVUser    = -1.76 if choices3 else 0 # SURE?
+        ASC_CSV2G_BikeUser      = -2.66 if choices3 else -3.48
+        B_EV_OWNERSHIP_CSV2G    = 0.52 if choices3 else 0.64
+        B_HAVING_KIDS_CSV2G     = -0.2 if choices3 else 0
+        B_AGE_YOUNG_CSV2G       = 0.21
+        B_INCOME_LOW_CSV2G      = 0.35 if choices3 else 0.34
+
+
+        V1 = (
+            B_Cost_all * COST +
+            B_Parkcost_GasoEV * PARK_COST * IS_Gaso +
+            B_Parkcost_GasoEV * PARK_COST * IS_EV +
+            B_TravelTime_PTBike * TRAVEL_TIME * IS_PT +
+            B_TravelTime_PTBike * TRAVEL_TIME * IS_Bike +
+            B_WalkTime_all * WALK_TIME +
+            B_WaitTime_PT * WAIT_TIME * IS_PT +
+            B_SOC_PEV * SOC_PEV * IS_EV
+        )
+
+        if choices3:
+            V2 = (
+                ASC_EV2G_PTUser * IS_PT +
+                ASC_EV2G_GasoEVUser * IS_EV +
+                ASC_EV2G_GasoEVUser * IS_Gaso +
+                ASC_EV2G_BikeUser * IS_Bike +
+                B_Cost_all * COST_EV2G +
+                B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_EV2G * IS_PT +
+                B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_EV2G * IS_Bike +
+                B_WalkTime_all * WALK_TIME_EV2G + 
+                B_EV_OWNERSHIP_EV2G * EV_OWNERSHIP + 
+                B_HAVING_KIDS_EV2G * HAVING_KIDS 
+            )
+        else:
+            V2 = 0
+
+        V3 = (
+            ASC_CSV2G_PTUser*IS_PT +
+            ASC_CSV2G_GasoEVUser*IS_EV +
+            ASC_CSV2G_GasoEVUser*IS_Gaso +
+            ASC_CSV2G_BikeUser*IS_Bike +
+            B_Cost_all * COST_CSV2G  +
+            B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_CSV2G * IS_PT +
+            B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_CSV2G * IS_Bike +
+            B_WalkTime_all * WALKING_TIME_CV2G +
+            B_EV_OWNERSHIP_CSV2G * EV_OWNERSHIP +
+            (B_HAVING_KIDS_CSV2G * HAVING_KIDS if choices3 else 0) +
+            B_AGE_YOUNG_CSV2G * (AGE <= 35) +
+            B_INCOME_LOW_CSV2G * (INCOME <= 3000) 
+        )
+
+        #print(f"Utility for choosing the current mode: {V1:.3f}")
+        #print(f"Utility for choosing private EV with V2G: {V2:.3f}")
+        #print(f"Probability of choosing carsharing services with V2G: {V3:.3f}")
+
+        P_1 = math.exp(V1) / (math.exp(V1) + (math.exp(V2) if choices3 else 0) + math.exp(V3))
+        P_2 = (math.exp(V2) if choices3 else 0) / (math.exp(V1) + (math.exp(V2) if choices3 else 0) + math.exp(V3))
+        P_3 = math.exp(V3) / (math.exp(V1) + (math.exp(V2) if choices3 else 0) + math.exp(V3))
+
+        #print(f"Probability of choosing current mode: {P_1*100:.3f}%")
+        #print(f"Probability of choosing private Evs with V2G: {P_2*100:.3f}%")
+        #print(f"Probability of choosing carsharing services with V2G: {P_3*100:.3f}%")
+        #print(f"Total: {(P_1+P_2+P_3):.3f}")
+        
+        modes = ["P_1", "P_2", "P_3"]
+        chosen_mode = random.choices(modes, weights=[P_1, P_2, P_3], k=1)[0]
+        
+        return chosen_mode
+
+    def Plug_in_choices(LOCATION_WORK: bool, LOCATION_SHOPPING: bool, EV_OWNERSHIP: bool, 
+                        PARK_TIME: float, COST_SAVING: float,
+                        INCOME: float,
+                        WALK_TIME: float=0,
+                        CYCLE: int=1, SOC: float=50, BATTERY_GUARANTEE: float=50, 
+                        DISTANCE_NEXT: float=0):
+        
+        ASC_PLUGIN          = 0.845600726
+        B_LOCATION_WORK     = -0.214813432
+        B_LOCATION_SHOPPING = -0.349427058
+        B_PARK_TIME         = 0.072730788
+        B_DISTANCE_NEXT     = 0.005024964
+        B_COST_SAVING       = 0.129340844
+        B_WALK_TIME         = -0.082726453
+        B_INCOME_LOW        = 0.182566091
+        B_INCOME_HIGH       = 0.265787361
+        B_CYCLE             = -0.052004313
+        B_SOC_EVowner       = -0.004559245
+        B_SOC_nonEVowner    = -0.009348043
+        B_BATTERY_GUARANTEE_nonEVowner  = 0.004927057
+
+        V_plugin  = (
+            ASC_PLUGIN+
+            B_LOCATION_WORK * LOCATION_WORK + B_LOCATION_SHOPPING * LOCATION_SHOPPING +
+            B_PARK_TIME * PARK_TIME +
+            B_DISTANCE_NEXT * DISTANCE_NEXT +
+            B_COST_SAVING* COST_SAVING +
+            B_WALK_TIME * WALK_TIME +
+            B_INCOME_LOW * (INCOME<=3000)+ 
+            B_INCOME_HIGH * (INCOME>6000) + 
+            B_CYCLE *CYCLE +
+            B_SOC_EVowner * (EV_OWNERSHIP==1) * SOC +
+            B_SOC_nonEVowner * (EV_OWNERSHIP==0) * SOC + B_BATTERY_GUARANTEE_nonEVowner * (EV_OWNERSHIP==0) * BATTERY_GUARANTEE 
+        )
+        V_notplugin = 0
+
+        P_plugin = math.exp(V_plugin)/(math.exp(V_plugin) + math.exp(V_notplugin))
+        P_notplugin = 1-P_plugin
+
+        #print(f"Probability of plug-in: {P_plugin}")
+        #print(f"Probability of not plug-in: {P_notplugin}")
+
+        modes = [True, False]
+        plugin = random.choices(modes, weights=[P_plugin, P_notplugin], k=1)[0]
+        
+        return plugin
+
+    def data_gathering(paths: list, avail_vehicles: pd.DataFrame, current_transport: pd.DataFrame, citizen_schedule: pd.DataFrame, vehicle_schedule: pd.DataFrame):
+        
+        print(f"citizen_schedule:\n{citizen_schedule}")
+        print(f"vehicle_schedule:\n{vehicle_schedule}")
+        print(f"current_transport:\n{current_transport}")
+        
+        data = {}
+        
+        first_trip = current_transport.iloc[0]
+        
+        data['COST']                = first_trip['cost']
+        data['TRAVEL_TIME']         = first_trip['conmu_time']
+        data['WALK_TIME']           = first_trip['walk_time']
+        
+        data['IS_Gaso']             = False
+        data['IS_EV']               = False
+        data['IS_PT']               = False
+        data['IS_Bike']             = False
+        if first_trip['archetype'] == 'UB_diesel':
+            data['IS_PT']           = True
+        elif first_trip['archetype'] == 'PC_electric':
+            data['IS_EV']           = True
+        elif first_trip['archetype'] == 'PC_petrol':
+            data['IS_Gaso']         = True        
+        
+        data['EV_OWNERSHIP']        = (avail_vehicles["archetype"] == "PC_electric").any()
+        data["HAVING_KIDS"]         = (citizen_schedule["family_archetype"].iloc[0] in ["f_arch_1", "f_arch_2", "f_arch_3", "f_arch_6"])
+        
+        data['LOCATION_WORK']       = True if citizen_schedule['todo'].iloc[1] == 'WoS' else False
+        data['LOCATION_SHOPPING']   = True if citizen_schedule['todo'].iloc[1] != 'WoS' else False
+        
+        data['PARK_TIME']           = (citizen_schedule['out'].iloc[1] - citizen_schedule['in'].iloc[1])/60
+        
+        data['AGE']                 = 50 if (citizen_schedule["archetype"].iloc[0] in ["c_arch_0", "c_arch_1", "c_arch_3"]) else 12
+                
+        if citizen_schedule["class"].iloc[0] == 'Salariat':
+            data['INCOME'] = 7000
+        elif citizen_schedule["class"].iloc[0] == 'Intermediate':
+            data['INCOME'] = 4500
+        elif citizen_schedule["class"].iloc[0] == 'Working':
+            data['INCOME'] = 2000
+        
+        trip = current_transport['trip'].iloc[0]
+        
+        pop_citizen = agent_populations['citizen']
+        pop_vehicles = agent_populations['transport']
+        
+        transport = pop_vehicles[pop_vehicles['name'] == vehicle_schedule['agent'].iloc[0]]
+        citizen_data = pop_citizen[pop_citizen['name'] == citizen_schedule['agent'].iloc[0]]
+        networks_map = None
+        
+        print(f"citizen_data:\n{citizen_data}")
+        input(f"transport:\n{transport}")
+        
+        distime_matrix, last_P = score_calculation(trip, transport, pop_archetypes['transport'], last_P, agent_populations['building'], networks_map, citizen_data)
+        
+        
+        
+        
+        data['TRAVEL_TIME_EV2G']    = 10
+        data['WALK_TIME_EV2G']      = 5
+        
+        data['COST_EV2G']           = 2 
+        
+        
+        
+        
+        data['TRAVEL_TIME_CSV2G']   = 10
+        data['WALKING_TIME_CV2G']   = 5
+        
+        data['COST_CSV2G']          = 3
+
+        return data
+    
+    data = data_gathering(paths, avail_vehicles, current_transport, citizen_schedule, vehicle_schedule)
+
+    chosen_mode = Mode_choice(choices3,
+                              data['IS_Gaso'], data['IS_EV'], data['IS_PT'], data['IS_Bike'],
+                              data['EV_OWNERSHIP'], data['HAVING_KIDS'],
+                              data['AGE'], data['INCOME'], 
+                              data['COST'], data['COST_EV2G'], data['COST_CSV2G'], 
+                              data['WALK_TIME'], data['WALK_TIME_EV2G'], data['WALKING_TIME_CV2G'], 
+                              data['TRAVEL_TIME'], data['TRAVEL_TIME_EV2G'], data['TRAVEL_TIME_CSV2G'])
+
+    #print(f"chosen_mode: {chosen_mode}")
+
+    if (chosen_mode == 'P_1') & (not data['IS_EV']):
+        return chosen_mode, False
+
+    if chosen_mode == 'P_2':
+        COST_P = data['COST_EV2G']
+    else:
+        COST_P = data['COST_CSV2G']
+
+    plugin = Plug_in_choices(data['LOCATION_WORK'], data['LOCATION_SHOPPING'], data['EV_OWNERSHIP'], 
+                             data['PARK_TIME'], COST_P,
+                             data['INCOME'])
+
+    #print(f"plugin: {plugin}")
+
+    return chosen_mode, plugin 
+
 def vehicle_chosing(vehicle_score_matrix, simplified: bool=True): 
     
     if simplified:
@@ -420,12 +682,12 @@ def vehicle_chosing(vehicle_score_matrix, simplified: bool=True):
             
             if rest_df.empty:
                 mask = vehicle_score_matrix['vehicle'] == 'Public_transport'
-                pt_df = vehicle_score_matrix.loc[mask]
-                return pt_df.reset_index(drop=True)
+                current_transport = vehicle_score_matrix.loc[mask].reset_index(drop=True)
             else:
                 vehicle = rest_df['vehicle'].iloc[0]
-                v_df = vehicle_score_matrix[vehicle_score_matrix['vehicle'] == vehicle]
-                return v_df.reset_index(drop=True)
+                current_transport = vehicle_score_matrix[vehicle_score_matrix['vehicle'] == vehicle].reset_index(drop=True)
+        
+        return current_transport.reset_index(drop=True)
 
     # Sumamos los scores por transporte
     simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False).sum()   
@@ -443,19 +705,7 @@ def vehicle_chosing(vehicle_score_matrix, simplified: bool=True):
         current_transport = public_walk.loc[idx]
     else:
         # Si no es mejor, devuelve el anteriormente definido como mejor
-        current_transport = vehicle_score_matrix[vehicle_score_matrix['vehicle'] == best_transport['vehicle']].reset_index(drop=True)
-    
-    ####################################################
-    # Aqui es donde debemos meter el modelo de Qiaochu #
-    ####################################################
-    '''
-    Basicamente, su modelo, mira el transporte actual y evalua la probabilidad de que cambie del que tenia a 
-    uno más V2G-related. Por lo tanto, y a menos de que me exprese alguna modificacion. Habría que añadir su
-    modulo aqui y considerar el current_transport como el actual y evaluar si cambia o no.
-    
-    Parece que no se concibe la opcion de que el current sea V2G, por lo que
-    
-    '''
+        current_transport = vehicle_score_matrix[vehicle_score_matrix['vehicle'] == best_transport['vehicle']].reset_index(drop=True)   
     
     return current_transport
 
@@ -543,7 +793,7 @@ def distime_calculation(
     pop_building: pd.DataFrame,
     citizen_data: dict,
     transport: dict,
-    standard: bool = True,):
+    standard: bool = True):
     
     # --- 1) Preparación rápida de lookups ---
     # osm_id -> {'lon':..., 'lat':...}
@@ -556,16 +806,15 @@ def distime_calculation(
     cache = {}
     new_cache_rows = []  # acumulamos y concatenamos al final
 
-    # grafos (atajo)
-    G_drive = networks_map.get('drive_map')
-    G_walk  = networks_map.get('walk_map')
-
     # --- 2) Precomputar nearest_nodes por osm_id y mapa ---
     # ids únicos implicados
     osmid_set = set([s0 for s0, _ in complete_trip] + [s1 for _, s1 in complete_trip])
 
     nearest = {'drive': {}, 'walk': {}}
     if standard:
+        # grafos (atajo)
+        G_drive = networks_map.get('drive_map')
+        G_walk  = networks_map.get('walk_map')
         # Para cada mapa, calculamos nodos más cercanos en lote
         for mode, G in (('drive', G_drive), ('walk', G_walk)):
             if G is None: 
