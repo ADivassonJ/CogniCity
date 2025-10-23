@@ -44,6 +44,7 @@ def _process_family(
 
     all_citizen_schedule = pd.DataFrame()
     all_vehicle_schedule = pd.DataFrame()
+    all_desires = pd.DataFrame()
 
     for c_name in family_members:
         citizen_todolist = level1_citizens.get_group(c_name).sort_values(by='trip', ascending=True).reset_index(drop=True).copy()
@@ -95,7 +96,12 @@ def _process_family(
         
         results = WP3_parameters_simplified(paths, pop_archetypes, agent_populations, avail_vehicles, best_transport_distime_matrix, citizen_schedule, vehicle_schedule)
         
-        input(results)
+        new_row = citizen_data
+        
+        '''new_row['P_X'] = 
+        
+        
+        all_desires = concat all_desires + new_row'''
         
         # “Consume” vehículo si no es compartible
         vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
@@ -589,7 +595,6 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
             var_result = np.random.normal(mu, sigma)
             var_result = max(min(var_result, max_var), min_var)
             results[variable] = var_result
-
         return results
     
     def virtual_EV_generator(archetypes_transport: pd.DataFrame, CSEV: bool):

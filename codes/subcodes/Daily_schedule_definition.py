@@ -110,8 +110,8 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
             # Input reading
             todolist = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
-            vehicle_choice_model(todolist, agent_populations['transport'], agent_populations['citizen'], paths, study_area, pop_archetypes['transport'], agent_populations['building'], networks_map, day)
-    
+            vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day)
+            
     ## Todolist
     # Convining docs
     docs_convining(files_done['todolist'], 'todolist', study_area, paths)
