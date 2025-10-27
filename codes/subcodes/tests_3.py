@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
-import math
 from pathlib import Path
+from haversine import haversine, Unit
 
 # --- RUTAS (ajusta si hace falta) ---
 path_buildings = Path(r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_building.parquet")
@@ -12,28 +12,13 @@ out_perpoint_csv = Path("distancias_wos_a_home_por_citizen.csv")
 out_summary_csv  = Path("resumen_distancias_wos_a_home.csv")
 
 # =========================
-#   FUNCIONES AUXILIARES
-# =========================
-R_EARTH_M = 6_371_000.0
-
-def haversine_m(lat1, lon1, lat2, lon2):
-    """Distancia Haversine en metros entre arrays/escalares (grados)."""
-    φ1, λ1 = np.radians(lat1), np.radians(lon1)
-    φ2, λ2 = np.radians(lat2), np.radians(lon2)
-    dφ = φ2 - φ1
-    dλ = λ2 - λ1
-    a  = np.sin(dφ/2.0)**2 + np.cos(φ1) * np.cos(φ2) * np.sin(dλ/2.0)**2
-    c  = 2 * np.arcsin(np.sqrt(a))
-    return R_EARTH_M * c
-
-# =========================
 #   LECTURA Y PREPARACIÓN
 # =========================
 # --- LEER PARQUET ---
 buildings = pd.read_parquet(path_buildings)
 citizens  = pd.read_parquet(path_citizens)
 
-# --- FILTROS EN CITIZENS (igual que tu ejemplo) ---
+# --- FILTROS EN CITIZENS ---
 mask_ind  = citizens["archetype"].isin(["c_arch_0", "c_arch_1"])
 mask_home = citizens["WoS_subgroup"].astype(str).str.strip() != "Home"
 before = len(citizens)
@@ -53,10 +38,8 @@ lat_map = dict(zip(buildings_min["osm_id"], buildings_min["lat"]))
 lon_map = dict(zip(buildings_min["osm_id"], buildings_min["lon"]))
 
 # --- TRAER COORDENADAS DE WoS Y Home ---
-# WoS (lugar actual/trabajo/estudio/etc.)
 citizens_f["lat_wos"]  = citizens_f["WoS"].map(lat_map)
 citizens_f["lon_wos"]  = citizens_f["WoS"].map(lon_map)
-# Home (domicilio)
 citizens_f["lat_home"] = citizens_f["Home"].map(lat_map)
 citizens_f["lon_home"] = citizens_f["Home"].map(lon_map)
 
@@ -66,11 +49,11 @@ if pts.empty:
     raise ValueError("No hay pares WoS/Home con coordenadas válidas tras el mapeo de osm_id.")
 
 # =========================
-#   CÁLCULO DISTANCIAS
+#   CÁLCULO DISTANCIAS (usando librería haversine)
 # =========================
-pts["dist_home_m"] = haversine_m(
-    pts["lat_wos"].values,  pts["lon_wos"].values,
-    pts["lat_home"].values, pts["lon_home"].values
+pts["dist_home_m"] = pts.apply(
+    lambda r: haversine((r["lat_wos"], r["lon_wos"]), (r["lat_home"], r["lon_home"]), unit=Unit.METERS),
+    axis=1
 )
 
 # =========================

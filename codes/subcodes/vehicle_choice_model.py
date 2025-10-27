@@ -14,6 +14,8 @@ import networkx as nx
 import networkx as nx
 import osmnx as ox
 import pandas as pd
+import multiprocessing
+
 
 from concurrent.futures import ProcessPoolExecutor, as_completed   # o ThreadPoolExecutor si es I/O-bound
 from functools import partial
@@ -47,9 +49,10 @@ def _process_family(
     all_desires = pd.DataFrame()
 
     for c_name in family_members:
+        
         citizen_todolist = level1_citizens.get_group(c_name).sort_values(by='trip', ascending=True).reset_index(drop=True).copy()
         citizen_data = agent_populations['citizen'].loc[agent_populations['citizen']['name'] == c_name].iloc[0]
-        
+    
         # If 'citizen_todolist' only has one row, mean they did not left home, so no vehicle moving nether
         if len(citizen_todolist) == 1:
             continue
@@ -172,22 +175,29 @@ def vehicle_choice_model(
         
     
     
-    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
                                                    transport_families_dict,
                                                    agent_populations,
                                                    pop_archetypes,
                                                    networks_map)
+        if fam_schedule is not None and not fam_schedule.empty:
+            results_schedules.append(fam_schedule)
+        if fam_actions is not None and not fam_actions.empty:
+            results_actions.append(fam_actions)'''
         
         
-    '''worker = partial(
+    worker = partial(
         _process_family,
+        paths=paths,
         transport_families_dict=transport_families_dict,
         agent_populations=agent_populations,
         pop_archetypes=pop_archetypes,
         networks_map=networks_map,
     )
+    
+    n_jobs = multiprocessing.cpu_count() - 1 
     
     with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam_tuple): fam_tuple[0] for fam_tuple in families}
@@ -200,7 +210,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and not fam_actions.empty:
                     results_actions.append(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                print(f"[ERROR] familia '{fam_name}': {e}")
 
     # --- Agregación en el proceso principal ---
     new_level1_schedules = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()

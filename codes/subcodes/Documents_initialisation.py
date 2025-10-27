@@ -1215,8 +1215,8 @@ def process_arch_to_fill(archetype_df, arch_name, df_distribution):
     columns_to_keep = [col for col in row.columns if 'arch' in col.lower()] ########################## CUIDADO CON ESTO ASIER DEL FUTURO
     row_filtered = row[columns_to_keep]
     # Transponer y reformatear el DataFrame
-    transposed = row_filtered.T.reset_index(drop=True)
-    transposed.columns = ['name', 'participants']  
+    transposed = row_filtered.T.reset_index()
+    transposed.columns = ['name', 'participants']
     # Unir con df_distribution para comparar los valores
     merged_df = pd.merge(df_distribution, transposed, on='name', how='left')
     return merged_df
@@ -1386,13 +1386,50 @@ def social_class_assingment(family_populations, stats_class):
     return family_populations
 
 def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
+    """
+    Crea un anillo (corona circular) alrededor de un punto (lat, lon) con radios en metros.
+    
+    Parámetros
+    ----------
+    lat, lon : float
+        Coordenadas del punto central (en grados si CRS=EPSG:4326).
+    x : float
+        Radio central del anillo (en metros).
+    y : float
+        Semiancho del anillo (en metros).
+    crs : str
+        CRS del punto de entrada (por defecto 'EPSG:4326').
+
+    Retorna
+    -------
+    shapely.geometry.Polygon
+        Polígono del anillo en EPSG:4326.
+    """
+
+    # Crear punto base
     poi = gpd.GeoSeries([Point(lon, lat)], crs=crs)
-    poi_m = poi.to_crs(epsg=3857)
+
+    # Selección automática de CRS proyectado local
+    if 50 <= lat <= 54 and -1 <= lon <= 8:
+        # Aprox. Países Bajos, Bélgica, oeste Alemania
+        crs_local = "EPSG:28992"  # Amersfoort / RD New
+    else:
+        # Por defecto, usa UTM adecuado según longitud
+        utm_zone = int((lon + 180) // 6) + 1
+        hemisphere = "326" if lat >= 0 else "327"  # norte/sur
+        crs_local = f"EPSG:{hemisphere}{utm_zone}"
+
+    # Transformar a CRS proyectado (en metros)
+    poi_m = poi.to_crs(crs_local)
+
+    # Crear anillos en metros
     outer = poi_m.buffer(x + y).iloc[0]
     inner = poi_m.buffer(max(x - y, 0)).iloc[0]
     ring = outer.difference(inner)
-    ring_wgs84 = gpd.GeoSeries([ring], crs="EPSG:3857").to_crs(crs)
-    return ring_wgs84.iloc[0]  # <- devuelve shapely.geometry.Polygon
+
+    # Devolver el resultado en WGS84
+    ring_wgs84 = gpd.GeoSeries([ring], crs=crs_local).to_crs("EPSG:4326")
+    return ring_wgs84.iloc[0]
 
 
 def _as_geometry_and_crs(geom_like):
@@ -1458,7 +1495,7 @@ def Utilities_assignment(
     study_area, 
     special_areas_coords,
     ring_crs: str = "EPSG:4326",
-    max_iters: int = 99,
+    max_iters: int = 1,
     disk: bool = False):
     
     # --- helpers ---
@@ -1531,7 +1568,7 @@ def Utilities_assignment(
 
     # --- 1) Variables de arquetipo de transporte (una vez) ---
     variables = [c.rsplit('_', 1)[0] for c in pop_archetypes['transport'].columns if c.endswith('_mu')]
-
+    
     # --- 2) Vehículos privados por familia ---
     df_priv_vehicle = pd.DataFrame(columns=['name', 'archetype', 'family', 'ubication'] + variables)
 
@@ -1545,7 +1582,7 @@ def Utilities_assignment(
 
     shuffled_homes_inside = random.sample(homes_inside, len(homes_inside))
     counter = 0
-
+    
     for idx_df_f, row_df_f in tqdm(df_families.iterrows(), total=df_families.shape[0], desc="                Vehicles generation: "):
         if counter >= len(shuffled_homes_inside):
             shuffled_homes_inside = random.sample(homes_inside, len(homes_inside))
@@ -1556,7 +1593,7 @@ def Utilities_assignment(
 
         df_families.at[idx_df_f, 'Home'] = Home_id
         df_families.at[idx_df_f, 'Home_type'] = pick_building_type(Home_id)
-
+            
         # vehículos según stats_trans para este arquetipo de familia
         filtered_st_trans = stats_trans[stats_trans['item_1'] == row_df_f['archetype']]
         for _, row_fs in filtered_st_trans.iterrows():
@@ -1599,10 +1636,12 @@ def Utilities_assignment(
     # --- 5) Variables de arquetipo de ciudadano (una vez) ---
     citizen_vars = [c.rsplit('_', 1)[0] for c in pop_archetypes['citizen'].columns if c.endswith('_mu')]
 
+    work_df['pop'] = 0
+    
     # --- 6) Asignación por ciudadano ---
     for idx, row in tqdm(df_citizens.iterrows(), total=df_citizens.shape[0], desc="                Utilities assignation: "):
         
-        class_work_df = work_df[(work_df['archetype'] == row['class']) & (work_df['pop'] < 14)]
+        class_work_df = work_df[(work_df['archetype'] == row['class']) & (work_df['pop'] < 1)]
         
         # 6.1) escribir variables de arquetipo de ciudadano
         arche = row['archetype']
@@ -2099,7 +2138,7 @@ def Documents_initialisation(population, study_area):
 if __name__ == '__main__':
     
     # Input
-    population = 10000
+    population = 250
     study_area = 'Kanaleneiland'
     
     Documents_initialisation(population, study_area)
