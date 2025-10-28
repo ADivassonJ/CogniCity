@@ -4,8 +4,8 @@ from pathlib import Path
 from haversine import haversine, Unit
 
 # --- RUTAS (ajusta si hace falta) ---
-path_buildings = Path(r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_building.parquet")
-path_citizens  = Path(r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_citizen.parquet")
+path_buildings = Path(r"C:\Users\asier\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_building.parquet")
+path_citizens  = Path(r"C:\Users\asier\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_citizen.parquet")
 
 # --- SALIDAS (opcional) ---
 out_perpoint_csv = Path("distancias_wos_a_home_por_citizen.csv")

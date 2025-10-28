@@ -1495,7 +1495,7 @@ def Utilities_assignment(
     study_area, 
     special_areas_coords,
     ring_crs: str = "EPSG:4326",
-    max_iters: int = 1,
+    max_iters: int = 4,
     disk: bool = False):
     
     # --- helpers ---
@@ -1641,7 +1641,7 @@ def Utilities_assignment(
     # --- 6) Asignación por ciudadano ---
     for idx, row in tqdm(df_citizens.iterrows(), total=df_citizens.shape[0], desc="                Utilities assignation: "):
         
-        class_work_df = work_df[(work_df['archetype'] == row['class']) & (work_df['pop'] < 1)]
+        class_work_df = work_df[(work_df['archetype'] == row['class']) & (work_df['pop'] < 14)]
         
         # 6.1) escribir variables de arquetipo de ciudadano
         arche = row['archetype']
