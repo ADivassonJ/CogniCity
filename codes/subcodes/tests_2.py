@@ -34,8 +34,8 @@ AREAS = {
 }
 
 # --- RUTAS ---
-path_buildings = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_building.parquet"
-path_citizens  = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_citizen.parquet"
+path_buildings = r"C:\Users\asier\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_building.parquet"
+path_citizens  = r"C:\Users\asier\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_citizen.parquet"
 
 # --- LEER PARQUET ---
 buildings = pd.read_parquet(path_buildings)
@@ -44,8 +44,9 @@ citizens  = pd.read_parquet(path_citizens)
 # --- FILTROS EN CITIZENS ---
 mask_ind  = citizens["archetype"].isin(['c_arch_0', 'c_arch_1'])
 mask_home = citizens["WoS_subgroup"].astype(str).str.strip() != "Home"
+mask_unknown = citizens["WoS_subgroup"].astype(str).str.strip() != "unknown"
 before = len(citizens)
-citizens_f = citizens.loc[mask_ind & mask_home].dropna(subset=["WoS"]).copy()
+citizens_f = citizens.loc[mask_ind & mask_home & mask_unknown].dropna(subset=["WoS"]).copy()
 after = len(citizens_f)
 if citizens_f.empty:
     raise ValueError("Tras filtrar (independent_type==1 y excluir Home), no quedan citizens.")

@@ -989,14 +989,14 @@ def distime_calculation(
             'vehicle':      transport['name'],
             'archetype':    transport['archetype'],
             'trip':         trip,
-            'distance':     cache[cache_key],
-            'walk_time':    (cache[cache_key] / citizen_data['walk_speed']) if (map_type == 'walk' and cache[cache_key] > 0) else 0,
-            'travel_time':  (cache[cache_key] / transport['v']) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
+            'distance':     distance_km,
+            'walk_time':    (distance_km / citizen_data['walk_speed']) if (map_type == 'walk' and distance_km > 0) else 0,
+            'travel_time':  (distance_km / transport['v']) if (map_type == 'drive' and distance_km > 0) else 0,
             'wait_time':    waiting_time,
-            'cost':         (transport['Ekm']   * cache[cache_key]) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
-            'mjkm':         (transport['mjkm']   * cache[cache_key]) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
+            'cost':         (transport['price'] * transport['mjkm']   * distance_km) if (map_type == 'drive' and distance_km > 0) else 0,
+            'mjkm':         (transport['mjkm']   * distance_km) if (map_type == 'drive' and distance_km > 0) else 0,
             'benefits':     benefits,
-            'emissions':    (transport['CO2km'] * cache[cache_key]) if (map_type == 'drive' and cache[cache_key] > 0) else 0,
+            'emissions':    (transport['CO2km'] * distance_km) if (map_type == 'drive' and distance_km > 0) else 0,
         })
 
     # --- 5) Agregación final (igual que antes, pero sin overhead extra) ---

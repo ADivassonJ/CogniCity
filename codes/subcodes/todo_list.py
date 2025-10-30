@@ -355,7 +355,6 @@ def todolist_family_creation(
     day,
     citizen_archetypes,
     n_jobs=None,         # None -> usa número de CPUs disponibles
-    use_threads=False,   # True si tu carga es I/O-bound
     chunksize=1          # >1 reduce overhead en muchísimas familias
 ):
     """
@@ -375,9 +374,6 @@ def todolist_family_creation(
 
     # Elegir ejecutor
     Executor = ProcessPoolExecutor
-    if use_threads:
-        from concurrent.futures import ThreadPoolExecutor
-        Executor = ThreadPoolExecutor
 
     # Preparamos función parcial con parámetros constantes
     worker = partial(_build_family_level1, day=day, pop_building=pop_building,

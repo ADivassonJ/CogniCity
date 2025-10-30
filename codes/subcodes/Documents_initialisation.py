@@ -729,7 +729,7 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     
     # Creamos el diccionario con los datos de etiquetas a considerar
     services_groups = services_groups_creation(Services_Group_relationship, missing_files)
-    
+
     for group_name, group_ref in services_groups.items():
         
         if not group_name in ['work', 'Entertainment', 'Salariat', 'Intermediate', 'Working', 'Home']:
@@ -938,8 +938,9 @@ def get_osm_elements(polygon, poss_ref):
     tags = {key: True for key in poss_ref.keys()}
 
     # 2) Descargar datos
+
     try:
-        gdf = ox.geometries_from_polygon(polygon, tags).reset_index(drop=True)
+        gdf = ox.features_from_polygon(polygon, tags).reset_index(drop=True)
     except Exception:
         # Si Overpass falla, devolvemos vacío con esquema correcto
         return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
@@ -1434,23 +1435,6 @@ def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
     ring_wgs84 = gpd.GeoSeries([ring], crs=crs_local).to_crs("EPSG:4326")
     return ring_wgs84.iloc[0]
 
-
-def _as_geometry_and_crs(geom_like):
-    """Devuelve (geom_shapely, crs or None) desde geometry / GeoSeries / GeoDataFrame."""
-    if geom_like is None:
-        return None, None
-    if isinstance(geom_like, gpd.GeoDataFrame):
-        return geom_like.geometry.unary_union, getattr(geom_like, "crs", None)
-    if isinstance(geom_like, gpd.GeoSeries):
-        return geom_like.unary_union, getattr(geom_like, "crs", None)
-    # shapely geometry
-    return geom_like, None
-
-def _best_utm_epsg(lon, lat):
-    zone = int((lon + 180) // 6) + 1
-    hemi = 326 if lat >= 0 else 327  # Norte/Sur
-    return f"EPSG:{hemi}{zone:02d}"
-
 def only_inside_district(Home_ids, geometry_latlon, pop_building):
     # Convertir a (lon, lat) para shapely
     poly_lonlat = [(lon, lat) for (lat, lon) in geometry_latlon]
@@ -1499,13 +1483,20 @@ def Utilities_assignment(
     special_areas_coords,
     ring_crs: str = "EPSG:4326",
     max_iters: int = 4,
-    disk: bool = False):
+    disk: bool = True,
+    max_ocupancy: int = 1):
     
     # --- helpers ---
     def pick_building_type(osm_id):
         if "_" in osm_id:
             return 'outside'
         bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'building_type']
+        return bt.iat[0] if not bt.empty else np.nan
+    
+    def pick_building_scale(osm_id):
+        if "_" in osm_id:
+            return 'outside'
+        bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'scale']
         return bt.iat[0] if not bt.empty else np.nan
 
     def choose_id(pop_buildings):
@@ -1649,20 +1640,32 @@ def Utilities_assignment(
     
     def assign_utilities(df_citizens, df_families, df_priv_vehicle,
                      work_df, study_df, SG_relationship, pop_archetypes,
-                     citizen_vars, ring_crs, disk, max_iters):
+                     citizen_vars, ring_crs, disk, max_iters, max_ocupancy):
         """
         Asigna Work/Study (WoS) y otros atributos a cada ciudadano según su arquetipo y ubicación.
         """
         # --- 6) Asignación por ciudadano ---
         for idx, row in tqdm(df_citizens.iterrows(), total=df_citizens.shape[0], desc="                Utilities assignation: "):
             
-            class_work_df = work_df[(work_df['archetype'] == row['class']) & (work_df['pop'] < 14)]
-            
-            # 6.1) escribir variables de arquetipo de ciudadano
-            arche = row['archetype']
-            citizen_vals = get_vehicle_stats(arche, pop_archetypes['citizen'], citizen_vars)
-            row_updated = assign_data(citizen_vars, citizen_vals, row.copy())
-            df_citizens.loc[idx, row_updated.index] = row_updated
+            # Filtrar de forma más eficiente usando query (más legible y rápido)
+            class_work_df = work_df.query("archetype == @row['class'] and pop < @max_ocupancy")
+
+            # Obtener arquetipo y estadísticas de ciudadano
+            citizen_vals = get_vehicle_stats(
+                row['archetype'],
+                pop_archetypes['citizen'],
+                citizen_vars
+            )
+
+            # Asignar datos y actualizar directamente en df_citizens
+            row_updated = assign_data(citizen_vars, citizen_vals, row)
+            df_citizens.loc[idx, citizen_vars] = row_updated[citizen_vars]
+
+
+
+
+
+
 
             # 6.2) home georef
             home_id = df_citizens.at[idx, 'Home']
@@ -1739,10 +1742,13 @@ def Utilities_assignment(
             df_citizens.at[idx, 'WoS'] = WoS_id
             
             if homestay_cond:
+                df_citizens.at[idx, 'WoS_scale'] = 'district'
                 df_citizens.at[idx, 'WoS_subgroup'] = 'Home'
             elif outside_cond:
+                df_citizens.at[idx, 'WoS_scale'] = 'outside'
                 df_citizens.at[idx, 'WoS_subgroup'] = 'unknown'
             else:
+                df_citizens.at[idx, 'WoS_scale'] = pick_building_scale(WoS_id)
                 df_citizens.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
 
             # Añadimos los agentes al osm_id para asegurar que no usamos espacios overbooked
@@ -1750,7 +1756,7 @@ def Utilities_assignment(
                 idx = work_df.index[work_df['osm_id'] == WoS_id]
                 for index in idx:
                     work_df.at[index, 'pop'] += 1
-                    
+
         return df_families, df_citizens, df_priv_vehicle
     
     df_priv_vehicle, df_families = generate_private_vehicles(df_families, pop_archetypes, stats_trans,
@@ -1759,12 +1765,11 @@ def Utilities_assignment(
                                     only_inside_district)
 
     df_citizens = assign_family_attributes(df_citizens, df_families)
-
-    # --- 4) Work/Study pools (usar LISTAS de columnas, no sets) ---
-    #    Meter distancias al centroide del distrito    
+   
     centroid = calculate_centroid(special_areas_coords[study_area])
     
     work_df = SG_relationship.loc[SG_relationship['archetype'].isin(['Salariat', 'Intermediate', 'Working']), ['archetype', 'osm_id', 'lat', 'lon']].copy()
+    
     # Añadir columna vacía llamada 'pop'
     work_df['pop'] = 0
     study_df = SG_relationship.loc[SG_relationship['archetype'] == 'study', ['osm_id', 'lat', 'lon']].copy()
@@ -1779,11 +1784,9 @@ def Utilities_assignment(
     # --- 5) Variables de arquetipo de ciudadano (una vez) ---
     citizen_vars = [c.rsplit('_', 1)[0] for c in pop_archetypes['citizen'].columns if c.endswith('_mu')]
 
-    work_df['pop'] = 0
-    
     df_families, df_citizens, df_priv_vehicle = assign_utilities(df_citizens, df_families, df_priv_vehicle,
                                                                 work_df, study_df, SG_relationship, pop_archetypes,
-                                                                citizen_vars, ring_crs, disk, max_iters)
+                                                                citizen_vars, ring_crs, disk, max_iters, max_ocupancy)
     
     return df_families, df_citizens, df_priv_vehicle
 
@@ -2187,7 +2190,7 @@ def Documents_initialisation(population, study_area):
 if __name__ == '__main__':
     
     # Input
-    population = 250
+    population = 450
     study_area = 'Kanaleneiland'
     
     Documents_initialisation(population, study_area)
