@@ -690,6 +690,56 @@ def save_split_poligon_map(polygon, grid_gdf):
     m.save("kanaleneiland_grid_1km.html")
     print("Mapa guardado en 'kanaleneiland_grid_1km.html'")
 
+def building_scale_adding(SG_relationship, city, study_area):
+    """
+    Añade una columna 'scale' a SG_relationship según la ubicación de cada edificio.
+    Usa OSMnx para obtener las geometrías del área de estudio y la ciudad.
+
+    Parámetros:
+    - SG_relationship (pd.DataFrame o GeoDataFrame): debe contener columnas 'lat' y 'lon'.
+    - city (str): nombre de la ciudad (por ejemplo, "Utrecht").
+    - study_area (str): nombre del distrito o barrio (por ejemplo, "Kanaleneiland").
+
+    Retorna:
+    - GeoDataFrame con columnas originales + 'scale' ('district', 'city' o 'outside').
+    """
+
+    # 1️⃣ Asegurar que tenemos geometrías de OSM
+    try:
+        gdf_city = ox.geocode_to_gdf(city)
+        gdf_study = ox.geocode_to_gdf(study_area + ", " + city)  # añade contexto para más precisión
+    except Exception as e:
+        raise ValueError(f"❌ Error al obtener geometrías OSM: {e}")
+
+    # 2️⃣ Convertir SG_relationship a GeoDataFrame
+    gdf_buildings = gpd.GeoDataFrame(
+        SG_relationship.copy(),
+        geometry=gpd.points_from_xy(SG_relationship["lon"], SG_relationship["lat"]),
+        crs="EPSG:4326"
+    )
+
+    # 3️⃣ Asegurar mismo CRS
+    gdf_city = gdf_city.to_crs("EPSG:4326")
+    gdf_study = gdf_study.to_crs("EPSG:4326")
+
+    # 4️⃣ Crear columna 'scale'
+    gdf_buildings["scale"] = "outside"
+
+    # 5️⃣ Asignar "district" si está dentro del área de estudio
+    gdf_buildings.loc[
+        gdf_buildings.within(gdf_study.unary_union), "scale"
+    ] = "district"
+
+    # 6️⃣ Asignar "city" si no es district pero sí está dentro de la ciudad
+    mask_city = (
+        (gdf_buildings["scale"] != "district")
+        & (gdf_buildings.within(gdf_city.unary_union))
+    )
+    gdf_buildings.loc[mask_city, "scale"] = "city"
+
+    return gdf_buildings
+
+
 def download_pois(study_area, paths, building_archetypes_df, special_areas_coords, city_district, building_types):
     # User Interface
     print(f'    [WARNING] Data is missing, it needs to be downloaded.')
@@ -711,10 +761,8 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     # En base al distrito de analisis, sacamos la ciudad a descargar
     city = city_district.get(study_area)
     
-    gdf = ox.geocode_to_gdf(city)
-    #gdf = ox.geocode_to_gdf('Kanaleneiland')
 
-    polygon = gdf.iloc[0].geometry
+
     # Crear si no existe
     if not os.path.isdir(cache_path):
         os.makedirs(cache_path, exist_ok=True)
@@ -730,12 +778,19 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     # Creamos el diccionario con los datos de etiquetas a considerar
     services_groups = services_groups_creation(Services_Group_relationship, missing_files)
 
+    if services_groups:
+        print(f"Leyendo el archivo tocho de mapa")
+        geojson_path = f"{paths['maps']}/utrecht_province.osm.geojson"
+        gdf = gpd.read_file(geojson_path)
+        print(f"Archivo tocho leido")
+
+    print(f"Iniciamos gestion")
+
     for group_name, group_ref in services_groups.items():
-        
-        if not group_name in ['work', 'Entertainment', 'Salariat', 'Intermediate', 'Working', 'Home']:
+        if not group_name in ['Home', 'study', 'work', 'Entertainment', 'Dutties', 'Healthcare', 'public_transportation', 'private_transportation', 'charging_station', 'Salariat', 'Intermediate', 'Working']:
             try:
                 # Descargamos datos
-                df_group = get_osm_elements(polygon, group_ref)
+                df_group = get_osm_elements(gdf, group_ref, group_name)
                 df_group['archetype'] = group_name
                 # Guardamos resultados
                 df_group.to_file(f"{cache_path}/{group_name}.geojson", driver="GeoJSON")
@@ -744,7 +799,7 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
             except Exception as e:
                 print(f"            [ERROR] Failed to get data for {group_name}: {e}")
         else:
-            
+            print(f"    {group_name}")
             if not os.path.isdir(f"{cache_path}/{group_name}"):
                     os.makedirs(f"{cache_path}/{group_name}", exist_ok=True)
                 
@@ -758,12 +813,12 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
                 print(f"            {group_name}_{not_miss}: retrieved from cache.")
             
             for key in missing_files_2:
-                
+                print(f"        {key}")
                 smaller = {key: group_ref[key]}
                 
                 try:
                     # Descargamos datos
-                    df_group = get_osm_elements(polygon, smaller)
+                    df_group = get_osm_elements(gdf, smaller, key)
                     df_group['archetype'] = group_name
                     # Guardamos resultados
                     df_group.to_file(f"{cache_path}/{group_name}/{key}.geojson", driver="GeoJSON")
@@ -789,6 +844,8 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     osm_elements_df = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=gdfs[0].crs)
     
     SG_relationship = building_schedule_adding(osm_elements_df, building_archetypes_df)
+    
+    SG_relationship = building_scale_adding(SG_relationship, city, study_area)
     
     coords = special_areas_coords[study_area]
     # Intercambiar lat y lon a lon, lat
@@ -918,37 +975,31 @@ def get_wos_action(archetype, pop_archetypes, stats_synpop):
     ].values[0]
     return get_stats_value(value, stats_synpop, archetype, 'WoS_action')
 
-def get_osm_elements(polygon, poss_ref):
+def get_osm_elements(gdf, poss_ref, extra):
     """
-    Descarga y filtra elementos de OSM dentro de un polígono dado para UN servicio (poss_ref).
+    Lee y filtra elementos OSM desde un archivo GeoJSON local.
     Calcula centroides en un CRS proyectado y retorna columnas estandarizadas.
 
     Parámetros:
-    - polygon (shapely Polygon/MultiPolygon): área de búsqueda.
-    - poss_ref (dict): reglas de filtrado {key: [values] | value} (p.ej. {'amenity':['school','hospital']}).
+    - geojson_path (str): ruta al archivo GeoJSON.
+    - poss_ref (dict): reglas de filtrado {key: [values] | value} 
+                       (p.ej. {'amenity':['school','hospital']}).
 
     Retorna:
     - GeoDataFrame con columnas: ['building_type','osm_id','geometry','lat','lon'] (CRS EPSG:4326).
     """
 
-    # 1) Preparar etiquetas (una sola descarga por servicio)
-    if not poss_ref or not isinstance(poss_ref, dict):
-        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
-
-    tags = {key: True for key in poss_ref.keys()}
-
-    # 2) Descargar datos
-
-    try:
-        gdf = ox.features_from_polygon(polygon, tags).reset_index(drop=True)
-    except Exception:
-        # Si Overpass falla, devolvemos vacío con esquema correcto
-        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
-
+    # 1) Cargar datos del GeoJSON
     if gdf.empty:
+        print("El archivo GeoJSON no contiene features.")
         return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
 
-    # 3) Filtrar según poss_ref (OR entre keys/values)
+    # 2) Validar poss_ref
+    if not poss_ref or not isinstance(poss_ref, dict):
+        print("poss_ref no válido o vacío.")
+        return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
+
+    # 3) Filtrar según poss_ref
     mask = pd.Series(False, index=gdf.index)
     for key, values in poss_ref.items():
         if key not in gdf.columns:
@@ -960,14 +1011,15 @@ def get_osm_elements(polygon, poss_ref):
 
     filtered = gdf.loc[mask].copy()
     if filtered.empty:
+        print("No se encontraron elementos que coincidan con poss_ref.")
         return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
 
-    # 4) Centroides correctos (proyectado)
+    # 4) Calcular centroides (si la geometría no es Point)
     gdf_geo = gpd.GeoDataFrame(filtered, geometry='geometry', crs="EPSG:4326")
     try:
-        target_crs = gpd.GeoSeries([polygon], crs="EPSG:4326").estimate_utm_crs()
-    except Exception:
         target_crs = gdf_geo.estimate_utm_crs()
+    except Exception:
+        target_crs = "EPSG:3857"
 
     gdf_proj = gdf_geo.to_crs(target_crs)
     centroids_proj = gdf_proj.geometry.centroid
@@ -976,10 +1028,12 @@ def get_osm_elements(polygon, poss_ref):
     gdf_geo['lat'] = centroids_geo.y
     gdf_geo['lon'] = centroids_geo.x
 
-    # 5) Campos derivados (usa tus funciones existentes)
-    #    Nota: 'building_type' depende de poss_ref del servicio actual
-    gdf_geo['building_type'] = gdf_geo.apply(lambda row: building_type(row, poss_ref), axis=1)
-    gdf_geo['osm_id'] = gdf_geo.apply(osmid_reform, axis=1)
+    # 5) Campos derivados (usa tus funciones auxiliares si existen)
+    if 'building_type' not in gdf_geo.columns:
+        gdf_geo['building_type'] = gdf_geo.apply(lambda row: building_type(row, poss_ref), axis=1)
+
+    # Asignar osm_id como "building_{indice}"
+    gdf_geo['osm_id'] = [f"building_{i}_{extra}" for i in range(len(gdf_geo))]
 
     return gdf_geo[['building_type','osm_id','geometry','lat','lon']]
 
@@ -1140,7 +1194,7 @@ def load_or_download_networks(study_area, study_area_path, networks, city_distri
                 ox.save_graphml(graph, study_area_path / f"{net_type}.graphml")
                 networks_map[f"{net_type}_map"] = graph
 
-                # ---------- PLOTEAR POLÍGONO Y RED SUPERPUESTOS ----------
+                '''# ---------- PLOTEAR POLÍGONO Y RED SUPERPUESTOS ----------
                 # ---------- CREAR GEODATAFRAMES ----------
                 gdf_original = gpd.GeoDataFrame(index=[0], crs="EPSG:4326", geometry=[polygon_original])
                 gdf_buffered = gpd.GeoDataFrame(index=[0], crs="EPSG:4326", geometry=[polygon_buffered])
@@ -1164,7 +1218,7 @@ def load_or_download_networks(study_area, study_area_path, networks, city_distri
                 ax.set_title(f"{study_area} ({net_type}) with buffer of {buff} meters.")
                 ax.set_xlabel("X (m)")
                 ax.set_ylabel("Y (m)")
-                plt.show()
+                plt.show()'''
 
             except Exception as e:
                 print(f'        [ERROR] Failed to download {net_type} network: {e}')
@@ -1488,13 +1542,13 @@ def Utilities_assignment(
     
     # --- helpers ---
     def pick_building_type(osm_id):
-        if "_" in osm_id:
+        if "_outside" in osm_id:
             return 'outside'
         bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'building_type']
         return bt.iat[0] if not bt.empty else np.nan
     
     def pick_building_scale(osm_id):
-        if "_" in osm_id:
+        if "_outside" in osm_id:
             return 'outside'
         bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'scale']
         return bt.iat[0] if not bt.empty else np.nan
