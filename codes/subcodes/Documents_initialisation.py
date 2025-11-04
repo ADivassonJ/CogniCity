@@ -10,11 +10,14 @@ from pathlib import Path
 
 # terceros
 import folium
+import matplotlib.patches as mpatches
+from matplotlib.lines import Line2D
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import osmnx as ox
 import pandas as pd
+from scipy.stats import lognorm
 import pyproj
 from itertools import cycle
 from tqdm import tqdm
@@ -172,13 +175,14 @@ def assign_data(list_variables, list_values, row):
       - *_time → redondeado a múltiplos de 30
       - resto → tal cual
     """
+
     for variable in list_variables:
         val = list_values.get(variable, None)
 
         if val is None or (isinstance(val, float) and np.isnan(val)):
             continue  # no asignamos nada si falta valor
 
-        if variable.endswith(('_type', '_amount')):
+        if variable.endswith(('_type', '_amount', '_fixed')):
             try:
                 val = int(round(val))
             except Exception:
@@ -999,6 +1003,7 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
     row = row.iloc[0]  # Extrae la primera (y única esperada) fila como Series
 
     for variable in variables:
+
         mu = float(row[f'{variable}_mu'])
         sigma = float(row[f'{variable}_sigma'])
         try:
@@ -1010,7 +1015,11 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
         except Exception as e:
             min_var = float(0)
         
-        var_result = np.random.normal(mu, sigma)
+        if variable == 'dist_wos':
+            var_result = np.random.lognormal(mean=mu, sigma=sigma)
+        else:
+            var_result = np.random.normal(mu, sigma)
+
         var_result = max(min(var_result, max_var), min_var)
         results[variable] = var_result
 
@@ -1060,12 +1069,12 @@ def load_or_create_stats(archetypes_path, filename, creation_func, creation_args
         print(f'Loading statistical data from {filename} ...')
         df_stats = pd.read_excel(filepath)
         if df_stats.isnull().sum().sum() != 0:
-            print(f"    [ERROR] {filename} is incomplete.\n    Please fill μ, σ, max, min values on this file on the following path and rerun:\n{filepath}")
+            print(f"    [ERROR] {filename} is incomplete.\n    Please fill μ,  sigma, max, min values on this file on the following path and rerun:\n{filepath}")
             sys.exit()
     except Exception:
         # Si falla, crear archivo vacío y lanzar error para que el usuario lo rellene
         creation_func(archetypes_path, *creation_args)
-        print(f"    [ERROR] {filename} is incomplete.\n    Please fill μ, σ, max, min values on this file on the following path and rerun:\n{filepath}")
+        print(f"    [ERROR] {filename} is incomplete.\n    Please fill μ,  sigma, max, min values on this file on the following path and rerun:\n{filepath}")
         sys.exit()
     return df_stats
   
@@ -1389,17 +1398,19 @@ def social_class_assingment(family_populations, stats_class):
     
     return family_populations
 
-def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
+def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
     """
     Crea un anillo (corona circular) alrededor de un punto (lat, lon) con radios en metros.
     
     Parámetros
     ----------
+    row: pd.DataFrame
+        Datos del agente en cuestion
     lat, lon : float
         Coordenadas del punto central (en grados si CRS=EPSG:4326).
-    x : float
+    mu : float
         Radio central del anillo (en metros).
-    y : float
+    sigma : float
         Semiancho del anillo (en metros).
     crs : str
         CRS del punto de entrada (por defecto 'EPSG:4326').
@@ -1409,6 +1420,105 @@ def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
     shapely.geometry.Polygon
         Polígono del anillo en EPSG:4326.
     """
+    def rango_sigma_lognormal(valor, mu, sigma):
+        """
+        Clasifica un valor de una distribución log-normal
+        según cuántas desviaciones estándar (sigma) se aleja de la media.
+
+        Devuelve:
+        1 → dentro de 1 sigma
+        2 → entre 1 sigma y 2 sigma
+        3 → entre 2 sigma y 3 sigma
+        4 → más de 3 sigma
+        """
+        if valor <= 0:
+            raise ValueError("El valor debe ser positivo para una distribución log-normal.")
+        
+        n = abs((np.log(valor) - mu) / sigma)
+
+        if n <= 1:
+            return 1
+        elif n <= 2:
+            return 2
+        elif n <= 3:
+            return 3
+        else:
+            return 4
+    
+    def crear_anillo_sigma(poi, mu_log, sigma_log, n, crs_local="EPSG:3857"):
+        """
+        Crea un anillo (o doble anillo) basado en niveles sigma de una distribución log-normal.
+        A prueba de NaNs y límites fuera de rango.
+        """
+
+        # Transformar punto a CRS proyectado (en metros)
+        poi_m = poi.to_crs(crs_local)
+
+        def safe_ppf(p):
+            """Evita valores fuera de [0,1]"""
+            p = np.clip(p, 1e-6, 1 - 1e-6)
+            return lognorm.ppf(p, s=sigma_log, scale=np.exp(mu_log))
+
+        # Cálculo de anillo
+        try:
+            if n == 1:
+                low = safe_ppf(0.16)   # -1σ
+                high = safe_ppf(0.84)  # +1σ
+                outer = poi_m.buffer(high).iloc[0]
+                inner = poi_m.buffer(low).iloc[0]
+                ring = outer.difference(inner)
+            else:
+                # Percentiles superior
+                low_up = safe_ppf(0.5 + 0.34 * (n - 1))
+                high_up = safe_ppf(0.5 + 0.34 * n)
+
+                # Si los percentiles están saturados, no tiene sentido crear más anillos
+                if np.isclose(low_up, high_up):
+                    return None
+
+                ring_upper = poi_m.buffer(high_up).iloc[0].difference(
+                    poi_m.buffer(low_up).iloc[0]
+                )
+
+                # Percentiles inferior
+                low_low = safe_ppf(0.5 - 0.34 * n)
+                high_low = safe_ppf(0.5 - 0.34 * (n - 1))
+
+                # Si el anillo inferior es válido
+                if np.isclose(low_low, high_low):
+                    ring = ring_upper
+                else:
+                    ring_lower = poi_m.buffer(high_low).iloc[0].difference(
+                        poi_m.buffer(low_low).iloc[0]
+                    )
+                    ring = ring_upper.union(ring_lower)
+
+        except Exception as e:
+            print(f"[WARN] Problema al generar el anillo n={n}: {e}")
+            return None
+
+        # Convertir de nuevo a WGS84
+        ring_wgs84 = gpd.GeoSeries([ring], crs=crs_local).to_crs("EPSG:4326")
+        return ring_wgs84.iloc[0]
+
+    def visualizar_anillo(ring, poi):
+        """
+        Visualiza un anillo (Polygon o MultiPolygon) junto al punto central.
+        """
+        fig, ax = plt.subplots(figsize=(6,6))
+
+        # Dibujar el anillo
+        gpd.GeoSeries([ring], crs="EPSG:4326").plot(ax=ax, color="orange", edgecolor="red", alpha=0.4)
+
+        # Dibujar el punto central
+        gpd.GeoSeries([poi.geometry.iloc[0]], crs="EPSG:4326").plot(ax=ax, color="black", markersize=30)
+
+        ax.set_title("Anillo generado", fontsize=14)
+        ax.set_xlabel("Longitud")
+        ax.set_ylabel("Latitud")
+        plt.show()
+
+    n = rango_sigma_lognormal(row['dist_wos'], mu, sigma)
 
     # Crear punto base
     poi = gpd.GeoSeries([Point(lon, lat)], crs=crs)
@@ -1423,17 +1533,11 @@ def ring_from_poi(lat, lon, x, y, crs="EPSG:4326"):
         hemisphere = "326" if lat >= 0 else "327"  # norte/sur
         crs_local = f"EPSG:{hemisphere}{utm_zone}"
 
-    # Transformar a CRS proyectado (en metros)
-    poi_m = poi.to_crs(crs_local)
+    ring = crear_anillo_sigma(poi, mu, sigma, n, crs_local)
 
-    # Crear anillos en metros
-    outer = poi_m.buffer(x + y).iloc[0]
-    inner = poi_m.buffer(max(x - y, 0)).iloc[0]
-    ring = outer.difference(inner)
+    #visualizar_anillo(ring, poi)
 
-    # Devolver el resultado en WGS84
-    ring_wgs84 = gpd.GeoSeries([ring], crs=crs_local).to_crs("EPSG:4326")
-    return ring_wgs84.iloc[0]
+    return ring
 
 def only_inside_district(Home_ids, geometry_latlon, pop_building):
     # Convertir a (lon, lat) para shapely
@@ -1483,7 +1587,7 @@ def Utilities_assignment(
     special_areas_coords,
     ring_crs: str = "EPSG:4326",
     max_iters: int = 4,
-    disk: bool = True,
+    disk: bool = False,
     max_ocupancy: int = 1):
     
     # --- helpers ---
@@ -1493,12 +1597,6 @@ def Utilities_assignment(
         bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'building_type']
         return bt.iat[0] if not bt.empty else np.nan
     
-    def pick_building_scale(osm_id):
-        if "_" in osm_id:
-            return 'outside'
-        bt = SG_relationship.loc[SG_relationship['osm_id'] == osm_id, 'scale']
-        return bt.iat[0] if not bt.empty else np.nan
-
     def choose_id(pop_buildings):
         sorted = pop_buildings.sort_values(by='distr_dist').reset_index(drop=True)
         
@@ -1511,6 +1609,7 @@ def Utilities_assignment(
         - ring_poly: shapely geometry, GeoSeries o GeoDataFrame
         - include_border: True -> cuenta puntos en el borde (intersects), False -> strictly within
         """
+
         if cand_df is None or len(cand_df) == 0:
             return None
 
@@ -1553,12 +1652,86 @@ def Utilities_assignment(
             mask = cand.geometry.intersects(ring_geom)  # cuenta borde
         else:
             mask = cand.geometry.within(ring_geom)      # estrictamente dentro
-
+        
         subset = cand.loc[mask.values]
+
+        chosen_id = None if subset.empty else subset['osm_id'].sample(1).iat[0]
+
+        visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id)
+
         if subset.empty:
             return None
-
+        
         return subset['osm_id'].sample(1).iat[0]
+    
+    def visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id=None):
+        """
+        Visualiza un anillo (ring_poly) y los edificios (cand_df) en escala de grises.
+        - Gris claro: edificios fuera
+        - Gris oscuro: edificios dentro
+        - Blanco con borde negro: edificio elegido
+        - Gris medio translúcido: anillo
+        """
+
+        # Crear GeoDataFrame
+        gdf = gpd.GeoDataFrame(
+            cand_df.copy(),
+            geometry=gpd.points_from_xy(cand_df['lon'], cand_df['lat']),
+            crs="EPSG:4326"
+        )
+
+        # Asegurar geometría del anillo
+        if isinstance(ring_poly, (gpd.GeoSeries, gpd.GeoDataFrame)):
+            ring_geom = ring_poly.unary_union
+        else:
+            ring_geom = ring_poly
+
+        ring_gs = gpd.GeoSeries([ring_geom], crs="EPSG:4326")
+
+        # Pasar a CRS proyectado (metros)
+        gdf_proj = gdf.to_crs("EPSG:3857")
+        ring_proj = ring_gs.to_crs("EPSG:3857")
+
+        # Determinar qué puntos están dentro
+        mask_inside = gdf_proj.geometry.within(ring_proj.iloc[0])
+
+        # Crear figura
+        fig, ax = plt.subplots(figsize=(8, 8))
+
+        # --- ANILLO ---
+        if not ring_proj.is_empty.all():
+            ring_proj.plot(ax=ax, color="lightgrey", edgecolor="dimgray", alpha=0.3)
+
+        # --- EDIFICIOS FUERA ---
+        gdf_out = gdf_proj[~mask_inside]
+        if not gdf_out.empty:
+            gdf_out.plot(ax=ax, color="gainsboro", markersize=25, label="Fuera")
+
+        # --- EDIFICIOS DENTRO ---
+        gdf_in = gdf_proj[mask_inside]
+        if not gdf_in.empty:
+            gdf_in.plot(ax=ax, color="dimgray", markersize=35, label="Dentro")
+
+        # --- EDIFICIO ELEGIDO ---
+        if chosen_id is not None and chosen_id in gdf_proj['osm_id'].values:
+            elegido = gdf_proj.loc[gdf_proj['osm_id'] == chosen_id]
+            elegido.plot(ax=ax, facecolor="white", edgecolor="black",
+                        markersize=80, marker="o", zorder=3, label="Elegido")
+
+        # --- LEYENDA MANUAL ---
+        legend_elements = [
+            mpatches.Patch(facecolor='lightgrey', edgecolor='dimgray', alpha=0.3, label='Ring'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='dimgray', markersize=8, label='Inside'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='gainsboro', markersize=8, label='Outside'),
+            Line2D([0], [0], marker='o', color='black', markerfacecolor='white', markersize=10, label='Choosen ID')
+        ]
+        ax.legend(handles=legend_elements, loc='upper right')
+
+        # Estilo general
+        ax.set_aspect('equal')
+        ax.set_facecolor("white")
+        plt.tight_layout()
+        plt.show()
 
     def generate_private_vehicles(df_families, pop_archetypes, stats_trans,
                               SG_relationship, special_areas_coords, study_area,
@@ -1661,12 +1834,6 @@ def Utilities_assignment(
             row_updated = assign_data(citizen_vars, citizen_vals, row)
             df_citizens.loc[idx, citizen_vars] = row_updated[citizen_vars]
 
-
-
-
-
-
-
             # 6.2) home georef
             home_id = df_citizens.at[idx, 'Home']
             home_row = SG_relationship.loc[SG_relationship['osm_id'] == home_id, ['osm_id', 'lat', 'lon']]
@@ -1679,7 +1846,7 @@ def Utilities_assignment(
             if not disk:
                 home_lat = float(home_row.iloc[0]['lat'])
                 home_lon = float(home_row.iloc[0]['lon'])    
-                rx, ry = float(data_filtered['dist_wos_mu']), float(data_filtered['dist_wos_sigma'])
+                mu, sigma = float(data_filtered['dist_wos_mu']), float(data_filtered['dist_wos_sigma'])
 
             WoS_id = None
             
@@ -1705,19 +1872,17 @@ def Utilities_assignment(
             
             if homestay_cond:
                 WoS_id = home_id               
-                    
-            for it in range(max_iters):
-                if WoS_id is not None:
-                    break  # ya resuelto por reutilización
-                
-                if disk:
-                    if df_citizens.at[idx, 'WoS_fixed'] != 1:
-                        WoS_id = choose_id(class_work_df)
-                    else:
-                        WoS_id = choose_id(study_df)
-                    break
-                
-                ring = ring_from_poi(home_lat, home_lon, rx, ry, crs=ring_crs)
+            
+            # --------------------------------------------------------
+
+
+            if disk:
+                if df_citizens.at[idx, 'WoS_fixed'] != 1:
+                    WoS_id = choose_id(class_work_df)
+                else:
+                    WoS_id = choose_id(study_df)
+            else: 
+                ring = ring_from_poi(row_updated, home_lat, home_lon, mu, sigma, crs=ring_crs)
 
                 if df_citizens.at[idx, 'WoS_fixed'] != 1:
                     # elige uno aleatorio entre los work dentro del anillo
@@ -1726,29 +1891,25 @@ def Utilities_assignment(
                     # si no había reutilización, busca entre study dentro del anillo
                     WoS_id = choose_id_in_ring(study_df, ring)
 
-                if WoS_id is not None:
-                    break  # encontrado → salir
-                ry += float(data_filtered['dist_wos_sigma'])
-                
-                if ry < 0:
-                    ry = 0   
+
+            # --------------------------------------------------------
+
+
 
             # Si no se encontró dentro del area, hacer fuera
             if WoS_id is None:
-                WoS_id = f"outside_{row['name']}"
+                WoS_id = f"virtual_POI_{row['name']}"
                 outside_cond = True
             else:
                 outside_cond = False
             df_citizens.at[idx, 'WoS'] = WoS_id
             
             if homestay_cond:
-                df_citizens.at[idx, 'WoS_scale'] = 'district'
+                #df_citizens.at[idx, 'WoS_scale'] = 'district'
                 df_citizens.at[idx, 'WoS_subgroup'] = 'Home'
             elif outside_cond:
-                df_citizens.at[idx, 'WoS_scale'] = 'outside'
                 df_citizens.at[idx, 'WoS_subgroup'] = 'unknown'
             else:
-                df_citizens.at[idx, 'WoS_scale'] = pick_building_scale(WoS_id)
                 df_citizens.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
 
             # Añadimos los agentes al osm_id para asegurar que no usamos espacios overbooked
@@ -1756,6 +1917,9 @@ def Utilities_assignment(
                 idx = work_df.index[work_df['osm_id'] == WoS_id]
                 for index in idx:
                     work_df.at[index, 'pop'] += 1
+
+        # Eliminamos por se innecesario
+        df_citizens = df_citizens.drop('dist_poi', axis=1)
 
         return df_families, df_citizens, df_priv_vehicle
     
