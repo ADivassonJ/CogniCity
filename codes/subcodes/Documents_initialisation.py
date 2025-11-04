@@ -1657,10 +1657,7 @@ def Utilities_assignment(
 
         #visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id)
 
-        if subset.empty:
-            return None
-        
-        return subset['osm_id'].sample(1).iat[0]
+        return chosen_id
     
     def visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id=None):
         """
@@ -1809,8 +1806,20 @@ def Utilities_assignment(
         
         return df_result
     
+    def dist_real_calculation(home_df, row, df, WoS_id):
+
+        if WoS_id == None:
+            return row['dist_wos']
+
+        Home_id = row['Home']
+
+        home_lat, home_lon = home_df.loc[home_df['osm_id'] == Home_id, ['lat', 'lon']].iloc[0]
+        wos_lat, wos_lon = df.loc[df['osm_id'] == WoS_id, ['lat', 'lon']].iloc[0]
+
+        return haversine((home_lat, home_lon), (wos_lat, wos_lon), unit=Unit.METERS)
+
     def assign_utilities(df_citizens, df_families, df_priv_vehicle,
-                     work_df, study_df, SG_relationship, pop_archetypes,
+                     work_df, study_df, home_df, SG_relationship, pop_archetypes,
                      citizen_vars, ring_crs, disk, max_iters, max_ocupancy):
         """
         Asigna Work/Study (WoS) y otros atributos a cada ciudadano según su arquetipo y ubicación.
@@ -1873,39 +1882,33 @@ def Utilities_assignment(
             
             # --------------------------------------------------------
 
+            condition = df_citizens.at[idx, 'WoS_fixed'] != 1
 
             if disk:
-                if df_citizens.at[idx, 'WoS_fixed'] != 1:
-                    WoS_id = choose_id(class_work_df)
-                else:
-                    WoS_id = choose_id(study_df)
+                WoS_id = choose_id(class_work_df if condition else study_df)
             else: 
                 ring = ring_from_poi(row_updated, home_lat, home_lon, mu, sigma, crs=ring_crs)
 
-                if df_citizens.at[idx, 'WoS_fixed'] != 1:
-                    # elige uno aleatorio entre los work dentro del anillo
-                    WoS_id = choose_id_in_ring(class_work_df, ring)
-                else:
-                    # si no había reutilización, busca entre study dentro del anillo
-                    WoS_id = choose_id_in_ring(study_df, ring)
+                WoS_id = choose_id_in_ring(class_work_df if condition else study_df, ring)
 
 
             # --------------------------------------------------------
 
-
+            df_citizens.at[idx, 'dist_wos_real'] = dist_real_calculation(home_df, df_citizens.iloc[idx], class_work_df if condition else study_df, WoS_id)
 
             # Si no se encontró dentro del area, hacer fuera
             if WoS_id is None:
                 WoS_id = f"virtual_POI_{row['name']}"
-                outside_cond = True
+                virtual_POI = True
             else:
-                outside_cond = False
+                virtual_POI = False
+
             df_citizens.at[idx, 'WoS'] = WoS_id
             
             if homestay_cond:
                 #df_citizens.at[idx, 'WoS_scale'] = 'district'
                 df_citizens.at[idx, 'WoS_subgroup'] = 'Home'
-            elif outside_cond:
+            elif virtual_POI:
                 df_citizens.at[idx, 'WoS_subgroup'] = 'unknown'
             else:
                 df_citizens.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
@@ -1935,6 +1938,7 @@ def Utilities_assignment(
     # Añadir columna vacía llamada 'pop'
     work_df['pop'] = 0
     study_df = SG_relationship.loc[SG_relationship['archetype'] == 'study', ['osm_id', 'lat', 'lon']].copy()
+    home_df = SG_relationship.loc[SG_relationship['archetype'] == 'Home', ['osm_id', 'lat', 'lon']].copy()
 
     if disk:
         for idx_wd, row_wd in work_df.iterrows():
@@ -1947,7 +1951,7 @@ def Utilities_assignment(
     citizen_vars = [c.rsplit('_', 1)[0] for c in pop_archetypes['citizen'].columns if c.endswith('_mu')]
 
     df_families, df_citizens, df_priv_vehicle = assign_utilities(df_citizens, df_families, df_priv_vehicle,
-                                                                work_df, study_df, SG_relationship, pop_archetypes,
+                                                                work_df, study_df, home_df, SG_relationship, pop_archetypes,
                                                                 citizen_vars, ring_crs, disk, max_iters, max_ocupancy)
     
     return df_families, df_citizens, df_priv_vehicle
