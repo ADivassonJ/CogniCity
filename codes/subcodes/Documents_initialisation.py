@@ -1420,105 +1420,105 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
     shapely.geometry.Polygon
         Polígono del anillo en EPSG:4326.
     """
+    import numpy as np
+
     def rango_sigma_lognormal(valor, mu, sigma):
         """
-        Clasifica un valor de una distribución log-normal
-        según cuántas desviaciones estándar (sigma) se aleja de la media.
+        Clasifica un valor de una distribución log-normal según cuántas desviaciones
+        estándar (sigma) se aleja de la media logarítmica y en qué dirección.
 
-        Devuelve:
-        1 → dentro de 1 sigma
-        2 → entre 1 sigma y 2 sigma
-        3 → entre 2 sigma y 3 sigma
-        4 → más de 3 sigma
+        Devuelve una tupla (nivel, lado):
+        - nivel: 1 → dentro de 1σ
+                2 → entre 1σ y 2σ
+                3 → entre 2σ y 3σ
+                4 → más de 3σ
+        - lado: 'low' o 'high'
         """
+
         if valor <= 0:
             raise ValueError("El valor debe ser positivo para una distribución log-normal.")
         
-        n = abs((np.log(valor) - mu) / sigma)
+        # Distancia en número de sigmas
+        z = (np.log(valor) - mu) / sigma
+        n = abs(z)
 
+        # Determinar el nivel
         if n <= 1:
-            return 1
+            nivel = 1
         elif n <= 2:
-            return 2
+            nivel = 2
         elif n <= 3:
-            return 3
+            nivel = 3
         else:
-            return 4
+            nivel = 4
+
+        # Determinar el lado
+        lado = "high" if z > 0 else "low"
+
+        return nivel, lado
+
     
-    def crear_anillo_sigma(poi, mu_log, sigma_log, n, crs_local="EPSG:3857"):
+    def crear_anillo_sigma(poi, mu_log, sigma_log, n, lado, crs_local="EPSG:3857"):
         """
-        Crea un anillo (o doble anillo) basado en niveles sigma de una distribución log-normal.
-        A prueba de NaNs y límites fuera de rango.
+        Crea un anillo basado en el nivel sigma y lado ('high' o 'low') de una distribución log-normal.
+
+        Parámetros
+        ----------
+        poi : GeoDataFrame o GeoSeries con un solo punto
+        mu_log : float
+            Media de la distribución normal subyacente (en log-espacio)
+        sigma_log : float
+            Desviación estándar de la distribución normal subyacente
+        n : int
+            Nivel sigma (1, 2, 3, 4...)
+        lado : str
+            'high' → zona superior
+            'low' → zona inferior
+        crs_local : str
+            CRS proyectado (en metros, por defecto Web Mercator)
+
+        Devuelve
+        --------
+        shapely.Polygon en EPSG:4326
         """
 
-        # Transformar punto a CRS proyectado (en metros)
+        # Transformar a CRS proyectado (en metros)
         poi_m = poi.to_crs(crs_local)
 
         def safe_ppf(p):
-            """Evita valores fuera de [0,1]"""
+            """Evita percentiles fuera de [0,1]."""
             p = np.clip(p, 1e-6, 1 - 1e-6)
             return lognorm.ppf(p, s=sigma_log, scale=np.exp(mu_log))
 
-        # Cálculo de anillo
         try:
-            if n == 1:
-                low = safe_ppf(0.16)   # -1σ
-                high = safe_ppf(0.84)  # +1σ
-                outer = poi_m.buffer(high).iloc[0]
-                inner = poi_m.buffer(low).iloc[0]
-                ring = outer.difference(inner)
+            # Definir límites percentiles según lado y nivel n
+            if lado == "high":
+                low = safe_ppf(0.5 + 0.34 * (n - 1))
+                high = safe_ppf(0.5 + 0.34 * n)
+            elif lado == "low":
+                low = safe_ppf(0.5 - 0.34 * n)
+                high = safe_ppf(0.5 - 0.34 * (n - 1))
             else:
-                # Percentiles superior
-                low_up = safe_ppf(0.5 + 0.34 * (n - 1))
-                high_up = safe_ppf(0.5 + 0.34 * n)
+                raise ValueError("El parámetro 'lado' debe ser 'high' o 'low'.")
 
-                # Si los percentiles están saturados, no tiene sentido crear más anillos
-                if np.isclose(low_up, high_up):
-                    return None
+            # Si los límites están fuera de rango o son iguales, abortar
+            if np.isnan(low) or np.isnan(high) or np.isclose(low, high):
+                return None
 
-                ring_upper = poi_m.buffer(high_up).iloc[0].difference(
-                    poi_m.buffer(low_up).iloc[0]
-                )
-
-                # Percentiles inferior
-                low_low = safe_ppf(0.5 - 0.34 * n)
-                high_low = safe_ppf(0.5 - 0.34 * (n - 1))
-
-                # Si el anillo inferior es válido
-                if np.isclose(low_low, high_low):
-                    ring = ring_upper
-                else:
-                    ring_lower = poi_m.buffer(high_low).iloc[0].difference(
-                        poi_m.buffer(low_low).iloc[0]
-                    )
-                    ring = ring_upper.union(ring_lower)
+            # Crear anillo (entre high y low)
+            outer = poi_m.buffer(max(high, low)).iloc[0]
+            inner = poi_m.buffer(min(high, low)).iloc[0]
+            ring = outer.difference(inner)
 
         except Exception as e:
-            print(f"[WARN] Problema al generar el anillo n={n}: {e}")
+            print(f"[WARN] Problema al generar anillo n={n}, lado={lado}: {e}")
             return None
 
         # Convertir de nuevo a WGS84
         ring_wgs84 = gpd.GeoSeries([ring], crs=crs_local).to_crs("EPSG:4326")
         return ring_wgs84.iloc[0]
 
-    def visualizar_anillo(ring, poi):
-        """
-        Visualiza un anillo (Polygon o MultiPolygon) junto al punto central.
-        """
-        fig, ax = plt.subplots(figsize=(6,6))
-
-        # Dibujar el anillo
-        gpd.GeoSeries([ring], crs="EPSG:4326").plot(ax=ax, color="orange", edgecolor="red", alpha=0.4)
-
-        # Dibujar el punto central
-        gpd.GeoSeries([poi.geometry.iloc[0]], crs="EPSG:4326").plot(ax=ax, color="black", markersize=30)
-
-        ax.set_title("Anillo generado", fontsize=14)
-        ax.set_xlabel("Longitud")
-        ax.set_ylabel("Latitud")
-        plt.show()
-
-    n = rango_sigma_lognormal(row['dist_wos'], mu, sigma)
+    n, lado = rango_sigma_lognormal(row['dist_wos'], mu, sigma)
 
     # Crear punto base
     poi = gpd.GeoSeries([Point(lon, lat)], crs=crs)
@@ -1533,9 +1533,7 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
         hemisphere = "326" if lat >= 0 else "327"  # norte/sur
         crs_local = f"EPSG:{hemisphere}{utm_zone}"
 
-    ring = crear_anillo_sigma(poi, mu, sigma, n, crs_local)
-
-    #visualizar_anillo(ring, poi)
+    ring = crear_anillo_sigma(poi, mu, sigma, n, lado, crs_local)
 
     return ring
 
@@ -1657,7 +1655,7 @@ def Utilities_assignment(
 
         chosen_id = None if subset.empty else subset['osm_id'].sample(1).iat[0]
 
-        visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id)
+        #visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id)
 
         if subset.empty:
             return None
