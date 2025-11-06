@@ -168,7 +168,7 @@ def assign_buildings_to_nodes(building_populations, electric_system, boundary_po
     return pd.DataFrame(buildings_proj.drop(columns='geometry'))
 
 
-def assign_data(list_variables, list_values, row):
+def assign_data(list_variables, list_values, row_old):
     """
     Asigna valores de list_values a una fila (Series o dict) según reglas:
       - *_type y *_amount → enteros redondeados
@@ -176,6 +176,8 @@ def assign_data(list_variables, list_values, row):
       - resto → tal cual
     """
 
+    row = row_old.copy() 
+    
     for variable in list_variables:
         val = list_values.get(variable, None)
 
@@ -192,7 +194,7 @@ def assign_data(list_variables, list_values, row):
                 val = int(round(val / 30.0) * 30)
             except Exception:
                 pass
-
+        
         row[variable] = val
 
     return row
@@ -993,11 +995,12 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
     # Filtrar la fila correspondiente al arquetipo
     row = transport_archetypes[transport_archetypes['name'] == archetype]
     if row.empty:
-        
+        print(f"Strange mistake happend")
+
         print(f"archetype: {archetype}")
         input(transport_archetypes)
 
-        print(f"Strange mistake happend")
+        
         return {}
 
     row = row.iloc[0]  # Extrae la primera (y única esperada) fila como Series
@@ -1394,7 +1397,7 @@ def social_class_assingment(family_populations, stats_class):
             class_cols=['Salariat', 'Intermediate', 'Working']  # opcional pero recomendado
         )
         # por ejemplo, guardarlo:
-        family_populations.at[idx, 'class'] = choice
+        family_populations.at[idx, 's_class'] = choice
     
     return family_populations
 
@@ -1586,7 +1589,7 @@ def Utilities_assignment(
     ring_crs: str = "EPSG:4326",
     max_iters: int = 4,
     disk: bool = False,
-    max_ocupancy: int = 1):
+    max_ocupancy: int = 14):
     
     # --- helpers ---
     def pick_building_type(osm_id):
@@ -1793,7 +1796,7 @@ def Utilities_assignment(
                     'family': row['name'],
                     'family_archetype': row['archetype'],
                     'Home': row['Home'],
-                    'class': row['class']
+                    's_class': row['s_class']
                 }
         
         # Convertir el mapeo en un DataFrame temporal
@@ -1809,120 +1812,132 @@ def Utilities_assignment(
     def dist_real_calculation(home_df, row, df, WoS_id):
 
         if WoS_id == None:
+            input(f"Strange error ocurred (WTF)")
+
+        if WoS_id.startswith("virtual"):
             return row['dist_wos']
 
         Home_id = row['Home']
 
         home_lat, home_lon = home_df.loc[home_df['osm_id'] == Home_id, ['lat', 'lon']].iloc[0]
-        wos_lat, wos_lon = df.loc[df['osm_id'] == WoS_id, ['lat', 'lon']].iloc[0]
+        try:
+            wos_lat, wos_lon = df.loc[df['osm_id'] == WoS_id, ['lat', 'lon']].iloc[0]
+        except Exception:
+            # Esto se da si el WoS es el propio hogar
+            return 0
 
         return haversine((home_lat, home_lon), (wos_lat, wos_lon), unit=Unit.METERS)
 
     def assign_utilities(df_citizens, df_families, df_priv_vehicle,
-                     work_df, study_df, home_df, SG_relationship, pop_archetypes,
-                     citizen_vars, ring_crs, disk, max_iters, max_ocupancy):
-        """
-        Asigna Work/Study (WoS) y otros atributos a cada ciudadano según su arquetipo y ubicación.
-        """
-        # --- 6) Asignación por ciudadano ---
-        for idx, row in tqdm(df_citizens.iterrows(), total=df_citizens.shape[0], desc="                Utilities assignation: "):
-            
-            # Filtrar de forma más eficiente usando query (más legible y rápido)
-            class_work_df = work_df.query("archetype == @row['class'] and pop < @max_ocupancy")
+                        work_df, study_df, home_df, SG_relationship, pop_archetypes,
+                        citizen_vars, ring_crs, disk, max_iters, max_ocupancy):
 
-            # Obtener arquetipo y estadísticas de ciudadano
-            citizen_vals = get_vehicle_stats(
-                row['archetype'],
-                pop_archetypes['citizen'],
-                citizen_vars
-            )
+        # Preindex SG_relationship para acceso directo
+        SG_relationship_unique = SG_relationship.drop_duplicates(subset=['osm_id'], keep='first')
+        sg_map = SG_relationship_unique.set_index('osm_id')[['lat', 'lon']].to_dict('index')
 
-            # Asignar datos y actualizar directamente en df_citizens
-            row_updated = assign_data(citizen_vars, citizen_vals, row)
-            df_citizens.loc[idx, citizen_vars] = row_updated[citizen_vars]
+        # Preindex arquetipos ciudadanos
+        arch_stats = pop_archetypes['citizen'].set_index('name')
 
-            # 6.2) home georef
-            home_id = df_citizens.at[idx, 'Home']
-            home_row = SG_relationship.loc[SG_relationship['osm_id'] == home_id, ['osm_id', 'lat', 'lon']]
-            if home_row.empty or home_row[['lat', 'lon']].isna().any(axis=None):
+        # Preindex work_df por nombre de arquetipo
+        work_df_idx = {arch: grp for arch, grp in work_df.groupby('archetype')}
+
+        # Index para actualizar población más rápido
+        work_df = work_df.set_index('osm_id')
+
+        # Pasamos df a arrays temporales para evitar accesos repetidos
+        citizens_arr = df_citizens.copy()
+
+        # Bucle más rápido con itertuples
+        for row in tqdm(citizens_arr.itertuples(index=True), total=citizens_arr.shape[0],
+                        desc="                Utilities assignation: "):
+
+            idx = row.Index
+            arch = row.archetype
+            s_class = row.s_class
+
+            # Tomar subconjunto de work/study ya prefiltrado por arquetipo
+            class_work_df = work_df_idx.get(s_class, None)
+            class_work_df = class_work_df[class_work_df['pop'] < max_ocupancy]
+
+            # Obtener estadísticas del vehículo y asignar valores
+            citizen_vals = get_vehicle_stats(arch, pop_archetypes['citizen'], citizen_vars)
+            row_updated = assign_data(citizen_vars, citizen_vals, citizens_arr.loc[idx])
+            citizens_arr.loc[idx, citizen_vars] = row_updated[citizen_vars]
+
+            # Localizar vivienda
+            home_id = citizens_arr.at[idx, 'Home']
+            home_info = sg_map.get(home_id, None)
+            if home_info is None or pd.isna(home_info['lat']) or pd.isna(home_info['lon']):
                 continue
-            
-            arch_citizen = pop_archetypes['citizen']
-            data_filtered = arch_citizen[arch_citizen['name'] == row_updated['archetype']].iloc[0]
-            
-            if not disk:
-                home_lat = float(home_row.iloc[0]['lat'])
-                home_lon = float(home_row.iloc[0]['lon'])    
-                mu, sigma = float(data_filtered['dist_wos_mu']), float(data_filtered['dist_wos_sigma'])
+   
+            data_filtered = arch_stats.loc[row_updated['archetype']]
 
+            # Guardar parámetros por fila
+            citizens_arr.at[idx, 'dist_poi_mu'] = float(data_filtered['dist_poi_mu'])
+            citizens_arr.at[idx, 'dist_poi_sigma'] = float(data_filtered['dist_poi_sigma'])
+
+            # Probabilidad de quedarse en casa
+            homestay_cond = random.random() < citizens_arr.at[idx, 'homestay']
             WoS_id = None
-            
-            # Asignamos los valores de poi_mu y poi_sigma copiandolos de los arquetipos (pues se calculara cada vez)
-            df_citizens['dist_poi_mu'], df_citizens['dist_poi_sigma'] = float(data_filtered['dist_poi_mu']), float(data_filtered['dist_poi_sigma'])
 
-            # Si el ciudadano es "fijo" y ya hay WoS en la familia, reutiliza y evita anillos
-            if df_citizens.at[idx, 'WoS_fixed'] == 1:
-                fam = df_citizens.at[idx, 'family']
-                fam_fixed = df_citizens[
-                    (df_citizens['family'] == fam) &
-                    (df_citizens['WoS_fixed'] == 1) &
-                    (df_citizens['WoS'].notna())
+            # Caso fijo por familia
+            if citizens_arr.at[idx, 'WoS_fixed'] == 1:
+                fam = citizens_arr.at[idx, 'family']
+                fam_fixed = citizens_arr[
+                    (citizens_arr['family'] == fam) &
+                    (citizens_arr['WoS_fixed'] == 1) &
+                    (citizens_arr['WoS'].notna())
                 ]
                 if not fam_fixed.empty:
                     WoS_id = fam_fixed['WoS'].iloc[0]
 
-            # aqui ponemos la probabilidad de que se quede en casa
-            homestay = df_citizens.at[idx, 'homestay']
-            r_value_hs = random.random()
-            
-            homestay_cond = r_value_hs < homestay
-            
             if homestay_cond:
-                WoS_id = home_id               
-            
-            # --------------------------------------------------------
+                WoS_id = home_id
 
-            condition = df_citizens.at[idx, 'WoS_fixed'] != 1
-
-            if disk:
-                WoS_id = choose_id(class_work_df if condition else study_df)
-            else: 
-                ring = ring_from_poi(row_updated, home_lat, home_lon, mu, sigma, crs=ring_crs)
-
-                WoS_id = choose_id_in_ring(class_work_df if condition else study_df, ring)
-
-
-            # --------------------------------------------------------
-
-            df_citizens.at[idx, 'dist_wos_real'] = dist_real_calculation(home_df, df_citizens.iloc[idx], class_work_df if condition else study_df, WoS_id)
-
-            # Si no se encontró dentro del area, hacer fuera
+            # Selección WoS si no fijo
             if WoS_id is None:
-                WoS_id = f"virtual_POI_{row['name']}"
+                if disk:
+                    WoS_id = choose_id(class_work_df if citizens_arr.at[idx, 'WoS_fixed'] != 1 else study_df)
+                else:
+                    home_lat, home_lon = float(home_info['lat']), float(home_info['lon'])
+                    mu, sigma = float(data_filtered['dist_wos_mu']), float(data_filtered['dist_wos_sigma'])
+                    ring = ring_from_poi(row_updated, home_lat, home_lon, mu, sigma, crs=ring_crs)
+                    WoS_id = choose_id_in_ring(class_work_df if citizens_arr.at[idx, 'WoS_fixed'] != 1 else study_df, ring)
+
+            # Si no se encuentra lugar válido
+            if WoS_id is None:
+                WoS_id = f"virtual_POI_{row.name}"
                 virtual_POI = True
             else:
                 virtual_POI = False
 
-            df_citizens.at[idx, 'WoS'] = WoS_id
-            
+            citizens_arr.at[idx, 'WoS'] = WoS_id
+
+            # Distancia real
+            citizens_arr.at[idx, 'dist_wos_real'] = dist_real_calculation(
+                home_df, citizens_arr.loc[idx],
+                class_work_df if citizens_arr.at[idx, 'WoS_fixed'] != 1 else study_df,
+                WoS_id
+            )
+
+            # Subgrupo WoS
             if homestay_cond:
-                #df_citizens.at[idx, 'WoS_scale'] = 'district'
-                df_citizens.at[idx, 'WoS_subgroup'] = 'Home'
+                citizens_arr.at[idx, 'WoS_subgroup'] = 'Home'
             elif virtual_POI:
-                df_citizens.at[idx, 'WoS_subgroup'] = 'unknown'
+                citizens_arr.at[idx, 'WoS_subgroup'] = 'unknown'
             else:
-                df_citizens.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
+                citizens_arr.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
 
-            # Añadimos los agentes al osm_id para asegurar que no usamos espacios overbooked
-            if df_citizens.at[idx, 'WoS_fixed'] != 1:
-                idx = work_df.index[work_df['osm_id'] == WoS_id]
-                for index in idx:
-                    work_df.at[index, 'pop'] += 1
+            # Actualizar población en work_df si no fijo y no virtual
+            if citizens_arr.at[idx, 'WoS_fixed'] != 1 and WoS_id in work_df.index and not virtual_POI:
+                work_df.at[WoS_id, 'pop'] += 1
 
-        # Eliminamos por se innecesario
-        df_citizens = df_citizens.drop('dist_poi', axis=1)
+        # Limpiar columna innecesaria
+        citizens_arr = citizens_arr.drop(columns=['dist_poi'], errors='ignore')
 
-        return df_families, df_citizens, df_priv_vehicle
+        return df_families, citizens_arr, df_priv_vehicle
+
     
     df_priv_vehicle, df_families = generate_private_vehicles(df_families, pop_archetypes, stats_trans,
                                     SG_relationship, special_areas_coords, study_area,
