@@ -99,7 +99,7 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
     
     if days_missing['todolist'] and (not files_done['todolist']):
         for day in days_missing['todolist']:
-            todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths, day, pop_archetypes['citizen'])
+            todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths, day, pop_archetypes['citizen'], pop_archetypes['building'])
     
     #################### SCHEDULES ################
     

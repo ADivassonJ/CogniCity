@@ -175,7 +175,7 @@ def vehicle_choice_model(
         
     
     
-    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
                                                    transport_families_dict,
@@ -185,10 +185,10 @@ def vehicle_choice_model(
         if fam_schedule is not None and not fam_schedule.empty:
             results_schedules.append(fam_schedule)
         if fam_actions is not None and not fam_actions.empty:
-            results_actions.append(fam_actions)'''
+            results_actions.append(fam_actions)
         
         
-    worker = partial(
+    '''worker = partial(
         _process_family,
         paths=paths,
         transport_families_dict=transport_families_dict,
@@ -210,7 +210,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and not fam_actions.empty:
                     results_actions.append(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")
+                print(f"[ERROR] familia '{fam_name}': {e}")'''
 
     # --- Agregación en el proceso principal ---
     new_level1_schedules = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()
@@ -363,6 +363,8 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
         todo_list.loc[idx, 'in'] = in_time
         todo_list.loc[idx, 'out'] = out_time
     
+    print(f"todo_list:\n{todo_list}")
+
     todo_list['in'] = todo_list['in'].astype(int)
     todo_list['out'] = todo_list['out'].astype(int)
     
@@ -1065,7 +1067,11 @@ def find_p2(poi_B, transport, p2s, pop_building, networks_map):
     # Sacamos los datos del POI B
     poi_B_data = pop_building[pop_building['osm_id'] == poi_B].copy()
     # Cálculo vectorizado de distancia entre un punto fijo (poi_B_data) y todos los puntos en available_P
-    available_P.loc[:, 'distance'] = haversine(poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0], available_P['lat'].values, available_P['lon'].values)
+    try:
+        available_P.loc[:, 'distance'] = haversine(poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0], available_P['lat'].values, available_P['lon'].values)
+    except Exception:
+        available_P.loc[:, 'distance'] = 0
+
     # Ordenamos de mas cerca a mas lejos
     best = available_P.sort_values(by='distance', ascending=True).iloc[0] # ISSUE 30
     
@@ -1134,7 +1140,46 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2*np.arcsin(np.sqrt(a))
     return R * c       
 
+def assign_data(list_variables, list_values, row_old):
+    """
+    Asigna valores de list_values a una fila (Series o dict) según reglas:
+      - *_type y *_amount → enteros redondeados
+      - *_time → redondeado a múltiplos de 30
+      - resto → tal cual
+    """
+
+    row = row_old.copy() 
+    
+    for variable in list_variables:
+        val = list_values.get(variable, None)
+
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            continue  # no asignamos nada si falta valor
+
+        if variable.endswith(('_type', '_amount', '_fixed')):
+            try:
+                val = int(round(val))
+            except Exception:
+                pass  # por si val no es numérico
+        elif variable.endswith('_time'):
+            try:
+                val = int(round(val / 30.0) * 30)
+            except Exception:
+                pass
+        
+        row[variable] = val
+
+    return row
+
 def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
+
+    # Sacamos las caracteristicas con valores estadisticos
+    variables = [
+            col.rsplit('_', 1)[0]
+            for col in pop_archetypes_transport.columns
+            if col.endswith('_mu')
+        ]
+    
     ## Walk
     # Creamos la nueva fila
     new_row = {
@@ -1142,35 +1187,29 @@ def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
         'archetype': 'walk',
         'family': citizen_data['family'],
         'ubication': citizen_data['Home'],
-        'v': citizen_data['walk_speed'], # No es del citizen, si no del mas lento del grupo!!!! ISSUE 28
-        'Ekm': 0,
-        'mjkm': 0,
-        'Emin': 0,
-        'CO2km': 0,
-        'SoC': 0,
     }
+    # Creamos valores estocasticos
+    values = get_vehicle_stats(new_row['archetype'], pop_archetypes_transport, variables)
+    row_updated = assign_data(variables, values, new_row)
+    # Cambiamos 'v' (esta mejor asignado en pop_citizen)
+    row_updated['v'] = citizen_data['walk_speed'] # No es del citizen, si no del mas lento del grupo!!!! ISSUE 28
     # La añadimos al df de resultados
-    avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([new_row])], ignore_index=True)
+    avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([row_updated])], ignore_index=True)
+
     ## Public transport
-    # Sacamos las caracteristicas con valores estadisticos
-    variables = ['v', 'Ekm', 'mjkm', 'Emin', 'CO2km', 'SoC']
-    values = get_vehicle_stats('UB_diesel', pop_archetypes_transport, variables)
-    
     # Creamos la nueva fila
     new_row = {
         'name': 'Public_transport',
         'archetype': 'UB_diesel',
         'family': citizen_data['family'],
         'ubication': citizen_data['Home'], # ISSUE 29 esto deberia ser la parada de publico más cercana
-        'v': values['v'],
-        'Ekm': values['Ekm'],
-        'mjkm': values['mjkm'],
-        'Emin': values['Emin'],
-        'CO2km': values['CO2km'],
-        'SoC': values['SoC'],
     }
+    # Creamos valores estocasticos
+    values = get_vehicle_stats(new_row['archetype'], pop_archetypes_transport, variables)
+    row_updated = assign_data(variables, values, new_row)
     # La añadimos al df de resultados
-    avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([new_row])], ignore_index=True)
+    avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([row_updated])], ignore_index=True)
+
     # Devolvemos la version actualizada
     return avail_vehicles
 

@@ -249,11 +249,6 @@ def building_schedule_adding(osm_elements_df: pd.DataFrame,
         # Debe devolver un dict con las variables pedidas
         list_building_values = get_vehicle_stats(arche, building_archetypes_df, list_building_variables)
 
-        if not list_building_values:
-            # sin stats para ese arquetipo → loguea y sigue
-            # print(f"[WARN] Archetype sin stats: {arche}")
-            continue
-
         # Combinar ventanas: usa .get() para evitar KeyError
         # OJO: valida que realmente quieres sumarlas y no otra operación
         wo_open  = list_building_values.get('WoS_opening', 0) or 0
@@ -262,7 +257,7 @@ def building_schedule_adding(osm_elements_df: pd.DataFrame,
         sv_close = list_building_values.get('Service_closing', 0) or 0
 
         list_building_values['Service_opening'] = wo_open + sv_open
-        list_building_values['Service_closing'] = wo_close + sv_close
+        list_building_values['Service_closing'] = wo_close + sv_close #ISSUE 54
 
         # Redondeo a múltiplos de `round_to` sólo para numéricos finitos
         for k, v in list(list_building_values.items()):
