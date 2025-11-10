@@ -1902,10 +1902,10 @@ def Utilities_assignment(
 
             # Si no se encuentra lugar válido
             if WoS_id is None:
-                WoS_id = f"virtual_POI_{row.name}"
-                virtual_POI = True
+                WoS_id = f"virtual_WoS_{row.name}"
+                virtual_WoS = True
             else:
-                virtual_POI = False
+                virtual_WoS = False
 
             citizens_arr.at[idx, 'WoS'] = WoS_id
 
@@ -1919,17 +1919,14 @@ def Utilities_assignment(
             # Subgrupo WoS
             if homestay_cond:
                 citizens_arr.at[idx, 'WoS_subgroup'] = 'Home'
-            elif virtual_POI:
+            elif virtual_WoS:
                 citizens_arr.at[idx, 'WoS_subgroup'] = 'unknown'
             else:
                 citizens_arr.at[idx, 'WoS_subgroup'] = pick_building_type(WoS_id)
 
             # Actualizar población en work_df si no fijo y no virtual
-            if citizens_arr.at[idx, 'WoS_fixed'] != 1 and WoS_id in work_df.index and not virtual_POI:
+            if citizens_arr.at[idx, 'WoS_fixed'] != 1 and WoS_id in work_df.index and not virtual_WoS:
                 work_df.at[WoS_id, 'pop'] += 1
-
-        # Limpiar columna innecesaria
-        citizens_arr = citizens_arr.drop(columns=['dist_poi'], errors='ignore')
 
         return df_families, citizens_arr, df_priv_vehicle
 

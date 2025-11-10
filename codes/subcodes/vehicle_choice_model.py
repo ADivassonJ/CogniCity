@@ -15,6 +15,7 @@ import networkx as nx
 import osmnx as ox
 import pandas as pd
 import multiprocessing
+from haversine import Unit, haversine
 
 
 from concurrent.futures import ProcessPoolExecutor, as_completed   # o ThreadPoolExecutor si es I/O-bound
@@ -59,7 +60,7 @@ def _process_family(
         
         # Ruta del ciudadano
         citizen_route = route_creation(citizen_todolist)
-        
+
         # El agente se queda en casa
         if citizen_route == []:
             continue
@@ -637,7 +638,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
     
     def closest_share_mob_hubs(home_lat, home_lon, hubs):
 
-        # 2) Calcular la distancia (euclidiana o haversine)
+        # 2) Calcular la distancia
         # Si las distancias son cortas (misma ciudad), euclidiana es suficiente.
         hubs['dist'] = np.sqrt((hubs['lat'] - home_lat)**2 + (hubs['lon'] - home_lon)**2)
 
@@ -886,18 +887,6 @@ def score_algorithm(distime_matrix):
     
     return distime_matrix
 
-def haversine(lon1, lat1, lon2, lat2):
-    """
-    Calcula la distancia en km entre dos puntos usando la fórmula de Haversine.
-    """
-    R = 6371  # radio de la Tierra en km
-    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
-    c = 2 * math.asin(math.sqrt(a))
-    return R * c
-
 def distime_calculation(
     networks_map,
     complete_trip,
@@ -950,9 +939,15 @@ def distime_calculation(
 
     # alternancia simple (conservamos tu lógica)
     map_type = 'drive'
-    
+
     for step_0, step_1 in complete_trip:
-        map_type = 'walk' if map_type == 'drive' else 'drive'
+        if transport['archetype'] == 'walk':
+            map_type = 'walk'
+        elif len(complete_trip) == 1:
+            map_type = 'drive'
+        else:
+            map_type = 'walk' if map_type == 'drive' else 'drive'
+        
         cache_key = (step_0, step_1, map_type)
 
         # 3.a) Distancia (cache -> calcula -> guarda en new_cache_rows)
@@ -964,12 +959,18 @@ def distime_calculation(
             cache[cache_key] = distance_km
             new_cache_rows.append({'step': (step_0, step_1), 'map': map_type, 'km': distance_km})
         else:
-            c0 = coord_map.get(step_0)
-            c1 = coord_map.get(step_1)
-            if c0 is None or c1 is None:
-                # si faltan coords, imposible calcular
-                distance_km = 0
+            
+            if any("virtual" in elem for pair in complete_trip for elem in pair):
+                # Si es virtual no contamos con los datos de las coords, por lo que miramos dist_*
+                # Hay al menos uno con virtual delante
+
+                if "Dutties" in complete_trip[-1][-1]:
+                    distance_km = citizen_data['dist_poi'] / 1000.0
+                else:
+                    distance_km = citizen_data['dist_wos'] / 1000.0
             else:
+                c0 = coord_map.get(step_0)
+                c1 = coord_map.get(step_1)
                 if standard:
                     G = G_drive if map_type == 'drive' else G_walk
                     if G is None:
@@ -987,8 +988,7 @@ def distime_calculation(
                             except (nx.NetworkXNoPath, nx.NodeNotFound):
                                 distance_km = float('inf')
                 else:
-                    distance_km = haversine(c0['lon'], c0['lat'], c1['lon'], c1['lat'])
-
+                    distance_km = haversine((c0['lon'], c0['lat']), (c1['lon'], c1['lat']), unit=Unit.METERS) / 1000.0
             # guardar en cache (memoria) y para persistir al final
             cache[cache_key] = distance_km
             new_cache_rows.append({'step': (step_0, step_1), 'map': map_type, 'km': distance_km})
@@ -1023,7 +1023,6 @@ def distime_calculation(
     )
     return summed_df
 
-
 def waiting_time_calculation(distance, step_1, transport):
     
     """
@@ -1043,6 +1042,10 @@ def benefits_calculation(citizen_data, step_1):
 def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map):
     # Sacamos los valores de inicio y fin del trip
     poi_A, poi_B = trip
+
+    if poi_A.startswith("virtual") or poi_B.startswith("virtual"):
+        return [trip], poi_B
+
     # Inicializamos la lista de nueva ruta (empieza con poi_A ya metido, porque eso es así fijo)
     steps = [poi_A]
     # Sacamos de los datos del arquetipo sus valores de P1P2
@@ -1060,7 +1063,7 @@ def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     complete_trip = []
     # Adaptamos para que sea más comoda de usar
     for step in range(len(steps)-1):
-        complete_trip.append((steps[step], steps[step+1]))    
+        complete_trip.append((steps[step], steps[step+1]))
 
     return complete_trip, p2_osm_id
 
@@ -1079,7 +1082,8 @@ def find_p2(poi_B, transport, p2s, pop_building, networks_map):
     poi_B_data = pop_building[pop_building['osm_id'] == poi_B].copy()
     # Cálculo vectorizado de distancia entre un punto fijo (poi_B_data) y todos los puntos en available_P
     try:
-        available_P.loc[:, 'distance'] = haversine(poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0], available_P['lat'].values, available_P['lon'].values)
+        available_P.loc[:, 'distance'] = haversine((poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0]), (available_P['lat'].values, available_P['lon'].values), unit=Unit.METERS)
+
     except Exception:
         available_P.loc[:, 'distance'] = 0
 
@@ -1140,16 +1144,6 @@ def real_dist_calulation(networks_map, poi_node, feasible_services):
             break
     # Devolvemos los datos ordenados de menos a más
     return results.sort_values(by='km', ascending=True)   
-
-# Función de distancia haversine
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371  # Radio de la Tierra en km
-    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
-    c = 2*np.arcsin(np.sqrt(a))
-    return R * c       
 
 def assign_data(list_variables, list_values, row_old):
     """
@@ -1224,9 +1218,9 @@ def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
     # Devolvemos la version actualizada
     return avail_vehicles
 
-def route_creation(schedule):
+def route_creation(todo_list):
     # Extrae la secuencia de osm_id
-    osm_id_route = schedule['osm_id']
+    osm_id_route = todo_list['osm_id']
     # Elimina duplicados consecutivos
     simpl_route = [k for k, _ in groupby(osm_id_route)]
     # Construye las duplas consecutivas

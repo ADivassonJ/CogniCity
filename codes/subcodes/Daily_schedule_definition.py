@@ -184,6 +184,7 @@ if __name__ == '__main__':
     pop_archetypes = {}
     pop_archetypes['transport'] = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_transport.xlsx")
     pop_archetypes['citizen'] = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_citizen.xlsx")
+    pop_archetypes['building'] = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_building.xlsx")
     
     ##############################################################################
     print(f'docs readed')

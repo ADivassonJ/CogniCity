@@ -367,7 +367,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                     # Elegimos uno aleatorio del grupo de validos
                     osm_id = choose_id_in_ring(available_options, ring)
                     if osm_id == None:
-                        osm_id = 'virtual_POI_X'
+                        osm_id = f'virtual_Dutties_{row_f_df['name']}'
                         
                 else:
                     # En caso de que el agente cuente ya con un edificio especifico para realizar la accion acude a él
