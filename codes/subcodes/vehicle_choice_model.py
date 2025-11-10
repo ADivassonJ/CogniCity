@@ -1201,6 +1201,7 @@ def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
     # La añadimos al df de resultados
     avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([row_updated])], ignore_index=True)
 
+    #Vamos a hacer acmbioasen esto
     ## Public transport
     # Creamos la nueva fila
     new_row = {
