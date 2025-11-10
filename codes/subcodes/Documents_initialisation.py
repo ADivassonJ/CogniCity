@@ -1774,9 +1774,22 @@ def Utilities_assignment(
                         'ubication': home_id,
                         **vehicle_vars
                     })
+            
+            ## Public transport
 
-        # --- 6) Construir DataFrame final ---
-        df_priv_vehicle = pd.DataFrame(vehicles, columns=['name', 'archetype', 'family', 'ubication'] + transport_vars)
+            vehicle_vars = get_vehicle_stats('UB_diesel', pop_archetypes['transport'], transport_vars)
+            # Creamos la nueva fila
+            vehicles.append({
+                    'name': f"Public_transport_{family_name}",
+                    'archetype': 'UB_diesel',
+                    'family': family_name,
+                    'ubication': home_id,
+                    **vehicle_vars
+                })
+
+
+            # --- 6) Construir DataFrame final ---
+            df_priv_vehicle = pd.DataFrame(vehicles, columns=['name', 'archetype', 'family', 'ubication'] + transport_vars)
 
         return df_priv_vehicle, df_families
 
