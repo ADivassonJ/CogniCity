@@ -334,6 +334,8 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
         .copy()
     )
 
+    input(f"best_transport_distime_matrix:\n{best_transport_distime_matrix}")
+
     # Asegurar mismo largo (simple y directo)
     # Se usará el índice de la iteración para tomar el conmu_time
     commute = best_transport_distime_matrix.reset_index(drop=True)['conmu_time']
@@ -613,21 +615,22 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
         archetype = 'CS_electric' if CSEV else 'PC_electric'
         
-        stats_data = get_vehicle_stats(archetype, archetypes_transport, ['v', 'Ekm', 'fuelkm', 'mjkm', 'Emin', 'CO2km', 'SoC'])
-        
+        # Sacamos las caracteristicas con valores estadisticos
+        variables = [
+                col.rsplit('_', 1)[0]
+                for col in archetypes_transport.columns
+                if col.endswith('_mu')
+            ]
+
         virtual_EV = [{
             'name':         'virtual',
             'archetype':    archetype,
             'family':       '-',
-            'ubication':    'W448331296',
-            'v':            stats_data['v'],
-            'Ekm':          stats_data['Ekm'],
-            'fuelkm':       stats_data['fuelkm'],
-            'mjkm':         stats_data['mjkm'],
-            'Emin':         stats_data['Emin'],
-            'CO2km':        stats_data['CO2km'],
-            'SoC':          stats_data['SoC']
+            'ubication':    'W448331296'
         }]
+
+        values = get_vehicle_stats(archetype, archetypes_transport, variables)
+        row_updated = assign_data(variables, values, virtual_EV)
         
         return pd.DataFrame(virtual_EV).iloc[0]
     
@@ -718,11 +721,11 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         
         data['AGE']                 = 50 if (citizen_schedule["archetype"].iloc[0] in ["c_arch_0", "c_arch_1", "c_arch_3"]) else 12
                 
-        if citizen_schedule["class"].iloc[0] == 'Salariat':
+        if citizen_schedule['s_class'].iloc[0] == 'Salariat':
             data['INCOME'] = 7000
-        elif citizen_schedule["class"].iloc[0] == 'Intermediate':
+        elif citizen_schedule['s_class'].iloc[0] == 'Intermediate':
             data['INCOME'] = 4500
-        elif citizen_schedule["class"].iloc[0] == 'Working':
+        elif citizen_schedule['s_class'].iloc[0] == 'Working':
             data['INCOME'] = 2000
         
         trip = current_transport['trip'].iloc[0]
@@ -957,7 +960,7 @@ def distime_calculation(
             c1 = coord_map.get(step_1)
             if c0 is None or c1 is None:
                 # si faltan coords, imposible calcular
-                distance_km = float('inf')
+                distance_km = 0
             else:
                 if standard:
                     G = G_drive if map_type == 'drive' else G_walk
@@ -1051,6 +1054,9 @@ def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     for step in range(len(steps)-1):
         complete_trip.append((steps[step], steps[step+1]))    
     
+    print(f"complete_trip:\n{complete_trip}")
+    print(f"p2_osm_id:\n{p2_osm_id}")
+
     return complete_trip, p2_osm_id
 
 def find_p2(poi_B, transport, p2s, pop_building, networks_map):
