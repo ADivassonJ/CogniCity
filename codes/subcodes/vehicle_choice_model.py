@@ -837,11 +837,19 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
     full_distime_matrix = pd.DataFrame()
     if citizen_data['independent_type'] == 0:
         vehicles = avail_vehicles[avail_vehicles['name'].isin(["walk", "Public_transport"])]
+        print(f"citizen_data['independent_type'] == 0:")
     else:
         vehicles = avail_vehicles
+        print(f"citizen_data['independent_type'] != 0:")
+
+    
+    print(f"vehicles:\n{vehicles}")
     
     # Añadimos a la matriz de vehiculos disponibles el publico y andar
     avail_transport = add_public_walk(vehicles, citizen_data, pop_archetypes_transport)
+
+    input(f"avail_transport:\n{avail_transport}")
+
     # Iteramos los distintos transportes disponibles
     for _, transport in avail_transport.iterrows():
         # Inicializamos transport_VSM
@@ -858,6 +866,7 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
             # La añadimos al df de resultados
             transport_VSM = pd.concat([transport_VSM, pd.DataFrame([distime_matrix])], ignore_index=True)
             full_distime_matrix = pd.concat([full_distime_matrix, pd.DataFrame([distime_matrix])], ignore_index=True)
+
         # Añadimos el nuevo transport_VSM a vehicle_score_matrix
         vehicle_score_matrix = pd.concat([vehicle_score_matrix, transport_VSM], ignore_index=True)
     
@@ -948,6 +957,8 @@ def distime_calculation(
     # alternancia simple (conservamos tu lógica)
     map_type = 'drive'
 
+    print(f"    complete_trip:\n    {complete_trip}")
+
     for step_0, step_1 in complete_trip:
         if transport['archetype'] == 'walk':
             map_type = 'walk'
@@ -971,7 +982,6 @@ def distime_calculation(
             if any("virtual" in elem for pair in complete_trip for elem in pair):
                 # Si es virtual no contamos con los datos de las coords, por lo que miramos dist_*
                 # Hay al menos uno con virtual delante
-
                 if "Dutties" in complete_trip[-1][-1]:
                     distance_km = citizen_data['dist_poi'] / 1000.0
                 else:
@@ -1057,13 +1067,24 @@ def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     # Inicializamos la lista de nueva ruta (empieza con poi_A ya metido, porque eso es así fijo)
     steps = [poi_A]
     # Sacamos de los datos del arquetipo sus valores de P1P2
+
+    print(f"                          transport['archetype']: {transport['archetype']}")
+
     p1, p2, p1s, p2s = pop_archetypes_transport[pop_archetypes_transport['name']==transport['archetype']][['P1', 'P2', 'P1s', 'P2s']].values[0]
+
+    print(f"                          p1: {p1}, p2: {p2}, p1s: {p1s}, p2s: {p2s}")
+
     if p1 != 0:
+
+        print(f"                          p1 != 0")
+
         steps.append(last_P)
     if p2 != 0:
+        print(f"                          p2 != 0")
         p2_osm_id, p2_poib_dist = find_p2(poi_B, transport, p2s, pop_building, networks_map)
         steps.append(p2_osm_id)
     else:
+        print(f"                          p2 == 0")
         p2_osm_id = poi_B
     # Por último añadimos la meta
     steps.append(poi_B)
@@ -1088,6 +1109,9 @@ def find_p2(poi_B, transport, p2s, pop_building, networks_map):
     
     # Sacamos los datos del POI B
     poi_B_data = pop_building[pop_building['osm_id'] == poi_B].copy()
+
+    print(f"                                poi_B_data:\n                                {poi_B_data}")
+
     # Cálculo vectorizado de distancia entre un punto fijo (poi_B_data) y todos los puntos en available_P
     try:
         available_P.loc[:, 'distance'] = haversine((poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0]), (available_P['lat'].values, available_P['lon'].values), unit=Unit.METERS)
@@ -1095,9 +1119,13 @@ def find_p2(poi_B, transport, p2s, pop_building, networks_map):
     except Exception:
         available_P.loc[:, 'distance'] = 0
 
+    print(f"                                available_P:\n                                {available_P}")
+
     # Ordenamos de mas cerca a mas lejos
     best = available_P.sort_values(by='distance', ascending=True).iloc[0] # ISSUE 30
     
+    print(f"                                best:\n                                {best}")
+
     p2 = best['osm_id']
     p2_poib_dist = best['distance']
     
