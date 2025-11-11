@@ -1776,11 +1776,10 @@ def Utilities_assignment(
                     })
             
             ## Public transport
-
             vehicle_vars = get_vehicle_stats('UB_diesel', pop_archetypes['transport'], transport_vars)
             # Creamos la nueva fila
             vehicles.append({
-                    'name': f"Public_transport_{family_name}",
+                    'name': f"Public_transport",
                     'archetype': 'UB_diesel',
                     'family': family_name,
                     'ubication': home_id,

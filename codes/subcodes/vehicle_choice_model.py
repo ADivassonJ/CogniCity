@@ -50,7 +50,9 @@ def _process_family(
     all_desires = pd.DataFrame()
 
     for c_name in family_members:
-        
+
+        print(f"avail_vehicles:\n{avail_vehicles}")
+
         citizen_todolist = level1_citizens.get_group(c_name).sort_values(by='trip', ascending=True).reset_index(drop=True).copy()
         citizen_data = agent_populations['citizen'].loc[agent_populations['citizen']['name'] == c_name].iloc[0]
     
@@ -64,7 +66,7 @@ def _process_family(
         # El agente se queda en casa
         if citizen_route == []:
             continue
-            
+
         # Calcula matriz dist/tiempo y actualiza cache local
         distime_matrix = VSM_calculation(
             citizen_route,
@@ -75,6 +77,8 @@ def _process_family(
             networks_map
         )
         
+        input(f"distime_matrix:\n{distime_matrix}")
+
         # Escoge vehículo
         best_transport_distime_matrix = vehicle_chosing(distime_matrix)
         
@@ -113,9 +117,11 @@ def _process_family(
         
         all_desires = concat all_desires + new_row'''
         
+        
+
         # “Consume” vehículo si no es compartible
         vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
-        if vehicle_name not in ('walk', 'UB_diesel') and not avail_vehicles.empty:
+        if vehicle_name not in ('walk', 'Public_transport') and not avail_vehicles.empty:
             avail_vehicles = avail_vehicles[avail_vehicles['name'] != vehicle_name]
     
     # aqui tenemos que añadir cualquier vehiculo no utilizado :)
@@ -706,7 +712,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         data['IS_EV']               = False
         data['IS_PT']               = False
         data['IS_Bike']             = False
-        if first_trip['archetype'] == 'UB_diesel':
+        if first_trip['vehicle'] == 'Public_transport':
             data['IS_PT']           = True
         elif first_trip['archetype'] == 'PC_electric':
             data['IS_EV']           = True
@@ -782,6 +788,8 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
 def vehicle_chosing(vehicle_score_matrix, simplified: bool=True): 
     
+
+
     if simplified:
         mask = vehicle_score_matrix['vehicle'] == 'walk'
         walk_df = vehicle_score_matrix.loc[mask]
@@ -805,8 +813,9 @@ def vehicle_chosing(vehicle_score_matrix, simplified: bool=True):
     simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False).sum()   
     # Sacamos el transporte con menos score
     best_transport = simplified_df.loc[simplified_df['score'].idxmin()]
+
     # Sacamos del original walk y public transport
-    public_walk = vehicle_score_matrix[vehicle_score_matrix['vehicle'].isin(['walk', 'UB_diesel'])]
+    public_walk = vehicle_score_matrix[vehicle_score_matrix['vehicle'].isin(['walk', 'Public_transport'])]
     # Índices de filas con mínimo score por trip
     idx = public_walk.groupby('trip')['score'].idxmin() 
     # Sacamos el score de elegir el minimo entre walk y public por cada trip (model split)
@@ -826,9 +835,8 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
     vehicle_score_matrix = pd.DataFrame()
     # Inicializamos la full_distime_matrix
     full_distime_matrix = pd.DataFrame()
-    
     if citizen_data['independent_type'] == 0:
-        vehicles = pd.DataFrame()
+        vehicles = avail_vehicles[avail_vehicles['name'].isin(["walk", "Public_transport"])]
     else:
         vehicles = avail_vehicles
     
@@ -1198,21 +1206,6 @@ def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
     row_updated = assign_data(variables, values, new_row)
     # Cambiamos 'v' (esta mejor asignado en pop_citizen)
     row_updated['v'] = citizen_data['walk_speed'] # No es del citizen, si no del mas lento del grupo!!!! ISSUE 28
-    # La añadimos al df de resultados
-    avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([row_updated])], ignore_index=True)
-
-    #Vamos a hacer acmbioasen esto
-    ## Public transport
-    # Creamos la nueva fila
-    new_row = {
-        'name': 'Public_transport',
-        'archetype': 'UB_diesel',
-        'family': citizen_data['family'],
-        'ubication': citizen_data['Home'], # ISSUE 29 esto deberia ser la parada de publico más cercana
-    }
-    # Creamos valores estocasticos
-    values = get_vehicle_stats(new_row['archetype'], pop_archetypes_transport, variables)
-    row_updated = assign_data(variables, values, new_row)
     # La añadimos al df de resultados
     avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([row_updated])], ignore_index=True)
 
