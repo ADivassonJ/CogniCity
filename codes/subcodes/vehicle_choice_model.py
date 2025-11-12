@@ -181,7 +181,7 @@ def vehicle_choice_model(
         
     
     
-    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
                                                    transport_families_dict,
@@ -191,10 +191,10 @@ def vehicle_choice_model(
         if fam_schedule is not None and not fam_schedule.empty:
             results_schedules.append(fam_schedule)
         if fam_actions is not None and not fam_actions.empty:
-            results_actions.append(fam_actions)
+            results_actions.append(fam_actions)'''
         
         
-    '''worker = partial(
+    worker = partial(
         _process_family,
         paths=paths,
         transport_families_dict=transport_families_dict,
@@ -216,7 +216,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and not fam_actions.empty:
                     results_actions.append(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                print(f"[ERROR] familia '{fam_name}': {e}")
 
     # --- Agregación en el proceso principal ---
     new_level1_schedules = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()
