@@ -1110,21 +1110,26 @@ def find_p2(poi_B, transport, p2s, pop_building, networks_map):
     # Sacamos los datos del POI B
     poi_B_data = pop_building[pop_building['osm_id'] == poi_B].copy()
 
-    print(f"                                poi_B_data:\n                                {poi_B_data}")
+    print(f"                                poi_B_data:\n{poi_B_data}")
 
     # Cálculo vectorizado de distancia entre un punto fijo (poi_B_data) y todos los puntos en available_P
-    try:
-        available_P.loc[:, 'distance'] = haversine((poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0]), (available_P['lat'].values, available_P['lon'].values), unit=Unit.METERS)
+    available_P['distance'] = available_P.apply(
+        lambda row: haversine(
+            (poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0]),
+            (row['lat'], row['lon']),
+            unit=Unit.METERS
+        ),
+        axis=1
+    )
 
-    except Exception:
-        available_P.loc[:, 'distance'] = 0
 
-    print(f"                                available_P:\n                                {available_P}")
+
+    print(f"                                available_P:\n{available_P}")
 
     # Ordenamos de mas cerca a mas lejos
     best = available_P.sort_values(by='distance', ascending=True).iloc[0] # ISSUE 30
     
-    print(f"                                best:\n                                {best}")
+    print(f"                                best:\n{best}")
 
     p2 = best['osm_id']
     p2_poib_dist = best['distance']
