@@ -51,8 +51,6 @@ def _process_family(
 
     for c_name in family_members:
 
-        print(f"avail_vehicles:\n{avail_vehicles}")
-
         citizen_todolist = level1_citizens.get_group(c_name).sort_values(by='trip', ascending=True).reset_index(drop=True).copy()
         citizen_data = agent_populations['citizen'].loc[agent_populations['citizen']['name'] == c_name].iloc[0]
     
@@ -76,8 +74,6 @@ def _process_family(
             agent_populations['building'],
             networks_map
         )
-        
-        input(f"distime_matrix:\n{distime_matrix}")
 
         # Escoge vehículo
         best_transport_distime_matrix = vehicle_chosing(distime_matrix)
@@ -188,7 +184,7 @@ def vehicle_choice_model(
         
     
     
-    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
                                                    transport_families_dict,
@@ -198,10 +194,10 @@ def vehicle_choice_model(
         if fam_schedule is not None and not fam_schedule.empty:
             results_schedules.append(fam_schedule)
         if fam_actions is not None and not fam_actions.empty:
-            results_actions.append(fam_actions)
+            results_actions.append(fam_actions)'''
         
         
-    '''worker = partial(
+    worker = partial(
         _process_family,
         paths=paths,
         transport_families_dict=transport_families_dict,
@@ -223,7 +219,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and not fam_actions.empty:
                     results_actions.append(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                print(f"[ERROR] familia '{fam_name}': {e}")
 
     # --- Agregación en el proceso principal ---
     new_level1_schedules = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()
@@ -349,21 +345,21 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
 
     # Asegurar mismo largo (simple y directo)
     # Se usará el índice de la iteración para tomar el conmu_time
-    commute = best_transport_distime_matrix.reset_index(drop=True)['conmu_time']
-    
+    commute = best_transport_distime_matrix.reset_index(drop=True)['conmu_time'].tolist()
+
     out_time = None  # se actualizará en el bucle
 
     for idx, row in todo_list.iterrows():
         if row['todo'] == 'Home_out':
             # Sale de casa con antelación igual a la conmutación hasta la primera actividad
             in_time = row['opening']
-            out_time = todo_list.iloc[idx+1]['opening'] - commute.iloc[idx]
+            out_time = todo_list.iloc[idx+1]['opening'] - commute[idx]
             todo_list.loc[idx, 'in'] = in_time
             todo_list.loc[idx, 'out'] = out_time
             continue
-        
+
         # tiempo de conmutación para este paso (si falta, tomamos 0)
-        conmu_time = commute.iloc[idx-1]
+        conmu_time = commute[idx-1] # ISSUE 58
 
         # Para el resto, llega tras la conmutación desde el punto anterior
         if out_time is None:
@@ -837,18 +833,11 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
     full_distime_matrix = pd.DataFrame()
     if citizen_data['independent_type'] == 0:
         vehicles = avail_vehicles[avail_vehicles['name'].isin(["walk", "Public_transport"])]
-        print(f"citizen_data['independent_type'] == 0:")
     else:
         vehicles = avail_vehicles
-        print(f"citizen_data['independent_type'] != 0:")
-
-    
-    print(f"vehicles:\n{vehicles}")
     
     # Añadimos a la matriz de vehiculos disponibles el publico y andar
     avail_transport = add_public_walk(vehicles, citizen_data, pop_archetypes_transport)
-
-    input(f"avail_transport:\n{avail_transport}")
 
     # Iteramos los distintos transportes disponibles
     for _, transport in avail_transport.iterrows():
@@ -956,8 +945,6 @@ def distime_calculation(
 
     # alternancia simple (conservamos tu lógica)
     map_type = 'drive'
-
-    print(f"    complete_trip:\n    {complete_trip}")
 
     for step_0, step_1 in complete_trip:
         if transport['archetype'] == 'walk':
@@ -1068,23 +1055,14 @@ def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     steps = [poi_A]
     # Sacamos de los datos del arquetipo sus valores de P1P2
 
-    print(f"                          transport['archetype']: {transport['archetype']}")
-
     p1, p2, p1s, p2s = pop_archetypes_transport[pop_archetypes_transport['name']==transport['archetype']][['P1', 'P2', 'P1s', 'P2s']].values[0]
 
-    print(f"                          p1: {p1}, p2: {p2}, p1s: {p1s}, p2s: {p2s}")
-
     if p1 != 0:
-
-        print(f"                          p1 != 0")
-
         steps.append(last_P)
     if p2 != 0:
-        print(f"                          p2 != 0")
         p2_osm_id, p2_poib_dist = find_p2(poi_B, transport, p2s, pop_building, networks_map)
         steps.append(p2_osm_id)
     else:
-        print(f"                          p2 == 0")
         p2_osm_id = poi_B
     # Por último añadimos la meta
     steps.append(poi_B)
@@ -1110,8 +1088,6 @@ def find_p2(poi_B, transport, p2s, pop_building, networks_map):
     # Sacamos los datos del POI B
     poi_B_data = pop_building[pop_building['osm_id'] == poi_B].copy()
 
-    print(f"                                poi_B_data:\n{poi_B_data}")
-
     # Cálculo vectorizado de distancia entre un punto fijo (poi_B_data) y todos los puntos en available_P
     available_P['distance'] = available_P.apply(
         lambda row: haversine(
@@ -1122,14 +1098,8 @@ def find_p2(poi_B, transport, p2s, pop_building, networks_map):
         axis=1
     )
 
-
-
-    print(f"                                available_P:\n{available_P}")
-
     # Ordenamos de mas cerca a mas lejos
     best = available_P.sort_values(by='distance', ascending=True).iloc[0] # ISSUE 30
-    
-    print(f"                                best:\n{best}")
 
     p2 = best['osm_id']
     p2_poib_dist = best['distance']
@@ -1247,34 +1217,13 @@ def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
 
 def route_creation(todo_list):
     # Extrae la secuencia de osm_id
-    osm_id_route = todo_list['osm_id']
-    # Elimina duplicados consecutivos
-    simpl_route = [k for k, _ in groupby(osm_id_route)]
+    simpl_route = todo_list['osm_id'].tolist()
     # Construye las duplas consecutivas
     route = list(zip(simpl_route, simpl_route[1:]))
     return route
     
 def get_independents(level1_schedule):
     return level1_schedule[(level1_schedule['todo'] == 'WoS') & (level1_schedule['fixed'] == False)]['agent'].unique()
-    
-def organize_independents(independents, family):
-    # Inicializamos routes_data
-    routes_data = pd.DataFrame()
-    for agent in independents:
-        # Sacamos la rute del agente
-        new_route = family[family['agent'] == agent]['osm_id'].unique()
-        # Creamos la nueva fila para routes_data
-        new_row = {
-            'agent': agent,
-            'route': new_route,
-            'len': len(new_route)
-        }
-        # Lo añadimos a routes_data
-        routes_data = pd.concat([routes_data, pd.DataFrame([new_row])], ignore_index=True)
-    # Ordenamos para tener el que más trips tenga el primero
-    routes_data.sort_values(by='len', ascending=False)
-    # Devolvemos solo la lista de los nombres
-    return routes_data['agent'].tolist()
     
 def get_vehicle_stats(archetype, transport_archetypes, variables):
     results = {}   
