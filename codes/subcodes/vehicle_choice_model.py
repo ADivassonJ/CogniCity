@@ -40,18 +40,16 @@ def _process_family(
     avail_vehicles = transport_families_dict.get(f_name, pd.DataFrame())
     
     # Schedule level-1 de esta familia
-    level1_schedule = family  # ya es el subset
+    todo_list_family = family.to_dict(orient='records')
 
-    # Agrupar por ciudadano
-    level1_citizens = level1_schedule.groupby('agent')
-    family_members = family['agent'].unique()
+    family_members = list({row['agent'] for row in todo_list_family})
 
     all_citizen_schedule = []
     all_vehicle_schedule = []
 
     for c_name in family_members:
 
-        citizen_todolist = level1_citizens.get_group(c_name).sort_values(by='trip', ascending=True).reset_index(drop=True).copy()
+        citizen_todolist = [row for row in todo_list_family if row['agent'] == c_name]
         citizen_data = agent_populations['citizen'].loc[agent_populations['citizen']['name'] == c_name].iloc[0]
     
         # If 'citizen_todolist' only has one row, mean they did not left home, so no vehicle moving nether
@@ -60,6 +58,7 @@ def _process_family(
         
         # Ruta del ciudadano
         citizen_route = route_creation(citizen_todolist)
+
         # El agente se queda en casa
         if citizen_route == []:
             continue
@@ -76,10 +75,10 @@ def _process_family(
 
         # Escoge vehículo
         best_transport_distime_matrix = vehicle_chosing(distime_matrix)
-        
+
         # Actualiza schedule de la familia con la elección
         citizen_schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, family)
-        all_citizen_schedule = pd.concat([all_citizen_schedule, citizen_schedule], ignore_index=True)
+        all_citizen_schedule.append(citizen_schedule)
         
         # Actualiza acciones de vehículos
         vehicle_schedule = create_vehicles_actions(citizen_schedule, best_transport_distime_matrix)
@@ -221,16 +220,16 @@ def vehicle_choice_model(
                 print(f"[ERROR] familia '{fam_name}': {e}")'''
 
     # --- Agregación en el proceso principal ---
-    new_level1_schedules = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()
+    new_todo_list_all = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()
     vehicles_actions     = pd.concat(results_actions,   ignore_index=True) if results_actions   else pd.DataFrame()
 
     # --- Escrituras UNA sola vez ---
     out_actions = os.path.join(paths['results'], f"{study_area}_{day}_vehicles.xlsx")
     out_level1  = os.path.join(paths['results'], f"{study_area}_{day}_schedule.xlsx")
     vehicles_actions.to_excel(out_actions, index=False)
-    new_level1_schedules.to_excel(out_level1, index=False)
+    new_todo_list_all.to_excel(out_level1, index=False)
 
-    return vehicles_actions, new_level1_schedules
+    return vehicles_actions, new_todo_list_all
 
 def main():
     # Input
@@ -344,7 +343,7 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
 
     # Asegurar mismo largo (simple y directo)
     # Se usará el índice de la iteración para tomar el conmu_time
-    commute = best_transport_distime_matrix.reset_index(drop=True)['conmu_time'].tolist()
+    commute = [row['conmu_time'] for row in best_transport_distime_matrix]
 
     out_time = None  # se actualizará en el bucle
 
@@ -382,7 +381,7 @@ def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
     # El objetivo es tener un df que de los datos de consumo relevante para cada actividad
        
     # Antes de iniciar, aseguramos que no sea walk o publico o walk_public
-    if best_transport_distime_matrix['vehicle'].iloc[0] in ['walk', 'public']:
+    if best_transport_distime_matrix['vehicle'] in ['walk', 'public']:
         # Devolvemos el df sin modificaciones
         return pd.DataFrame()
     
@@ -391,8 +390,8 @@ def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
     
     # Ahora duplicamos pero metemos el vehiculo en vez de la persona
     simple_schedule['user'] = simple_schedule['agent']
-    simple_schedule['agent'] = best_transport_distime_matrix['vehicle'].iloc[0]
-    simple_schedule['archetype'] = best_transport_distime_matrix['archetype'].iloc[0]
+    simple_schedule['agent'] = best_transport_distime_matrix['vehicle']
+    simple_schedule['archetype'] = best_transport_distime_matrix['archetype']
     
     for idx, row in simple_schedule.iterrows():
         if idx == 0:
@@ -782,27 +781,22 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
     return chosen_mode, plugin 
 
 def vehicle_chosing(vehicle_score_matrix, simplified: bool=True): 
-    
-
 
     if simplified:
-        mask = vehicle_score_matrix['vehicle'] == 'walk'
-        walk_df = vehicle_score_matrix.loc[mask]
+        walk_rows = [row for row in vehicle_score_matrix if row['vehicle'] == 'walk']
         
-        if (walk_df['conmu_time'] < 15).all():
-            return walk_df.reset_index(drop=True)
+        if all(row['conmu_time'] < 15 for row in walk_rows):
+            return walk_rows
+        
+        rest_rows = [row for row in vehicle_score_matrix if row['vehicle'] not in ('walk', 'Public_transport')]
+
+        if not rest_rows:
+            current_transport = [row for row in vehicle_score_matrix if row['vehicle'] == 'Public_transport']
         else:
-            mask = (vehicle_score_matrix['vehicle'] != 'walk') & (vehicle_score_matrix['vehicle'] != 'Public_transport')
-            rest_df = vehicle_score_matrix.loc[mask]
-            
-            if rest_df.empty:
-                mask = vehicle_score_matrix['vehicle'] == 'Public_transport'
-                current_transport = vehicle_score_matrix.loc[mask].reset_index(drop=True)
-            else:
-                vehicle = rest_df['vehicle'].iloc[0]
-                current_transport = vehicle_score_matrix[vehicle_score_matrix['vehicle'] == vehicle].reset_index(drop=True)
+            chosen_vehicle = rest_rows[0]['vehicle']
+            current_transport = [row for row in vehicle_score_matrix if row['vehicle'] == chosen_vehicle]
         
-        return current_transport.reset_index(drop=True)
+        return current_transport
 
     # Sumamos los scores por transporte
     simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False).sum()   
@@ -1223,14 +1217,16 @@ def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
     return avail_vehicles
 
 def route_creation(todo_list):
-    # Extrae la secuencia de osm_id
-    simpl_route = todo_list['osm_id'].tolist()
-    # Construye las duplas consecutivas
+    # 1) ordenar por trip ascendente (equivalente a sort_values(by='trip'))
+    todo_list_sorted = sorted(todo_list, key=lambda r: r['trip'])
+    # 2) extraer la secuencia de osm_id (equivalente a df['osm_id'].tolist())
+    simpl_route = [row['osm_id'] for row in todo_list_sorted]
+    # 3) construir pares consecutivos (igual que antes)
     route = list(zip(simpl_route, simpl_route[1:]))
     return route
     
-def get_independents(level1_schedule):
-    return level1_schedule[(level1_schedule['todo'] == 'WoS') & (level1_schedule['fixed'] == False)]['agent'].unique()
+def get_independents(todo_list_all):
+    return todo_list_all[(todo_list_all['todo'] == 'WoS') & (todo_list_all['fixed'] == False)]['agent'].unique()
     
 def get_vehicle_stats(archetype, transport_archetypes, variables):
     results = {}   
