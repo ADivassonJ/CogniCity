@@ -387,17 +387,14 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 
                 # Los casos de work y home son distintos. En el documento a referenciar tienen etiquetas distintas a su nombre de actividad
                 if activity == 'WoS':
-                    activity_re = 'work'
+                    activity_re = 'work' #Issue 62
                 else:
                     activity_re = activity
                 # Buscamos las horas de apertura y cierre del servicio/WoS
-                
-                if row_f_df['Home'] == row_f_df['WoS']:
+                if row_f_df['Home'] == row_f_df['WoS'] and activity_re == 'work':
                     opening = 0
                     closing = 24*60
                 else:
-
-
                     if osm_id.startswith("virtual"):
                         opening, closing = find_time(building_archetypes, activity_re)
 
@@ -476,7 +473,6 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 's_class': row_f_df['s_class'],
                 'trip': 0
             }]
-
         # Añadimos a los resultados
         todolist_family.extend(todolist_agent)    
     
@@ -561,7 +557,7 @@ def todolist_family_creation(
     # Elegir ejecutor
     Executor = ProcessPoolExecutor
 
-    '''# Preparamos función parcial con parámetros constantes
+    # Preparamos función parcial con parámetros constantes
     worker = partial(_build_family_level1, day=day, pop_building=pop_building,
                      activities=activities, citizen_archetypes=citizen_archetypes, system_management=system_management, building_archetypes=building_archetypes)
     # Lanzamos en paralelo
@@ -576,13 +572,13 @@ def todolist_family_creation(
                 results.extend(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
-                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                print(f"[ERROR] familia '{fam_name}': {e}")
     
-    # Iteración secuencial con barra de progreso
+    '''# Iteración secuencial con barra de progreso
     results = []
     for fam in tqdm(families, total=total, desc=f"/secuential/ Families todo list creation ({day}): "):
         df_level1 = _build_family_level1(fam, day, pop_building, activities, citizen_archetypes, system_management, building_archetypes)
-        results.extend(df_level1)
+        results.extend(df_level1)'''
     
     # Un solo concat al final (mucho más rápido)
     if results:
