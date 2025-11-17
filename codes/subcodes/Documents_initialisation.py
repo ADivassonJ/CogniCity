@@ -843,7 +843,7 @@ def Geodata_initialization(study_area, paths, pop_archetypes, special_areas_coor
     agent_populations['building'] = load_or_download_pois(study_area, paths, pop_archetypes['building'], special_areas_coords, city_district)
     pop_building = agent_populations['building']
     
-    paths['new_POIs'] = f"{paths['maps']}\\new_POIs"
+    paths['new_POIs'] = os.path.join(paths['maps'], 'new_POIs')
     
     ## Guardamos los charging points (si hay) en paths['maps']
     # Crear si no existe
@@ -1087,12 +1087,17 @@ def load_or_download_pois(study_area, paths, pop_archetypes_building, special_ar
         .astype(str).str.strip()
         .unique().tolist()
     )
-    
+    pop_building = pd.read_parquet(os.path.join(pop_path, 'pop_building.parquet'))
     try:
         # Intentamos leer el doc
-        pop_building = pd.read_parquet(f'{pop_path}/pop_building.parquet')
+        print(f"Intentamos leer el doc de pop_building")
+        pop_building = pd.read_parquet(os.path.join(pop_path, 'pop_building.parquet'))
     except Exception:
         # Ya que no se ha podido leer, creamos el df
+        print(os.path.join(pop_path, 'pop_building.parquet'))
+        print(r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population")
+        input(f"No lo hemos conseguido: pop_building")
+
         pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district, building_types)
     # Devolvemos el df completo
     return pop_building
