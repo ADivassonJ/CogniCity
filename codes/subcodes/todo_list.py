@@ -234,11 +234,11 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
     # Filtrar la fila correspondiente al arquetipo
     row = transport_archetypes[transport_archetypes['name'] == archetype]
     if row.empty:
-        
+        print(f"Strange mistake happend")
+
         print(f"archetype: {archetype}")
         input(transport_archetypes)
 
-        print(f"Strange mistake happend")
         return {}
 
     row = row.iloc[0]  # Extrae la primera (y única esperada) fila como Series
@@ -333,7 +333,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
     for _, row_f_df in family_df.iterrows():
         
         todolist_agent = []
-        
+
         # Vamos actividad por actividad            
         for activity in activities:
             activity_amount = 1
@@ -354,7 +354,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 continue
                 
             # Hacemos un loop para realizar la suma de tareas la X cantidad de veces necesaria
-            for _ in range(int(activity_amount)):
+            for idt in range(int(activity_amount)):
                 if activity == 'Dutties':
                     # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
                     # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
@@ -364,10 +364,12 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                     except Exception:
                         last_poi_data = pop_building[pop_building['osm_id'] == row_f_df['Home']].iloc[0]
                     ring = ring_from_poi(row_f_df, last_poi_data['lat'], last_poi_data['lon'], row_f_df['dist_poi_mu'], row_f_df['dist_poi_sigma'])
+                    # Evitamos que el agente vuelva a su ubicacion anterior (puede concatenar en el mismo osm_id)
+                    available_options = available_options[available_options['osm_id'] != last_poi_data['osm_id']].copy().reset_index(drop=True)
                     # Elegimos uno aleatorio del grupo de validos
                     osm_id = choose_id_in_ring(available_options, ring)
                     if osm_id == None:
-                        osm_id = 'virtual_POI_X'
+                        osm_id = f"virtual_Dutties_{row_f_df['name']}_{idt}"
                         
                 else:
                     # En caso de que el agente cuente ya con un edificio especifico para realizar la accion acude a él
@@ -398,7 +400,6 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
 
                     if osm_id.startswith("virtual"):
                         opening, closing = find_time(building_archetypes, activity_re)
-
 
                     else:
                         opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
@@ -457,7 +458,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
             }]
             # La añadimos
             todolist_agent.extend(rew_row)
-            
+
         if not any(d['todo'] in ("WoS", "Dutties") for d in todolist_agent):
             todolist_agent = [{
                 'agent': row_f_df['name'],
@@ -475,7 +476,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 's_class': row_f_df['s_class'],
                 'trip': 0
             }]
-               
+
         # Añadimos a los resultados
         todolist_family.extend(todolist_agent)    
     
@@ -560,7 +561,7 @@ def todolist_family_creation(
     # Elegir ejecutor
     Executor = ProcessPoolExecutor
 
-    # Preparamos función parcial con parámetros constantes
+    '''# Preparamos función parcial con parámetros constantes
     worker = partial(_build_family_level1, day=day, pop_building=pop_building,
                      activities=activities, citizen_archetypes=citizen_archetypes, system_management=system_management, building_archetypes=building_archetypes)
     # Lanzamos en paralelo
@@ -575,13 +576,13 @@ def todolist_family_creation(
                 results.extend(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
-                print(f"[ERROR] familia '{fam_name}': {e}")
+                print(f"[ERROR] familia '{fam_name}': {e}")'''
     
-    '''# Iteración secuencial con barra de progreso
+    # Iteración secuencial con barra de progreso
     results = []
     for fam in tqdm(families, total=total, desc=f"/secuential/ Families todo list creation ({day}): "):
         df_level1 = _build_family_level1(fam, day, pop_building, activities, citizen_archetypes, system_management, building_archetypes)
-        results.extend(df_level1)'''
+        results.extend(df_level1)
     
     # Un solo concat al final (mucho más rápido)
     if results:

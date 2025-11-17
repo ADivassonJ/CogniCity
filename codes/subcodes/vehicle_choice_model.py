@@ -15,6 +15,7 @@ import networkx as nx
 import osmnx as ox
 import pandas as pd
 import multiprocessing
+from haversine import Unit, haversine
 
 
 from concurrent.futures import ProcessPoolExecutor, as_completed   # o ThreadPoolExecutor si es I/O-bound
@@ -49,7 +50,7 @@ def _process_family(
     all_desires = pd.DataFrame()
 
     for c_name in family_members:
-        
+
         citizen_todolist = level1_citizens.get_group(c_name).sort_values(by='trip', ascending=True).reset_index(drop=True).copy()
         citizen_data = agent_populations['citizen'].loc[agent_populations['citizen']['name'] == c_name].iloc[0]
     
@@ -59,11 +60,11 @@ def _process_family(
         
         # Ruta del ciudadano
         citizen_route = route_creation(citizen_todolist)
-        
+
         # El agente se queda en casa
         if citizen_route == []:
             continue
-            
+
         # Calcula matriz dist/tiempo y actualiza cache local
         distime_matrix = VSM_calculation(
             citizen_route,
@@ -73,7 +74,7 @@ def _process_family(
             agent_populations['building'],
             networks_map
         )
-        
+
         # Escoge vehículo
         best_transport_distime_matrix = vehicle_chosing(distime_matrix)
         
@@ -112,9 +113,11 @@ def _process_family(
         
         all_desires = concat all_desires + new_row'''
         
+        
+
         # “Consume” vehículo si no es compartible
         vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
-        if vehicle_name not in ('walk', 'UB_diesel') and not avail_vehicles.empty:
+        if vehicle_name not in ('walk', 'Public_transport') and not avail_vehicles.empty:
             avail_vehicles = avail_vehicles[avail_vehicles['name'] != vehicle_name]
     
     # aqui tenemos que añadir cualquier vehiculo no utilizado :)
@@ -342,21 +345,21 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
 
     # Asegurar mismo largo (simple y directo)
     # Se usará el índice de la iteración para tomar el conmu_time
-    commute = best_transport_distime_matrix.reset_index(drop=True)['conmu_time']
-    
+    commute = best_transport_distime_matrix.reset_index(drop=True)['conmu_time'].tolist()
+
     out_time = None  # se actualizará en el bucle
 
     for idx, row in todo_list.iterrows():
         if row['todo'] == 'Home_out':
             # Sale de casa con antelación igual a la conmutación hasta la primera actividad
             in_time = row['opening']
-            out_time = todo_list.iloc[idx+1]['opening'] - commute.iloc[idx]
+            out_time = todo_list.iloc[idx+1]['opening'] - commute[idx]
             todo_list.loc[idx, 'in'] = in_time
             todo_list.loc[idx, 'out'] = out_time
             continue
-        
+
         # tiempo de conmutación para este paso (si falta, tomamos 0)
-        conmu_time = commute.iloc[idx-1]
+        conmu_time = commute[idx-1] # ISSUE 58
 
         # Para el resto, llega tras la conmutación desde el punto anterior
         if out_time is None:
@@ -637,7 +640,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
     
     def closest_share_mob_hubs(home_lat, home_lon, hubs):
 
-        # 2) Calcular la distancia (euclidiana o haversine)
+        # 2) Calcular la distancia
         # Si las distancias son cortas (misma ciudad), euclidiana es suficiente.
         hubs['dist'] = np.sqrt((hubs['lat'] - home_lat)**2 + (hubs['lon'] - home_lon)**2)
 
@@ -705,7 +708,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         data['IS_EV']               = False
         data['IS_PT']               = False
         data['IS_Bike']             = False
-        if first_trip['archetype'] == 'UB_diesel':
+        if first_trip['vehicle'] == 'Public_transport':
             data['IS_PT']           = True
         elif first_trip['archetype'] == 'PC_electric':
             data['IS_EV']           = True
@@ -781,6 +784,8 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
 def vehicle_chosing(vehicle_score_matrix, simplified: bool=True): 
     
+
+
     if simplified:
         mask = vehicle_score_matrix['vehicle'] == 'walk'
         walk_df = vehicle_score_matrix.loc[mask]
@@ -804,8 +809,9 @@ def vehicle_chosing(vehicle_score_matrix, simplified: bool=True):
     simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False).sum()   
     # Sacamos el transporte con menos score
     best_transport = simplified_df.loc[simplified_df['score'].idxmin()]
+
     # Sacamos del original walk y public transport
-    public_walk = vehicle_score_matrix[vehicle_score_matrix['vehicle'].isin(['walk', 'UB_diesel'])]
+    public_walk = vehicle_score_matrix[vehicle_score_matrix['vehicle'].isin(['walk', 'Public_transport'])]
     # Índices de filas con mínimo score por trip
     idx = public_walk.groupby('trip')['score'].idxmin() 
     # Sacamos el score de elegir el minimo entre walk y public por cada trip (model split)
@@ -825,14 +831,14 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
     vehicle_score_matrix = pd.DataFrame()
     # Inicializamos la full_distime_matrix
     full_distime_matrix = pd.DataFrame()
-    
     if citizen_data['independent_type'] == 0:
-        vehicles = pd.DataFrame()
+        vehicles = avail_vehicles[avail_vehicles['name'].isin(["walk", "Public_transport"])]
     else:
         vehicles = avail_vehicles
     
     # Añadimos a la matriz de vehiculos disponibles el publico y andar
     avail_transport = add_public_walk(vehicles, citizen_data, pop_archetypes_transport)
+
     # Iteramos los distintos transportes disponibles
     for _, transport in avail_transport.iterrows():
         # Inicializamos transport_VSM
@@ -849,6 +855,7 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
             # La añadimos al df de resultados
             transport_VSM = pd.concat([transport_VSM, pd.DataFrame([distime_matrix])], ignore_index=True)
             full_distime_matrix = pd.concat([full_distime_matrix, pd.DataFrame([distime_matrix])], ignore_index=True)
+
         # Añadimos el nuevo transport_VSM a vehicle_score_matrix
         vehicle_score_matrix = pd.concat([vehicle_score_matrix, transport_VSM], ignore_index=True)
     
@@ -885,18 +892,6 @@ def score_algorithm(distime_matrix):
     )
     
     return distime_matrix
-
-def haversine(lon1, lat1, lon2, lat2):
-    """
-    Calcula la distancia en km entre dos puntos usando la fórmula de Haversine.
-    """
-    R = 6371  # radio de la Tierra en km
-    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
-    c = 2 * math.asin(math.sqrt(a))
-    return R * c
 
 def distime_calculation(
     networks_map,
@@ -950,9 +945,15 @@ def distime_calculation(
 
     # alternancia simple (conservamos tu lógica)
     map_type = 'drive'
-    
+
     for step_0, step_1 in complete_trip:
-        map_type = 'walk' if map_type == 'drive' else 'drive'
+        if transport['archetype'] == 'walk':
+            map_type = 'walk'
+        elif len(complete_trip) == 1:
+            map_type = 'drive'
+        else:
+            map_type = 'walk' if map_type == 'drive' else 'drive'
+        
         cache_key = (step_0, step_1, map_type)
 
         # 3.a) Distancia (cache -> calcula -> guarda en new_cache_rows)
@@ -964,12 +965,17 @@ def distime_calculation(
             cache[cache_key] = distance_km
             new_cache_rows.append({'step': (step_0, step_1), 'map': map_type, 'km': distance_km})
         else:
-            c0 = coord_map.get(step_0)
-            c1 = coord_map.get(step_1)
-            if c0 is None or c1 is None:
-                # si faltan coords, imposible calcular
-                distance_km = 0
+            
+            if any("virtual" in elem for pair in complete_trip for elem in pair):
+                # Si es virtual no contamos con los datos de las coords, por lo que miramos dist_*
+                # Hay al menos uno con virtual delante
+                if "Dutties" in complete_trip[-1][-1]:
+                    distance_km = citizen_data['dist_poi'] / 1000.0
+                else:
+                    distance_km = citizen_data['dist_wos'] / 1000.0
             else:
+                c0 = coord_map.get(step_0)
+                c1 = coord_map.get(step_1)
                 if standard:
                     G = G_drive if map_type == 'drive' else G_walk
                     if G is None:
@@ -987,8 +993,7 @@ def distime_calculation(
                             except (nx.NetworkXNoPath, nx.NodeNotFound):
                                 distance_km = float('inf')
                 else:
-                    distance_km = haversine(c0['lon'], c0['lat'], c1['lon'], c1['lat'])
-
+                    distance_km = haversine((c0['lon'], c0['lat']), (c1['lon'], c1['lat']), unit=Unit.METERS) / 1000.0
             # guardar en cache (memoria) y para persistir al final
             cache[cache_key] = distance_km
             new_cache_rows.append({'step': (step_0, step_1), 'map': map_type, 'km': distance_km})
@@ -1023,7 +1028,6 @@ def distime_calculation(
     )
     return summed_df
 
-
 def waiting_time_calculation(distance, step_1, transport):
     
     """
@@ -1043,10 +1047,16 @@ def benefits_calculation(citizen_data, step_1):
 def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map):
     # Sacamos los valores de inicio y fin del trip
     poi_A, poi_B = trip
+
+    if poi_A.startswith("virtual") or poi_B.startswith("virtual"):
+        return [trip], poi_B
+
     # Inicializamos la lista de nueva ruta (empieza con poi_A ya metido, porque eso es así fijo)
     steps = [poi_A]
     # Sacamos de los datos del arquetipo sus valores de P1P2
+
     p1, p2, p1s, p2s = pop_archetypes_transport[pop_archetypes_transport['name']==transport['archetype']][['P1', 'P2', 'P1s', 'P2s']].values[0]
+
     if p1 != 0:
         steps.append(last_P)
     if p2 != 0:
@@ -1060,7 +1070,7 @@ def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_bui
     complete_trip = []
     # Adaptamos para que sea más comoda de usar
     for step in range(len(steps)-1):
-        complete_trip.append((steps[step], steps[step+1]))    
+        complete_trip.append((steps[step], steps[step+1]))
 
     return complete_trip, p2_osm_id
 
@@ -1077,15 +1087,20 @@ def find_p2(poi_B, transport, p2s, pop_building, networks_map):
     
     # Sacamos los datos del POI B
     poi_B_data = pop_building[pop_building['osm_id'] == poi_B].copy()
+
     # Cálculo vectorizado de distancia entre un punto fijo (poi_B_data) y todos los puntos en available_P
-    try:
-        available_P.loc[:, 'distance'] = haversine(poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0], available_P['lat'].values, available_P['lon'].values)
-    except Exception:
-        available_P.loc[:, 'distance'] = 0
+    available_P['distance'] = available_P.apply(
+        lambda row: haversine(
+            (poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0]),
+            (row['lat'], row['lon']),
+            unit=Unit.METERS
+        ),
+        axis=1
+    )
 
     # Ordenamos de mas cerca a mas lejos
     best = available_P.sort_values(by='distance', ascending=True).iloc[0] # ISSUE 30
-    
+
     p2 = best['osm_id']
     p2_poib_dist = best['distance']
     
@@ -1140,16 +1155,6 @@ def real_dist_calulation(networks_map, poi_node, feasible_services):
             break
     # Devolvemos los datos ordenados de menos a más
     return results.sort_values(by='km', ascending=True)   
-
-# Función de distancia haversine
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371  # Radio de la Tierra en km
-    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
-    c = 2*np.arcsin(np.sqrt(a))
-    return R * c       
 
 def assign_data(list_variables, list_values, row_old):
     """
@@ -1207,53 +1212,18 @@ def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
     # La añadimos al df de resultados
     avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([row_updated])], ignore_index=True)
 
-    ## Public transport
-    # Creamos la nueva fila
-    new_row = {
-        'name': 'Public_transport',
-        'archetype': 'UB_diesel',
-        'family': citizen_data['family'],
-        'ubication': citizen_data['Home'], # ISSUE 29 esto deberia ser la parada de publico más cercana
-    }
-    # Creamos valores estocasticos
-    values = get_vehicle_stats(new_row['archetype'], pop_archetypes_transport, variables)
-    row_updated = assign_data(variables, values, new_row)
-    # La añadimos al df de resultados
-    avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([row_updated])], ignore_index=True)
-
     # Devolvemos la version actualizada
     return avail_vehicles
 
-def route_creation(schedule):
+def route_creation(todo_list):
     # Extrae la secuencia de osm_id
-    osm_id_route = schedule['osm_id']
-    # Elimina duplicados consecutivos
-    simpl_route = [k for k, _ in groupby(osm_id_route)]
+    simpl_route = todo_list['osm_id'].tolist()
     # Construye las duplas consecutivas
     route = list(zip(simpl_route, simpl_route[1:]))
     return route
     
 def get_independents(level1_schedule):
     return level1_schedule[(level1_schedule['todo'] == 'WoS') & (level1_schedule['fixed'] == False)]['agent'].unique()
-    
-def organize_independents(independents, family):
-    # Inicializamos routes_data
-    routes_data = pd.DataFrame()
-    for agent in independents:
-        # Sacamos la rute del agente
-        new_route = family[family['agent'] == agent]['osm_id'].unique()
-        # Creamos la nueva fila para routes_data
-        new_row = {
-            'agent': agent,
-            'route': new_route,
-            'len': len(new_route)
-        }
-        # Lo añadimos a routes_data
-        routes_data = pd.concat([routes_data, pd.DataFrame([new_row])], ignore_index=True)
-    # Ordenamos para tener el que más trips tenga el primero
-    routes_data.sort_values(by='len', ascending=False)
-    # Devolvemos solo la lista de los nombres
-    return routes_data['agent'].tolist()
     
 def get_vehicle_stats(archetype, transport_archetypes, variables):
     results = {}   
