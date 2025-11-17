@@ -1,6 +1,7 @@
 import os
 import sys
 import math
+import numbers
 from tqdm import tqdm
 import numpy as np
 import random
@@ -45,9 +46,8 @@ def _process_family(
     level1_citizens = level1_schedule.groupby('agent')
     family_members = family['agent'].unique()
 
-    all_citizen_schedule = pd.DataFrame()
-    all_vehicle_schedule = pd.DataFrame()
-    all_desires = pd.DataFrame()
+    all_citizen_schedule = []
+    all_vehicle_schedule = []
 
     for c_name in family_members:
 
@@ -60,7 +60,6 @@ def _process_family(
         
         # Ruta del ciudadano
         citizen_route = route_creation(citizen_todolist)
-
         # El agente se queda en casa
         if citizen_route == []:
             continue
@@ -184,7 +183,7 @@ def vehicle_choice_model(
         
     
     
-    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
                                                    transport_families_dict,
@@ -194,10 +193,10 @@ def vehicle_choice_model(
         if fam_schedule is not None and not fam_schedule.empty:
             results_schedules.append(fam_schedule)
         if fam_actions is not None and not fam_actions.empty:
-            results_actions.append(fam_actions)'''
+            results_actions.append(fam_actions)
         
         
-    worker = partial(
+    '''worker = partial(
         _process_family,
         paths=paths,
         transport_families_dict=transport_families_dict,
@@ -219,7 +218,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and not fam_actions.empty:
                     results_actions.append(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")
+                print(f"[ERROR] familia '{fam_name}': {e}")'''
 
     # --- Agregación en el proceso principal ---
     new_level1_schedules = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()
@@ -827,22 +826,18 @@ def vehicle_chosing(vehicle_score_matrix, simplified: bool=True):
     return current_transport
 
 def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map):
-    # Inicializamos la vehicle_score_matrix
-    vehicle_score_matrix = pd.DataFrame()
     # Inicializamos la full_distime_matrix
-    full_distime_matrix = pd.DataFrame()
+    full_distime_matrix = []
     if citizen_data['independent_type'] == 0:
         vehicles = avail_vehicles[avail_vehicles['name'].isin(["walk", "Public_transport"])]
     else:
         vehicles = avail_vehicles
-    
+
     # Añadimos a la matriz de vehiculos disponibles el publico y andar
     avail_transport = add_public_walk(vehicles, citizen_data, pop_archetypes_transport)
 
     # Iteramos los distintos transportes disponibles
     for _, transport in avail_transport.iterrows():
-        # Inicializamos transport_VSM
-        transport_VSM = pd.DataFrame()
         # Inicializamos last_P (determina la posición donde se encontro por última vez el vehicle)
         last_P = transport['ubication']
         # Miramos todos los trips, de uno a uno, actualizando el transport_VSM (el VSM especifico para este medio de transporte)
@@ -853,12 +848,8 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
             distime_matrix['citizen'] = citizen_data['name']
             distime_matrix['vehicle'] = transport['name']
             # La añadimos al df de resultados
-            transport_VSM = pd.concat([transport_VSM, pd.DataFrame([distime_matrix])], ignore_index=True)
-            full_distime_matrix = pd.concat([full_distime_matrix, pd.DataFrame([distime_matrix])], ignore_index=True)
+            full_distime_matrix.append(distime_matrix)
 
-        # Añadimos el nuevo transport_VSM a vehicle_score_matrix
-        vehicle_score_matrix = pd.concat([vehicle_score_matrix, transport_VSM], ignore_index=True)
-    
     return full_distime_matrix
             
 def score_calculation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map, citizen_data):
@@ -875,9 +866,7 @@ def score_algorithm(distime_matrix):
     """
     Aqui definimos el algoritmo de toma de decisiones
     """
-    distime_matrix = distime_matrix.iloc[0]
-    # Asegurarse de que distime_matrix está desconectado de slices
-    distime_matrix = distime_matrix.copy()
+
     # Calculamos el conmu_time
     conmu_time = distime_matrix['walk_time'] + distime_matrix['travel_time'] + distime_matrix['wait_time']
     
@@ -1017,16 +1006,34 @@ def distime_calculation(
             'emissions':    (transport['CO2km'] * distance_km) if (map_type == 'drive' and distance_km > 0) else 0,
         })
 
-    # --- 5) Agregación final (igual que antes, pero sin overhead extra) ---
-    distime_matrix = pd.DataFrame(rows)
-    summed_numeric = distime_matrix.select_dtypes(include='number').sum().to_frame().T
-    summed_df = summed_numeric.assign(
-        citizen = distime_matrix.iloc[0]['citizen'],
-        vehicle = distime_matrix.iloc[0]['vehicle'],
-        archetype = distime_matrix.iloc[0]['archetype'],
-        trip = [distime_matrix.iloc[0]['trip']],
-    )
-    return summed_df
+    # rows: lista de dicts/Series homogéneos
+    first = rows[0]
+
+    # 1) Detectamos qué claves son numéricas solo una vez
+    numeric_keys = [
+        k for k, v in first.items()
+        if isinstance(v, numbers.Number)
+    ]
+
+    # 2) Inicializamos acumulador numérico
+    acc = {k: 0.0 for k in numeric_keys}
+
+    # 3) Sumamos
+    for row in rows:
+        # si row es una Series, row.items() sigue funcionando igual
+        for k in numeric_keys:
+            acc[k] += row[k]
+
+    # 4) Añadimos metadatos de la primera fila
+    result = {
+        **acc,
+        "citizen":   first["citizen"],
+        "vehicle":   first["vehicle"],
+        "archetype": first["archetype"],
+        "trip":      first["trip"],
+    }
+
+    return result
 
 def waiting_time_calculation(distance, step_1, transport):
     
