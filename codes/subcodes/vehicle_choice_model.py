@@ -1,5 +1,7 @@
 import os
+import re
 import sys
+import copy
 import math
 from tqdm import tqdm
 import numpy as np
@@ -38,7 +40,8 @@ def _process_family(
     f_name, family = family_tuple
 
     # Vehículos disponibles para esta familia (o vacío)
-    avail_vehicles = transport_families_dict.get(f_name, pd.DataFrame())
+    df_avail_vehicles = transport_families_dict.get(f_name, pd.DataFrame())
+    avail_vehicles = df_avail_vehicles.to_dict(orient='records')
     
     # Schedule level-1 de esta familia
     todo_list_family = family.to_dict(orient='records')
@@ -78,13 +81,14 @@ def _process_family(
         best_transport_distime_matrix = vehicle_chosing(distime_matrix)
 
         # Actualiza schedule de la familia con la elección
-        citizen_schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist)
-        all_citizen_schedule.append(citizen_schedule)
-        
+        schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist)
+        citizen_schedule = copy.deepcopy(schedule)
+        all_citizen_schedule.extend(citizen_schedule)
+
         # Actualiza acciones de vehículos
-        vehicle_schedule = create_vehicles_actions(citizen_schedule, best_transport_distime_matrix)
-        all_vehicle_schedule = pd.concat([all_vehicle_schedule, vehicle_schedule], ignore_index=True)
-        
+        vehicle_schedule = create_vehicles_actions(schedule, best_transport_distime_matrix)
+        all_vehicle_schedule.extend(vehicle_schedule)
+
         ####################################################
         # Aqui es donde debemos meter el modelo de Qiaochu #
         ####################################################
@@ -99,7 +103,8 @@ def _process_family(
 
         file_path = os.path.join(paths['new_POIs'], 'share_mob_hubs.xlsx')
         if os.path.exists(file_path):
-            choices3 = True
+            df = pd.read_excel(file_path)
+            choices3 = not df.empty
         else:
             choices3 = False
         
@@ -108,22 +113,22 @@ def _process_family(
         new_row = citizen_data
         
         # “Consume” vehículo si no es compartible
-        vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
-        if vehicle_name not in ('walk', 'Public_transport') and not avail_vehicles.empty:
-            avail_vehicles = avail_vehicles[avail_vehicles['name'] != vehicle_name]
-    
-    # aqui tenemos que añadir cualquier vehiculo no utilizado :)
-    
+        vehicle_name = best_transport_distime_matrix[0]['vehicle']
+        if vehicle_name not in ('walk', 'Public_transport') and avail_vehicles != []:
+            avail_vehicles = [v for v in avail_vehicles if v['name'] != vehicle_name]
+       
     # sacamos los datos de family
-    filtered = family[family['todo'].str.contains(r'Home|Home_in|Home_out', na=False)]
-    
-    family_home = filtered.iloc[0]['osm_id']
-    family_node = filtered.iloc[0]['node']
-    family_archetype = filtered.iloc[0]['family_archetype']
+    pattern = re.compile(r'Home|Home_in|Home_out')
 
-    for _, vehicle in avail_vehicles.iterrows():
+    filtered = [row for row in todo_list_family if row.get('todo') and pattern.search(row['todo'])]
+    
+    family_home = filtered[0]['osm_id']
+    family_node = filtered[0]['node']
+    family_archetype = filtered[0]['family_archetype']
+
+    for vehicle in avail_vehicles:
       
-        new_row = [{
+        new_row = {
             'agent': vehicle['name'],
             'archetype': vehicle['archetype'],
             'independent': 0,
@@ -136,9 +141,9 @@ def _process_family(
             'out': 24*60,
             'user': None,
             'ETC [kWh]': 0,
-        }]      
+        }     
         
-        all_vehicle_schedule = pd.concat([all_vehicle_schedule, pd.DataFrame(new_row)], ignore_index=True)
+        all_vehicle_schedule.append(new_row)
         
     return all_citizen_schedule, all_vehicle_schedule
 
@@ -183,9 +188,9 @@ def vehicle_choice_model(
                                                    agent_populations,
                                                    pop_archetypes,
                                                    networks_map)
-        if fam_schedule is not None and not fam_schedule.empty:
+        if fam_schedule is not None and fam_schedule != []:
             results_schedules.append(fam_schedule)
-        if fam_actions is not None and not fam_actions.empty:
+        if fam_actions is not None and fam_actions != []:
             results_actions.append(fam_actions)
         
         
@@ -363,7 +368,7 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
     
     return citizen_schedule
 
-def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
+def create_vehicles_actions(citizen_schedule, best_transport_distime_matrix):
     '''El objetivo es tener un df que de los datos de consumo relevante para cada actividad'''
 
     # Antes de iniciar, aseguramos que no sea walk o publico o walk_public
@@ -372,36 +377,32 @@ def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
         return []
     
     # Simplificamos el 'new_family_schedule', para guardar la info como lo hariamos para el output
-
-    print(f"new_family_schedule:\n{new_family_schedule}")
-
-    simple_schedule = schedule_simplification(new_family_schedule)
-    
-    input(f"simple_schedule:\n{simple_schedule}")
-
+    simple_schedule = schedule_simplification(citizen_schedule)
 
     # Ahora duplicamos pero metemos el vehiculo en vez de la persona
-    simple_schedule['user'] = simple_schedule['agent']
-    simple_schedule['agent'] = best_transport_distime_matrix['vehicle'].iloc[0]
-    simple_schedule['archetype'] = best_transport_distime_matrix['archetype'].iloc[0]
-    
-    for idx, row in simple_schedule.iterrows():
-        if idx == 0:
-            simple_schedule.at[idx, 'ETC [kWh]'] = 0
-            continue
-        simple_schedule.at[idx, 'ETC [kWh]'] = best_transport_distime_matrix.at[idx-1,'mjkm'] + simple_schedule.at[idx-1, 'ETC [kWh]']
+    for row in simple_schedule:
+        row['user'] = row['agent']
+        row['agent'] = best_transport_distime_matrix[0]['vehicle']
+        row['archetype'] = best_transport_distime_matrix[0]['archetype']
 
-    # Eliminamos las columnas innecesarias
-    simple_schedule = simple_schedule.drop(['todo', 'opening', 'closing', 'fixed', 'time2spend'], axis=1)
-    
+    for idx, row in enumerate(simple_schedule):
+        if idx == 0:
+            row['ETC [kWh]'] = 0
+            continue
+        row['ETC [kWh]'] = best_transport_distime_matrix[idx-1]['mjkm'] + simple_schedule[idx-1]['ETC [kWh]']
+
     return simple_schedule    
     
-def schedule_simplification(new_family_schedule):
+def schedule_simplification(citizen_schedule):
+
+    ''' Este modulo es basicamente aplicable a los casos con relaciones intrafamiliares, 
+    donde hay not time related activities y temas por el estilo, porque igual estan 
+    esperando un rato en el mimo edificio, luego se piran, ...'''
 
     # Inicializamos el df de salida
     simple_schedule = []
     # Filtramos el df quitando las actividades 'not-time-related'
-    filtered = [row for row in new_family_schedule if abs(row['in'] - row['out']) != 0]
+    filtered = [row for row in citizen_schedule if abs(row['in'] - row['out']) != 0]
 
     # Agrupamos por 'osm_id' para simplificar
     filtered_grouped = defaultdict(list)
@@ -409,7 +410,6 @@ def schedule_simplification(new_family_schedule):
         filtered_grouped[row['osm_id']].append(row)
     # Evaluamos los grupos
     for _, group in filtered_grouped.items():
-
         # Si el grupo no tiene duplicados, no nos va a dar problemas
         if len(group) == 1:
             simple_schedule.extend(group)
@@ -440,8 +440,8 @@ def schedule_simplification(new_family_schedule):
 
     return sorted(simple_schedule, key=lambda x: x['trip'])
 
-def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populations: dict, avail_vehicles: pd.DataFrame, current_transport: pd.DataFrame, 
-                              citizen_schedule: pd.DataFrame,vehicle_schedule: pd.DataFrame, choices3: bool=True):
+def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populations: dict, avail_vehicles: list, current_transport: list, 
+                              citizen_schedule: list, vehicle_schedule: list, choices3: bool=True):
     def Mode_choice(choices3: bool,
                     IS_Gaso: bool, IS_EV: bool, IS_PT: bool, IS_Bike: bool,
                     EV_OWNERSHIP: bool, HAVING_KIDS: bool,
@@ -687,12 +687,14 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         return TRAVEL_TIME, WALK_TIME, COST
         
     
-    def data_gathering(paths: list, pop_archetypes: dict, agent_populations: dict, avail_vehicles: pd.DataFrame, current_transport: pd.DataFrame, 
-                       citizen_schedule: pd.DataFrame, vehicle_schedule: pd.DataFrame, choices3: bool):
+    def data_gathering(paths: list, pop_archetypes: dict, agent_populations: dict, 
+                       avail_vehicles: list, current_transport: list, 
+                       citizen_schedule: list, vehicle_schedule: list, choices3: bool):
         
         data = {}
         
-        first_trip = current_transport.iloc[0]
+        # 1) current_transport
+        first_trip = current_transport[0]
         
         data['COST']                = first_trip['cost']
         data['TRAVEL_TIME']         = first_trip['conmu_time']
@@ -702,43 +704,56 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         data['IS_EV']               = False
         data['IS_PT']               = False
         data['IS_Bike']             = False
+
         if first_trip['vehicle'] == 'Public_transport':
             data['IS_PT']           = True
         elif first_trip['archetype'] == 'PC_electric':
             data['IS_EV']           = True
         elif first_trip['archetype'] == 'PC_petrol':
             data['IS_Gaso']         = True        
-        
-        if not avail_vehicles.empty:
-            data['EV_OWNERSHIP'] = (avail_vehicles["archetype"] == "PC_electric").any()
+
+        # 2) avail_vehicles
+        if len(avail_vehicles) > 0:
+            data['EV_OWNERSHIP'] = any(v['archetype'] == "PC_electric" for v in avail_vehicles)
         else:
             data['EV_OWNERSHIP'] = False
-        data["HAVING_KIDS"]         = (citizen_schedule["family_archetype"].iloc[0] in ["f_arch_1", "f_arch_2", "f_arch_3", "f_arch_6"])
+
+        # 3) citizen_schedule
+        data["HAVING_KIDS"] = (citizen_schedule[0]['family_archetype'] in ["f_arch_1", "f_arch_2", "f_arch_3", "f_arch_6"])
         
-        data['LOCATION_WORK']       = True if citizen_schedule['todo'].iloc[1] == 'WoS' else False
-        data['LOCATION_SHOPPING']   = True if citizen_schedule['todo'].iloc[1] != 'WoS' else False
+        data['LOCATION_WORK']       = True if citizen_schedule[1]['todo'] == 'WoS' else False
+        data['LOCATION_SHOPPING']   = True if citizen_schedule[1]['todo'] != 'WoS' else False
         
-        data['PARK_TIME']           = (citizen_schedule['out'].iloc[1] - citizen_schedule['in'].iloc[1])/60
+        data['PARK_TIME']           = (citizen_schedule[1]['out'] - citizen_schedule[1]['in'])/60
         
-        data['AGE']                 = 50 if (citizen_schedule["archetype"].iloc[0] in ["c_arch_0", "c_arch_1", "c_arch_3"]) else 12
-                
-        if citizen_schedule['s_class'].iloc[0] == 'Salariat':
+        if citizen_schedule[0]['archetype'] in ["c_arch_0", "c_arch_1", "c_arch_3"]:
+            data['AGE'] = 50
+        else:
+            data['AGE'] = 12
+        
+        s_class = citizen_schedule[0]['s_class']
+        if s_class == 'Salariat':
             data['INCOME'] = 7000
-        elif citizen_schedule['s_class'].iloc[0] == 'Intermediate':
+        elif s_class == 'Intermediate':
             data['INCOME'] = 4500
-        elif citizen_schedule['s_class'].iloc[0] == 'Working':
+        else:
             data['INCOME'] = 2000
         
-        trip = current_transport['trip'].iloc[0]
+        # 4) trip
+        trip = current_transport[0]['trip']
         
+        # 5) agent_populations
         pop_citizen = agent_populations['citizen'] 
         pop_building = agent_populations['building']
         
-        citizen_data = pop_citizen[pop_citizen['name'] == citizen_schedule['agent'].iloc[0]].iloc[0]
+        citizen_name = citizen_schedule[0]['agent']
+        
+        citizen_data = pop_citizen[pop_citizen['name'] == citizen_name].iloc[0]
+
         networks_map = None
         
-       
-        data['TRAVEL_TIME_EV2G'], data['WALK_TIME_EV2G'], data['COST_EV2G']  = generate_ev_data(trip, pop_building, citizen_data, networks_map, False)
+        # 6) EV2G data
+        data['TRAVEL_TIME_EV2G'], data['WALK_TIME_EV2G'], data['COST_EV2G'] = generate_ev_data(trip, pop_building, citizen_data, networks_map, False)
         
         if choices3:
             data['TRAVEL_TIME_CSV2G'], data['WALKING_TIME_CV2G'], data['COST_CSV2G']  = generate_ev_data(trip, pop_building, citizen_data, networks_map, True)
@@ -819,15 +834,14 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
     # Inicializamos la full_distime_matrix
     full_distime_matrix = []
     if citizen_data['independent_type'] == 0:
-        vehicles = avail_vehicles[avail_vehicles['name'].isin(["walk", "Public_transport"])]
+        vehicles = [v for v in avail_vehicles if v['name'] in ["walk", "Public_transport"]]
     else:
         vehicles = avail_vehicles
-
     # Añadimos a la matriz de vehiculos disponibles el publico y andar
     avail_transport = add_public_walk(vehicles, citizen_data, pop_archetypes_transport)
 
     # Iteramos los distintos transportes disponibles
-    for _, transport in avail_transport.iterrows():
+    for transport in avail_transport:
         # Inicializamos last_P (determina la posición donde se encontro por última vez el vehicle)
         last_P = transport['ubication']
         # Miramos todos los trips, de uno a uno, actualizando el transport_VSM (el VSM especifico para este medio de transporte)
@@ -1207,7 +1221,7 @@ def add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport):
     # Cambiamos 'v' (esta mejor asignado en pop_citizen)
     row_updated['v'] = citizen_data['walk_speed'] # No es del citizen, si no del mas lento del grupo!!!! ISSUE 28
     # La añadimos al df de resultados
-    avail_vehicles = pd.concat([avail_vehicles, pd.DataFrame([row_updated])], ignore_index=True)
+    avail_vehicles.append(row_updated)
 
     # Devolvemos la version actualizada
     return avail_vehicles
