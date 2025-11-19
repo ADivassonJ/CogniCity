@@ -8,6 +8,7 @@ import random
 import osmnx as ox
 import pandas as pd
 import networkx as nx
+from collections import defaultdict
 from pathlib import Path
 from itertools import groupby
 import matplotlib.pyplot as plt
@@ -77,7 +78,7 @@ def _process_family(
         best_transport_distime_matrix = vehicle_chosing(distime_matrix)
 
         # Actualiza schedule de la familia con la elección
-        citizen_schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, family)
+        citizen_schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist)
         all_citizen_schedule.append(citizen_schedule)
         
         # Actualiza acciones de vehículos
@@ -315,7 +316,7 @@ def main():
     else:
         print(f"All days' schedules already modeled.")
         
-def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_family):
+def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist):
     """
     Actualiza los tiempos de entrada/salida ('in'/'out') del agente `c_name`
     en base a los nuevos tiempos de conmutación contenidos en
@@ -325,14 +326,9 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
       - en `todo_list_family`: ['agent', 'trip', 'todo', 'opening', 'closing', 'time2spend']
       - en `best_transport_distime_matrix`: ['conmu_time']
     """
-    
+
     # Filtrar y ordenar la lista del agente
-    todo_list = (
-        todo_list_family[todo_list_family['agent'] == c_name]
-        .sort_values(by='trip', ascending=True)
-        .reset_index(drop=True)
-        .copy()
-    )
+    todo_list = sorted(citizen_todolist, key=lambda x: x['trip'])
 
     # Asegurar mismo largo (simple y directo)
     # Se usará el índice de la iteración para tomar el conmu_time
@@ -340,13 +336,13 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
 
     out_time = None  # se actualizará en el bucle
 
-    for idx, row in todo_list.iterrows():
+    for idx, row in enumerate(todo_list):
         if row['todo'] == 'Home_out':
             # Sale de casa con antelación igual a la conmutación hasta la primera actividad
             in_time = row['opening']
-            out_time = todo_list.iloc[idx+1]['opening'] - commute[idx]
-            todo_list.loc[idx, 'in'] = in_time
-            todo_list.loc[idx, 'out'] = out_time
+            out_time = todo_list[idx+1]['opening'] - commute[idx]
+            row['in'] = int(in_time)
+            row['out'] = int(out_time)
             continue
 
         # tiempo de conmutación para este paso (si falta, tomamos 0)
@@ -360,27 +356,30 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, todo_list_fam
         in_time = out_time + conmu_time
         out_time = (in_time + row['time2spend']) if row['time2spend'] != 0 else row['closing']
 
-        todo_list.loc[idx, 'in'] = in_time
-        todo_list.loc[idx, 'out'] = out_time
-
-    todo_list['in'] = todo_list['in'].astype(int)
-    todo_list['out'] = todo_list['out'].astype(int)
+        row['in'] = int(in_time)
+        row['out'] = int(out_time)
     
     citizen_schedule = todo_list.copy()
     
     return citizen_schedule
 
 def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
-    # El objetivo es tener un df que de los datos de consumo relevante para cada actividad
-       
+    '''El objetivo es tener un df que de los datos de consumo relevante para cada actividad'''
+
     # Antes de iniciar, aseguramos que no sea walk o publico o walk_public
     if best_transport_distime_matrix[0]['vehicle'] in ['walk', 'Public_transport']:
         # lista vacía = DF vacío
         return []
     
     # Simplificamos el 'new_family_schedule', para guardar la info como lo hariamos para el output
-    simple_schedule = schedule_simplification(new_family_schedule.sort_values(by='trip', ascending=True).reset_index(drop=True).copy())
+
+    print(f"new_family_schedule:\n{new_family_schedule}")
+
+    simple_schedule = schedule_simplification(new_family_schedule)
     
+    input(f"simple_schedule:\n{simple_schedule}")
+
+
     # Ahora duplicamos pero metemos el vehiculo en vez de la persona
     simple_schedule['user'] = simple_schedule['agent']
     simple_schedule['agent'] = best_transport_distime_matrix['vehicle'].iloc[0]
@@ -398,44 +397,48 @@ def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
     return simple_schedule    
     
 def schedule_simplification(new_family_schedule):
+
     # Inicializamos el df de salida
-    simple_schedule = pd.DataFrame()
+    simple_schedule = []
     # Filtramos el df quitando las actividades 'not-time-related'
-    filtered = new_family_schedule[abs(new_family_schedule['in']-new_family_schedule['out']) != 0]
+    filtered = [row for row in new_family_schedule if abs(row['in'] - row['out']) != 0]
+
     # Agrupamos por 'osm_id' para simplificar
-    filtered_grouped = filtered.groupby('osm_id')
+    filtered_grouped = defaultdict(list)
+    for row in filtered:
+        filtered_grouped[row['osm_id']].append(row)
     # Evaluamos los grupos
-    for name, group in filtered_grouped:
+    for _, group in filtered_grouped.items():
+
         # Si el grupo no tiene duplicados, no nos va a dar problemas
         if len(group) == 1:
-            simple_schedule = pd.concat([simple_schedule, group], ignore_index=True)
+            simple_schedule.extend(group)
             continue
         # Inicializamos 'def_in' (para tener como memoria del 'in' del grupo)
         def_in = float('inf')
-        # Actualizamos los indices para evitar problematicas
-        group_n = group.reset_index(drop=True)
         # En caso de tener más de una actividad 'time-related' en el mismo 'osm_id' 
-        for idx, row in group_n.iterrows():
+        for idx, row in enumerate(group):
             # Nos saltamos el último row
-            if idx == len(group_n)-1:
+            if idx == len(group)-1:
                 continue
             # Evaluamos cuales estan concatenados
-            if group_n.loc[idx, 'out'] == group_n.loc[idx+1, 'in']:
+            if group[idx]['out'] == group[idx + 1]['in']:
                 # Asignamos las variables
-                def_in = group_n.loc[idx, 'in']
-                def_out = group_n.loc[idx+1, 'out']
+                def_in = group[idx]['in']
+                def_out = group[idx + 1]['out']
         # Si no se han identificado concatenaciones
         if def_in == float('inf'):
-            simple_schedule = pd.concat([simple_schedule, group_n], ignore_index=True)
+            simple_schedule.extend(group)
             continue
         # Copiamos los datos del grupo
-        new_row = group_n.iloc[0].copy()
+        new_row = group[0]
         # Añadimos los nuevos datos
         new_row['in'] = def_in
         new_row['out'] = def_out
         # Anadimos la nueva fila al schedule simplificado
-        simple_schedule = pd.concat([simple_schedule, pd.DataFrame([new_row])], ignore_index=True)
-    return simple_schedule.sort_values(by='in', ascending=True).reset_index(drop=True)
+        simple_schedule.extend(new_row)
+
+    return sorted(simple_schedule, key=lambda x: x['trip'])
 
 def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populations: dict, avail_vehicles: pd.DataFrame, current_transport: pd.DataFrame, 
                               citizen_schedule: pd.DataFrame,vehicle_schedule: pd.DataFrame, choices3: bool=True):
