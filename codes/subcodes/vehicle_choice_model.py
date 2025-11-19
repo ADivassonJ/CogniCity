@@ -1,9 +1,9 @@
 import os
 import sys
 import math
-import numbers
 from tqdm import tqdm
 import numpy as np
+import numbers
 import random
 import osmnx as ox
 import pandas as pd
@@ -106,13 +106,6 @@ def _process_family(
         
         new_row = citizen_data
         
-        '''new_row['P_X'] = 
-        
-        
-        all_desires = concat all_desires + new_row'''
-        
-        
-
         # “Consume” vehículo si no es compartible
         vehicle_name = best_transport_distime_matrix['vehicle'].iloc[0]
         if vehicle_name not in ('walk', 'Public_transport') and not avail_vehicles.empty:
@@ -381,17 +374,17 @@ def create_vehicles_actions(new_family_schedule, best_transport_distime_matrix):
     # El objetivo es tener un df que de los datos de consumo relevante para cada actividad
        
     # Antes de iniciar, aseguramos que no sea walk o publico o walk_public
-    if best_transport_distime_matrix['vehicle'] in ['walk', 'public']:
-        # Devolvemos el df sin modificaciones
-        return pd.DataFrame()
+    if best_transport_distime_matrix[0]['vehicle'] in ['walk', 'Public_transport']:
+        # lista vacía = DF vacío
+        return []
     
     # Simplificamos el 'new_family_schedule', para guardar la info como lo hariamos para el output
     simple_schedule = schedule_simplification(new_family_schedule.sort_values(by='trip', ascending=True).reset_index(drop=True).copy())
     
     # Ahora duplicamos pero metemos el vehiculo en vez de la persona
     simple_schedule['user'] = simple_schedule['agent']
-    simple_schedule['agent'] = best_transport_distime_matrix['vehicle']
-    simple_schedule['archetype'] = best_transport_distime_matrix['archetype']
+    simple_schedule['agent'] = best_transport_distime_matrix['vehicle'].iloc[0]
+    simple_schedule['archetype'] = best_transport_distime_matrix['archetype'].iloc[0]
     
     for idx, row in simple_schedule.iterrows():
         if idx == 0:
