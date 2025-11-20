@@ -1013,7 +1013,7 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
         except Exception as e:
             min_var = float(0)
         
-        if variable == 'dist_wos':
+        if variable in ('dist_wos', 'dist_poi'):
             var_result = np.random.lognormal(mean=mu, sigma=sigma)
         else:
             var_result = np.random.normal(mu, sigma)
@@ -1087,17 +1087,11 @@ def load_or_download_pois(study_area, paths, pop_archetypes_building, special_ar
         .astype(str).str.strip()
         .unique().tolist()
     )
-    pop_building = pd.read_parquet(os.path.join(pop_path, 'pop_building.parquet'))
     try:
         # Intentamos leer el doc
-        print(f"Intentamos leer el doc de pop_building")
         pop_building = pd.read_parquet(os.path.join(pop_path, 'pop_building.parquet'))
     except Exception:
         # Ya que no se ha podido leer, creamos el df
-        print(os.path.join(pop_path, 'pop_building.parquet'))
-        print(r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population")
-        input(f"No lo hemos conseguido: pop_building")
-
         pop_building = download_pois(study_area, paths, pop_archetypes_building, special_areas_coords, city_district, building_types)
     # Devolvemos el df completo
     return pop_building

@@ -11,7 +11,7 @@ N_REPETICIONES = 5  # ← número de veces que quieres repetir el proceso
 
 # Scripts
 path_init = Path(r"C:\Users\asier\Documents\GitHub\CogniCity\codes\subcodes\Documents_initialisation.py")
-path_test = Path(r"C:\Users\asier\Documents\GitHub\CogniCity\codes\subcodes\tests_3.py")
+path_test = Path(r"C:\Users\asier\Documents\GitHub\CogniCity\codes\subcodes\WoS assignation evaluation - Kanaleneiland.py")
 
 # Archivos de datos y resultados
 path_summary_csv = Path(r"C:\Users\asier\resumen_dist_wos_lognormal.csv")
@@ -32,7 +32,7 @@ def ejecutar_pipeline(n_reps=N_REPETICIONES):
     """
     Ejecuta n_reps veces la secuencia:
       1. Ejecuta Documents_initialisation.py
-      2. Ejecuta tests_3.py
+      2. Ejecuta WoS assignation evaluation - Kanaleneiland.py
       3. Lee resumen_dist_wos_lognormal.csv
       4. Añade los resultados a test_results.xlsx
       5. Borra los archivos Parquet intermedios
@@ -45,8 +45,8 @@ def ejecutar_pipeline(n_reps=N_REPETICIONES):
         print("→ Ejecutando Documents_initialisation.py ...")
         subprocess.run(["python", str(path_init)], check=True)
 
-        # 2️⃣ Ejecutar tests_3.py
-        print("→ Ejecutando tests_3.py ...")
+        # 2️⃣ Ejecutar WoS assignation evaluation - Kanaleneiland.py
+        print("→ Ejecutando WoS assignation evaluation - Kanaleneiland.py ...")
         subprocess.run(["python", str(path_test)], check=True)
 
         # 3️⃣ Leer resumen CSV

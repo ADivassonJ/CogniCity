@@ -127,6 +127,9 @@ def _process_family(
     family_archetype = filtered[0]['family_archetype']
 
     for vehicle in avail_vehicles:
+
+        if vehicle['name'] in ('walk', 'Public_transport'):
+            continue
       
         new_row = {
             'agent': vehicle['name'],
@@ -175,13 +178,10 @@ def vehicle_choice_model(
         Executor = ThreadPoolExecutor
 
     # --- Lanzar en paralelo por familia ---
-    results_schedules = []
-    results_actions = []
-    cache_deltas = []
-        
+    citizen_schedules = []
+    vehicle_schedules = []      
     
-    
-    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
                                                    transport_families_dict,
@@ -189,12 +189,11 @@ def vehicle_choice_model(
                                                    pop_archetypes,
                                                    networks_map)
         if fam_schedule is not None and fam_schedule != []:
-            results_schedules.append(fam_schedule)
+            citizen_schedules.extend(fam_schedule)
         if fam_actions is not None and fam_actions != []:
-            results_actions.append(fam_actions)
+            vehicle_schedules.extend(fam_actions)'''
         
-        
-    '''worker = partial(
+    worker = partial(
         _process_family,
         paths=paths,
         transport_families_dict=transport_families_dict,
@@ -211,28 +210,28 @@ def vehicle_choice_model(
             fam_name = futures[fut]
             try:
                 fam_schedule, fam_actions = fut.result()
-                if fam_schedule is not None and not fam_schedule.empty:
-                    results_schedules.append(fam_schedule)
-                if fam_actions is not None and not fam_actions.empty:
-                    results_actions.append(fam_actions)
+                if fam_schedule is not None and fam_schedule != []:
+                    citizen_schedules.extend(fam_schedule)
+                if fam_actions is not None and fam_actions != []:
+                    vehicle_schedules.extend(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                print(f"[ERROR] familia '{fam_name}': {e}")
 
     # --- Agregación en el proceso principal ---
-    new_todo_list_all = pd.concat(results_schedules, ignore_index=True) if results_schedules else pd.DataFrame()
-    vehicles_actions     = pd.concat(results_actions,   ignore_index=True) if results_actions   else pd.DataFrame()
+    df_citizen_schedules = pd.DataFrame(citizen_schedules)
+    df_vehicle_schedules = pd.DataFrame(vehicle_schedules)
 
     # --- Escrituras UNA sola vez ---
-    out_actions = os.path.join(paths['results'], f"{study_area}_{day}_vehicles.xlsx")
-    out_level1  = os.path.join(paths['results'], f"{study_area}_{day}_schedule.xlsx")
-    vehicles_actions.to_excel(out_actions, index=False)
-    new_todo_list_all.to_excel(out_level1, index=False)
+    out_vehicle_schedules = os.path.join(paths['results'], f"{study_area}_{day}_schedule_vehicle.xlsx")
+    out_citizen_schedules  = os.path.join(paths['results'], f"{study_area}_{day}_schedule_citizen.xlsx")
+    df_vehicle_schedules.to_excel(out_vehicle_schedules, index=False)
+    df_citizen_schedules.to_excel(out_citizen_schedules, index=False)
 
-    return vehicles_actions, new_todo_list_all
+    return vehicle_schedules, citizen_schedules
 
 def main():
     # Input
-    population = 450
+    population = 20
     study_area = 'Kanaleneiland'
     
     ## Code initialization
@@ -285,23 +284,20 @@ def main():
 
     found_schedule = set()
     found_vehicles = set()
-    found_todolist = set()
 
     for file in paths['results'].glob('*.xlsx'):
         name = file.stem  # sin extensión
         parts = name.split('_')
-        if len(parts) < 3:
+        if len(parts) < 4:
             continue
         # asumiendo formato: study_area_day_kind
-        study, day, kind = parts[-3], parts[-2], parts[-1].lower()
+        day, agent_type = parts[-3], parts[-1].lower()
         if day not in days:
             continue
-        if kind == 'schedule':
+        if agent_type == 'citizen':
             found_schedule.add(day)
-        elif kind == 'vehicles':
+        elif agent_type == 'vehicle':
             found_vehicles.add(day)
-        elif kind == 'todolist':
-            found_todolist.add(day)
 
     # Faltantes por tipo
     missing_schedule = days - found_schedule
@@ -317,7 +313,7 @@ def main():
             # Input reading
             todolist = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
-            vehicles_actions, new_level2_schedules = vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day)
+            vehicle_schedules, citizen_schedules = vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day)
     else:
         print(f"All days' schedules already modeled.")
         
@@ -350,8 +346,8 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
             row['out'] = int(out_time)
             continue
 
-        # tiempo de conmutación para este paso (si falta, tomamos 0)
-        conmu_time = commute[idx-1] # ISSUE 58
+        # tiempo de conmutación para este paso
+        conmu_time = commute[idx-1]
 
         # Para el resto, llega tras la conmutación desde el punto anterior
         if out_time is None:

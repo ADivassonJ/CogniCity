@@ -250,7 +250,7 @@ def build_animated_dots(g: gpd.GeoDataFrame, out_html: str, zoom_start=14, tiles
 def main():
     study_area = 'Kanaleneiland'
     paths = {}
-    paths['main'] = Path(__file__).resolve().parent.parent.parent
+    paths['main'] = Path(__file__).resolve().parent.parent.parent.parent
     paths['system'] = paths['main'] / 'system'
 
     system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')

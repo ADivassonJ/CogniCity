@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 
 # --- RUTAS ---
-path_citizens = Path(r"C:\Users\asier\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_citizen.parquet")
+path_citizens = Path(r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_citizen.parquet")
 
 # --- SALIDAS ---
 out_perpoint_csv = Path("dist_wos_por_citizen.csv")

@@ -34,8 +34,8 @@ AREAS = {
 }
 
 # --- RUTAS ---
-path_buildings = r"C:\Users\asier\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_building.parquet"
-path_citizens  = r"C:\Users\asier\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_citizen.parquet"
+path_buildings = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_building.parquet"
+path_citizens  = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population\pop_citizen.parquet"
 
 # --- LEER PARQUET ---
 buildings = pd.read_parquet(path_buildings)
