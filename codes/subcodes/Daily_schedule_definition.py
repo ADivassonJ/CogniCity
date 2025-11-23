@@ -105,6 +105,8 @@ def check_current_data(days, paths):
 def Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations):
     
     days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
+
+    days = {'Mo'}
     
     files_done, days_missing = check_current_data(days, paths)
     
