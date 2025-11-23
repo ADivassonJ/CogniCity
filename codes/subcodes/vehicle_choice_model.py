@@ -181,7 +181,7 @@ def vehicle_choice_model(
     citizen_schedules = []
     vehicle_schedules = []      
     
-    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
                                                    transport_families_dict,
@@ -191,9 +191,9 @@ def vehicle_choice_model(
         if fam_schedule is not None and fam_schedule != []:
             citizen_schedules.extend(fam_schedule)
         if fam_actions is not None and fam_actions != []:
-            vehicle_schedules.extend(fam_actions)'''
+            vehicle_schedules.extend(fam_actions)
         
-    worker = partial(
+    '''worker = partial(
         _process_family,
         paths=paths,
         transport_families_dict=transport_families_dict,
@@ -215,7 +215,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and fam_actions != []:
                     vehicle_schedules.extend(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")
+                print(f"[ERROR] familia '{fam_name}': {e}")'''
 
     # --- Agregación en el proceso principal ---
     df_citizen_schedules = pd.DataFrame(citizen_schedules)
@@ -833,9 +833,9 @@ def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_
         vehicles = [v for v in avail_vehicles if v['name'] in ["walk", "Public_transport"]]
     else:
         vehicles = avail_vehicles
+
     # Añadimos a la matriz de vehiculos disponibles el publico y andar
     avail_transport = add_public_walk(vehicles, citizen_data, pop_archetypes_transport)
-
     # Iteramos los distintos transportes disponibles
     for transport in avail_transport:
         # Inicializamos last_P (determina la posición donde se encontro por última vez el vehicle)
@@ -888,33 +888,33 @@ def distime_calculation(
     pop_building: pd.DataFrame,
     citizen_data: dict,
     transport: dict,
-    standard: bool = True):
-    
+    standard: bool = True
+):
     # --- 1) Preparación rápida de lookups ---
-    # osm_id -> {'lon':..., 'lat':...}
-    df_coords = (pop_building[['osm_id', 'lon', 'lat']]
-                .dropna(subset=['lon', 'lat'])
-                .drop_duplicates(subset='osm_id', keep='first'))
+    # Idealmente esto debería venir precalculado de fuera
+    df_coords = (
+        pop_building[['osm_id', 'lon', 'lat']]
+        .dropna(subset=['lon', 'lat'])
+        .drop_duplicates(subset='osm_id', keep='first')
+    )
     coord_map = df_coords.set_index('osm_id')[['lon', 'lat']].to_dict('index')
 
-    # cache dict (para lectura rápida)
+    # cache local (en tu código parece pensado para extenderlo a algo global)
     cache = {}
-    new_cache_rows = []  # acumulamos y concatenamos al final
+    new_cache_rows = []  # si luego lo vas a persistir en algún sitio
 
     # --- 2) Precomputar nearest_nodes por osm_id y mapa ---
-    # ids únicos implicados
-    osmid_set = set([s0 for s0, _ in complete_trip] + [s1 for _, s1 in complete_trip])
+    osmid_set = {s0 for s0, _ in complete_trip} | {s1 for _, s1 in complete_trip}
 
     nearest = {'drive': {}, 'walk': {}}
     if standard:
-        # grafos (atajo)
         G_drive = networks_map.get('drive_map')
         G_walk  = networks_map.get('walk_map')
-        # Para cada mapa, calculamos nodos más cercanos en lote
+
         for mode, G in (('drive', G_drive), ('walk', G_walk)):
-            if G is None: 
+            if G is None:
                 continue
-            # preparar listas de coords en el orden esperado por OSMnx (x=lon, y=lat)
+
             xs, ys, valid_ids = [], [], []
             for osm_id in osmid_set:
                 c = coord_map.get(osm_id)
@@ -922,50 +922,54 @@ def distime_calculation(
                     xs.append(c['lon'])
                     ys.append(c['lat'])
                     valid_ids.append(osm_id)
+
             if valid_ids:
-                # vectorizado: devuelve lista de node_ids en el mismo orden
                 node_ids = ox.distance.nearest_nodes(G, xs, ys)
-                # mapear
                 nearest[mode] = {osm: nid for osm, nid in zip(valid_ids, node_ids)}
 
-    # --- 3) Bucle principal (ligero) ---
-    rows = []
+    # --- 3) Precomputos lógicos antes del bucle ---
     trip = (complete_trip[0][0], complete_trip[-1][-1])
 
-    # alternancia simple (conservamos tu lógica)
-    map_type = 'drive'
+    has_virtual = any("virtual" in elem for pair in complete_trip for elem in pair)
+    is_dutties  = ("Dutties" in complete_trip[-1][-1]) if has_virtual else False
 
+    rows = []
+    map_type = 'drive'  # punto de partida
+
+    # --- 4) Bucle principal ---
     for step_0, step_1 in complete_trip:
+        # lógica de alternancia
         if transport['archetype'] == 'walk':
             map_type = 'walk'
         elif len(complete_trip) == 1:
             map_type = 'drive'
         else:
             map_type = 'walk' if map_type == 'drive' else 'drive'
-        
+
         cache_key = (step_0, step_1, map_type)
 
-        # 3.a) Distancia (cache -> calcula -> guarda en new_cache_rows)
+        # 4.a) Distancia
         if cache_key in cache:
             distance_km = cache[cache_key]
+
         elif step_0 == step_1:
-            distance_km = 0
-            # guardar en cache (memoria) y para persistir al final
+            distance_km = 0.0
             cache[cache_key] = distance_km
             new_cache_rows.append({'step': (step_0, step_1), 'map': map_type, 'km': distance_km})
+
         else:
-            
-            if any("virtual" in elem for pair in complete_trip for elem in pair):
-                # Si es virtual no contamos con los datos de las coords, por lo que miramos dist_*
-                # Hay al menos uno con virtual delante
-                if "Dutties" in complete_trip[-1][-1]:
+            if has_virtual:
+                if is_dutties:
                     distance_km = citizen_data['dist_poi'] / 1000.0
                 else:
                     distance_km = citizen_data['dist_wos'] / 1000.0
             else:
                 c0 = coord_map.get(step_0)
                 c1 = coord_map.get(step_1)
-                if standard:
+
+                if c0 is None or c1 is None:
+                    distance_km = float('inf')
+                elif standard:
                     G = G_drive if map_type == 'drive' else G_walk
                     if G is None:
                         distance_km = float('inf')
@@ -976,55 +980,50 @@ def distime_calculation(
                             distance_km = float('inf')
                         else:
                             try:
-                                # más rápido que construir la ruta completa
-                                dist_m = nx.shortest_path_length(G, n0, n1, weight='length', method='dijkstra')
+                                dist_m = nx.shortest_path_length(
+                                    G, n0, n1, weight='length', method='dijkstra'
+                                )
                                 distance_km = dist_m / 1000.0
                             except (nx.NetworkXNoPath, nx.NodeNotFound):
                                 distance_km = float('inf')
                 else:
-                    distance_km = haversine((c0['lon'], c0['lat']), (c1['lon'], c1['lat']), unit=Unit.METERS) / 1000.0
-            # guardar en cache (memoria) y para persistir al final
+                    distance_km = haversine(
+                        (c0['lon'], c0['lat']),
+                        (c1['lon'], c1['lat']),
+                        unit=Unit.METERS
+                    ) / 1000.0
+
             cache[cache_key] = distance_km
             new_cache_rows.append({'step': (step_0, step_1), 'map': map_type, 'km': distance_km})
 
-        # 3.b) Otras métricas
-        waiting_time = waiting_time_calculation(cache[cache_key], step_1, transport)
-        benefits     = benefits_calculation(citizen_data, step_1)        
-        
+        # 4.b) Otras métricas
+        waiting_time = waiting_time_calculation(distance_km, step_1, transport)
+        benefits     = benefits_calculation(citizen_data, step_1)
+
         rows.append({
             'citizen':      citizen_data['name'],
             'vehicle':      transport['name'],
             'archetype':    transport['archetype'],
             'trip':         trip,
             'distance':     distance_km,
-            'walk_time':    (distance_km / citizen_data['walk_speed']) if (map_type == 'walk' and distance_km > 0) else 0,
-            'travel_time':  (distance_km / transport['v']) if (map_type == 'drive' and distance_km > 0) else 0,
+            'walk_time':    (distance_km / citizen_data['walk_speed']) if (map_type == 'walk'  and distance_km > 0) else 0,
+            'travel_time':  (distance_km / transport['v'])            if (map_type == 'drive' and distance_km > 0) else 0,
             'wait_time':    waiting_time,
-            'cost':         (transport['price'] * transport['mjkm']   * distance_km) if (map_type == 'drive' and distance_km > 0) else 0,
-            'mjkm':         (transport['mjkm']   * distance_km) if (map_type == 'drive' and distance_km > 0) else 0,
+            'cost':         (transport['price'] * transport['mjkm'] * distance_km) if (map_type == 'drive' and distance_km > 0) else 0,
+            'mjkm':         (transport['mjkm']   * distance_km)                     if (map_type == 'drive' and distance_km > 0) else 0,
             'benefits':     benefits,
-            'emissions':    (transport['CO2km'] * distance_km) if (map_type == 'drive' and distance_km > 0) else 0,
+            'emissions':    (transport['CO2km']  * distance_km)                     if (map_type == 'drive' and distance_km > 0) else 0,
         })
 
-    # rows: lista de dicts/Series homogéneos
+    # --- 5) Agregación final ---
     first = rows[0]
-
-    # 1) Detectamos qué claves son numéricas solo una vez
-    numeric_keys = [
-        k for k, v in first.items()
-        if isinstance(v, numbers.Number)
-    ]
-
-    # 2) Inicializamos acumulador numérico
+    numeric_keys = [k for k, v in first.items() if isinstance(v, numbers.Number)]
     acc = {k: 0.0 for k in numeric_keys}
 
-    # 3) Sumamos
     for row in rows:
-        # si row es una Series, row.items() sigue funcionando igual
         for k in numeric_keys:
             acc[k] += row[k]
 
-    # 4) Añadimos metadatos de la primera fila
     result = {
         **acc,
         "citizen":   first["citizen"],
@@ -1051,33 +1050,47 @@ def benefits_calculation(citizen_data, step_1):
     
     return 0
 
-def trip_completation(trip, transport, pop_archetypes_transport, last_P, pop_building, networks_map):
-    # Sacamos los valores de inicio y fin del trip
+def trip_completation(
+    trip,
+    transport,
+    pop_archetypes_transport,  # ya con index = 'name'
+    last_P,
+    pop_building,
+    networks_map
+):
+    """
+    Devuelve la lista de tramos del viaje completo y el p2_osm_id final.
+    """
+
     poi_A, poi_B = trip
 
+    # Si alguno es virtual, no tocamos nada
     if poi_A.startswith("virtual") or poi_B.startswith("virtual"):
         return [trip], poi_B
 
-    # Inicializamos la lista de nueva ruta (empieza con poi_A ya metido, porque eso es así fijo)
-    steps = [poi_A]
-    # Sacamos de los datos del arquetipo sus valores de P1P2
+    # Obtenemos parámetros del arquetipo
+    p1, p2, p1s, p2s = pop_archetypes_transport[
+        pop_archetypes_transport['name'] == transport['archetype']
+    ][['P1', 'P2', 'P1s', 'P2s']].values[0]
 
-    p1, p2, p1s, p2s = pop_archetypes_transport[pop_archetypes_transport['name']==transport['archetype']][['P1', 'P2', 'P1s', 'P2s']].values[0]
+    steps = [poi_A]
 
     if p1 != 0:
         steps.append(last_P)
+
     if p2 != 0:
-        p2_osm_id, p2_poib_dist = find_p2(poi_B, transport, p2s, pop_building, networks_map)
+        p2_osm_id, p2_poib_dist = find_p2(
+            poi_B, transport, p2s, pop_building, networks_map
+        )
         steps.append(p2_osm_id)
     else:
         p2_osm_id = poi_B
-    # Por último añadimos la meta
+
+    # Siempre se añade la meta al final
     steps.append(poi_B)
-    # Inicializamos la lista de resultados
-    complete_trip = []
-    # Adaptamos para que sea más comoda de usar
-    for step in range(len(steps)-1):
-        complete_trip.append((steps[step], steps[step+1]))
+
+    # Construimos los tramos consecutivos
+    complete_trip = list(zip(steps, steps[1:]))
 
     return complete_trip, p2_osm_id
 
