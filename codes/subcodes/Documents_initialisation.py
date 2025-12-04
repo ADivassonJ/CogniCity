@@ -1419,10 +1419,10 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
     """
     import numpy as np
 
-    def rango_sigma_lognormal(valor, mu, sigma):
+    def rango_sigma_normal(valor, mu, sigma):
         """
-        Clasifica un valor de una distribución log-normal según cuántas desviaciones
-        estándar (sigma) se aleja de la media logarítmica y en qué dirección.
+        Clasifica un valor de una distribución normal según cuántas desviaciones
+        estándar (sigma) se aleja de la media y en qué dirección.
 
         Devuelve una tupla (nivel, lado):
         - nivel: 1 → dentro de 1σ
@@ -1432,11 +1432,8 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
         - lado: 'low' o 'high'
         """
 
-        if valor <= 0:
-            raise ValueError("El valor debe ser positivo para una distribución log-normal.")
-        
         # Distancia en número de sigmas
-        z = (np.log(valor) - mu) / sigma
+        z = (valor - mu) / sigma
         n = abs(z)
 
         # Determinar el nivel
@@ -1454,7 +1451,6 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
 
         return nivel, lado
 
-    
     def crear_anillo_sigma(poi, mu_log, sigma_log, n, lado, crs_local="EPSG:3857"):
         """
         Crea un anillo basado en el nivel sigma y lado ('high' o 'low') de una distribución log-normal.
@@ -1515,7 +1511,7 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
         ring_wgs84 = gpd.GeoSeries([ring], crs=crs_local).to_crs("EPSG:4326")
         return ring_wgs84.iloc[0]
 
-    n, lado = rango_sigma_lognormal(row['dist_wos'], mu, sigma)
+    n, lado = rango_sigma_normal(row['dist_wos'], mu, sigma)
 
     # Crear punto base
     poi = gpd.GeoSeries([Point(lon, lat)], crs=crs)
@@ -2374,7 +2370,7 @@ def Documents_initialisation(population, study_area):
 if __name__ == '__main__':
     
     # Input
-    population = 450
+    population = 2000
     study_area = 'Kanaleneiland'
     
     Documents_initialisation(population, study_area)

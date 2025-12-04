@@ -997,6 +997,7 @@ def distime_calculation(
                         unit=Unit.METERS
                     ) / 1000.0
 
+            distance_km = distance_km * 1.293
             cache[cache_key] = distance_km
             new_cache_rows.append({'step': (step_0, step_1), 'map': map_type, 'km': distance_km})
 
