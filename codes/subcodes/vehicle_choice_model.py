@@ -181,7 +181,7 @@ def vehicle_choice_model(
     citizen_schedules = []
     vehicle_schedules = []      
     
-    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
                                                    transport_families_dict,
@@ -191,9 +191,9 @@ def vehicle_choice_model(
         if fam_schedule is not None and fam_schedule != []:
             citizen_schedules.extend(fam_schedule)
         if fam_actions is not None and fam_actions != []:
-            vehicle_schedules.extend(fam_actions)
+            vehicle_schedules.extend(fam_actions)'''
         
-    '''worker = partial(
+    worker = partial(
         _process_family,
         paths=paths,
         transport_families_dict=transport_families_dict,
@@ -215,7 +215,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and fam_actions != []:
                     vehicle_schedules.extend(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                print(f"[ERROR] familia '{fam_name}': {e}")
 
     # --- Agregación en el proceso principal ---
     df_citizen_schedules = pd.DataFrame(citizen_schedules)
@@ -330,10 +330,11 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
 
     # Filtrar y ordenar la lista del agente
     todo_list = sorted(citizen_todolist, key=lambda x: x['trip'])
-
+    
     # Asegurar mismo largo (simple y directo)
     # Se usará el índice de la iteración para tomar el conmu_time
     commute = [row['conmu_time'] for row in best_transport_distime_matrix]
+    distance = [row['distance'] for row in best_transport_distime_matrix]
 
     out_time = None  # se actualizará en el bucle
 
@@ -344,10 +345,12 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
             out_time = todo_list[idx+1]['opening'] - commute[idx]
             row['in'] = int(in_time)
             row['out'] = int(out_time)
+            row['dist'] = float(0)
             continue
 
         # tiempo de conmutación para este paso
         conmu_time = commute[idx-1]
+        dist = distance[idx-1]
 
         # Para el resto, llega tras la conmutación desde el punto anterior
         if out_time is None:
@@ -359,6 +362,7 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
 
         row['in'] = int(in_time)
         row['out'] = int(out_time)
+        row['dist'] = float(dist)
     
     citizen_schedule = todo_list.copy()
     
