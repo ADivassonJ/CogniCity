@@ -1,1 +1,1 @@
-pip install geopandas osmnx folium pyproj shapely scipy scikit-learn tqdm haversine pyarrow fastparquet
+pip install geopandas osmnx folium pyproj shapely scipy scikit-learn tqdm haversine pyarrow fastparquet openpyxl

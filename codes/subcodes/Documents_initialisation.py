@@ -1924,7 +1924,7 @@ def Utilities_assignment(
             )
 
             # Subgrupo WoS
-            if homestay_cond:
+            if WoS_id == home_id:
                 citizens_arr.at[idx, 'WoS_subgroup'] = 'Home'
             elif virtual_WoS:
                 citizens_arr.at[idx, 'WoS_subgroup'] = 'unknown'

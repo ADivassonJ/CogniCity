@@ -281,6 +281,7 @@ def main():
     
     # Días que quieres considerar
     days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
+    days = {'Mo'}
 
     found_schedule = set()
     found_vehicles = set()
@@ -1248,9 +1249,6 @@ def route_creation(todo_list):
     # 3) construir pares consecutivos (igual que antes)
     route = list(zip(simpl_route, simpl_route[1:]))
     return route
-    
-def get_independents(todo_list_all):
-    return todo_list_all[(todo_list_all['todo'] == 'WoS') & (todo_list_all['fixed'] == False)]['agent'].unique()
     
 def get_vehicle_stats(archetype, transport_archetypes, variables):
     results = {}   
