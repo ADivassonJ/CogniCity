@@ -7,6 +7,7 @@ import random
 import shutil
 import sys
 from pathlib import Path
+from scipy.stats import norm
 
 # terceros
 import folium
@@ -1419,24 +1420,21 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
     """
     import numpy as np
 
-    def rango_sigma_normal(valor, mu, sigma):
+    def rango_sigma_lognormal(valor, mu_log, sigma_log):
         """
-        Clasifica un valor de una distribución normal según cuántas desviaciones
-        estándar (sigma) se aleja de la media y en qué dirección.
+        Clasifica un valor de una distribución LOG-normal según cuántas sigma
+        se aleja de la media en log-espacio.
 
-        Devuelve una tupla (nivel, lado):
-        - nivel: 1 → dentro de 1σ
-                2 → entre 1σ y 2σ
-                3 → entre 2σ y 3σ
-                4 → más de 3σ
-        - lado: 'low' o 'high'
+        valor: distancia en el espacio lineal (metros)
+        mu_log, sigma_log: parámetros de la normal subyacente (log-espacio)
         """
+        if valor <= 0:
+            # Por seguridad: log de <=0 no está definido.
+            return None, None
 
-        # Distancia en número de sigmas
-        z = (valor - mu) / sigma
+        z = (np.log(valor) - mu_log) / sigma_log
         n = abs(z)
 
-        # Determinar el nivel
         if n <= 1:
             nivel = 1
         elif n <= 2:
@@ -1446,9 +1444,7 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
         else:
             nivel = 4
 
-        # Determinar el lado
         lado = "high" if z > 0 else "low"
-
         return nivel, lado
 
     def crear_anillo_sigma(poi, mu_log, sigma_log, n, lado, crs_local="EPSG:3857"):
@@ -1479,25 +1475,28 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
         poi_m = poi.to_crs(crs_local)
 
         def safe_ppf(p):
-            """Evita percentiles fuera de [0,1]."""
             p = np.clip(p, 1e-6, 1 - 1e-6)
             return lognorm.ppf(p, s=sigma_log, scale=np.exp(mu_log))
 
         try:
+
             # Definir límites percentiles según lado y nivel n
             if lado == "high":
-                low = safe_ppf(0.5 + 0.34 * (n - 1))
-                high = safe_ppf(0.5 + 0.34 * n)
+                p_low = norm.cdf(n - 1)   # prob en μ + (n−1)σ (normal estándar)
+                p_high = norm.cdf(n)      # prob en μ + nσ
             elif lado == "low":
-                low = safe_ppf(0.5 - 0.34 * n)
-                high = safe_ppf(0.5 - 0.34 * (n - 1))
+                p_low = norm.cdf(-n)      # prob en μ − nσ
+                p_high = norm.cdf(-(n-1)) # prob en μ − (n−1)σ
             else:
-                raise ValueError("El parámetro 'lado' debe ser 'high' o 'low'.")
+                raise ValueError("lado debe ser 'high' o 'low'")
+
+            low = safe_ppf(p_low)   # lognorm.ppf(...) → radio mínimo en metros
+            high = safe_ppf(p_high) # lognorm.ppf(...) → radio máximo en metros
 
             # Si los límites están fuera de rango o son iguales, abortar
             if np.isnan(low) or np.isnan(high) or np.isclose(low, high):
                 return None
-
+            
             # Crear anillo (entre high y low)
             outer = poi_m.buffer(max(high, low)).iloc[0]
             inner = poi_m.buffer(min(high, low)).iloc[0]
@@ -1511,7 +1510,7 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
         ring_wgs84 = gpd.GeoSeries([ring], crs=crs_local).to_crs("EPSG:4326")
         return ring_wgs84.iloc[0]
 
-    n, lado = rango_sigma_normal(row['dist_wos'], mu, sigma)
+    n, lado = rango_sigma_lognormal(row['dist_wos'], mu, sigma)
 
     # Crear punto base
     poi = gpd.GeoSeries([Point(lon, lat)], crs=crs)
@@ -1893,7 +1892,7 @@ def Utilities_assignment(
                 ]
                 if not fam_fixed.empty:
                     WoS_id = fam_fixed['WoS'].iloc[0]
-
+            
             if homestay_cond:
                 WoS_id = home_id
 
@@ -2370,7 +2369,7 @@ def Documents_initialisation(population, study_area):
 if __name__ == '__main__':
     
     # Input
-    population = 2000
+    population = 1000
     study_area = 'Kanaleneiland'
     
     Documents_initialisation(population, study_area)
