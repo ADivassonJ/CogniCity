@@ -49,8 +49,8 @@ p25, p50, p75 = np.percentile(pts["dist_wos_real"], [25, 50, 75])
 print(f"N citizens originales: {before}  → tras filtro: {after}")
 print(f"N con dist_wos_real válido: {len(pts)}")
 print("—— Normal (no log) parameters ——")
-print(f"μ_norm = {mu_norm:.5f}")
-print(f"σ_norm = {sigma_norm:.5f}")
+print(f"μ_norm = {mu_norm*1000:.5f}")
+print(f"σ_norm = {sigma_norm*1000:.5f}")
 
 # =========================
 #   EXPORTACIÓN

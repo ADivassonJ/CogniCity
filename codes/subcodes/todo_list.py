@@ -2,6 +2,7 @@ import os
 import sys
 import geopandas as gpd
 import random
+import math
 from scipy.stats import lognorm
 import osmnx as ox
 import numpy as np
@@ -366,6 +367,11 @@ def choose_closest_to_point_in_ring(cand_df, ring_poly, sample_point):
         chosen_id = gdf_in.sort_values("dist_to_sample").iloc[0]["osm_id"]
         return chosen_id
 
+def to_log_scale(mu, sigma):
+    sigma_log = math.sqrt(math.log(1 + (sigma**2) / (mu**2)))
+    mu_log = math.log(mu) - 0.5 * sigma_log**2
+    return mu_log, sigma_log
+
 def create_family_level_1_schedule(day, pop_building, family_df, activities, system_management, citizen_archetypes, building_archetypes):
     """
       Summary: Crea la version inicial de los schedules de cada familia (level 1), 
@@ -469,12 +475,17 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                     except Exception:
                         last_poi_data = pop_building[pop_building['osm_id'] == row_f_df['Home']].iloc[0]
 
+                    mu = float(row_f_df['dist_poi_mu'])
+                    sigma = float(row_f_df['dist_poi_sigma'])
+
+                    mu_log, sigma_log = to_log_scale(mu/1.293, sigma/1.293)
+
                     ring, sample_point = ring_from_poi(
                         row_f_df,
                         last_poi_data['lat'],
                         last_poi_data['lon'],
-                        row_f_df['dist_poi_mu']/1.293,
-                        row_f_df['dist_poi_sigma']/1.293,
+                        mu_log,
+                        sigma_log,
                         crs="EPSG:4326",
                         return_point=True
                     )
