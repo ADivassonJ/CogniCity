@@ -64,24 +64,36 @@ df_merge = df_citizen_wos.merge(
 mask_missing = df_merge[LAT_COL].isna() | df_merge[LON_COL].isna()
 missing_count = mask_missing.sum()
 
-# NUEVO: de esos missing, ¿cuántos tienen 'virtual' en el WoS?
+# De esos missing, ¿cuántos tienen 'virtual' en el WoS?
 missing_rows = df_merge[mask_missing].copy()
 virtual_missing_count = missing_rows["WoS_str"].str.contains("virtual", case=False, na=False).sum()
 
 print(f"Número de filas de pop_citizen cuyo WoS NO está en pop_building: {missing_count}")
 print(f"De esos, número de WoS que contienen 'virtual': {virtual_missing_count}")
 
-# Filas con match correcto (usaremos WoS únicos para pintar)
+# Filas con match correcto
 df_match = df_merge[~mask_missing].copy()
-df_match_unique = df_match.drop_duplicates("WoS_str")
+
+# -----------------------------
+# 3b. Contar ciudadanos por WoS y asignar intensidad
+# -----------------------------
+# Número de ciudadanos por WoS
+wos_counts = df_match.groupby("WoS_str").size().rename("n_citizens")
+
+# Tomamos una fila por WoS para obtener una geometría por edificio,
+# pero conservamos el conteo de ciudadanos
+df_match_counts = (
+    df_match.drop_duplicates("WoS_str")
+            .merge(wos_counts, on="WoS_str", how="left")
+)
 
 # -----------------------------
 # 4. GeoDataFrame de WoS (puntos) en WGS84 y reproyección
 # -----------------------------
 gdf_wos = gpd.GeoDataFrame(
-    df_match_unique,
+    df_match_counts,
     geometry=[
-        Point(xy) for xy in zip(df_match_unique[LON_COL], df_match_unique[LAT_COL])
+        Point(xy) for xy in zip(df_match_counts[LON_COL], df_match_counts[LAT_COL])
     ],
     crs="EPSG:4326"  # lat/lon
 )
@@ -131,27 +143,41 @@ gdf_utrecht_proj = gdf_utrecht.to_crs(target_crs)
 gdf_kanaleneiland_proj = gdf_kanaleneiland.to_crs(target_crs)
 
 # -----------------------------
-# 6. Dibujar mapa con Utrecht + Kanaleneiland + WoS
+# 6. Dibujar mapa (sin marco, en grises, puntos más oscuros = más ciudadanos)
 # -----------------------------
 fig, ax = plt.subplots(figsize=(8, 8))
 
-# Perímetro de Utrecht
-gdf_utrecht_proj.boundary.plot(ax=ax, linewidth=1, label="Utrecht (R1433619)")
+# Perímetro de Utrecht (gris medio)
+gdf_utrecht_proj.boundary.plot(
+    ax=ax,
+    linewidth=1,
+    edgecolor="0.6"  # gris
+)
 
-# Perímetro de Kanaleneiland
+# Perímetro de Kanaleneiland (gris oscuro, línea discontinua)
 gdf_kanaleneiland_proj.boundary.plot(
     ax=ax,
     linewidth=2,
     linestyle="--",
-    label="Kanaleneiland"
+    edgecolor="0.2"  # gris más oscuro
 )
 
-# Puntos de WoS
-gdf_wos_proj.plot(
-    ax=ax,
-    markersize=10,
-    alpha=0.7,
-    label="WoS (buildings encontrados)"
+# Puntos de WoS: intensidad según número de ciudadanos (n_citizens)
+counts = gdf_wos_proj["n_citizens"]
+
+# Normalización para el mapa de color (min=blanco/gris claro, max=negro)
+norm = plt.Normalize(vmin=counts.min(), vmax=counts.max())
+
+# Scatter manual para controlar color en escala de grises
+sc = ax.scatter(
+    gdf_wos_proj.geometry.x,
+    gdf_wos_proj.geometry.y,
+    s=10,
+    c=counts,
+    cmap="Greys",   # escala de blancos a negros
+    norm=norm,
+    alpha=1,
+    linewidths=0
 )
 
 # Ajustar límites al perímetro de Utrecht
@@ -162,9 +188,11 @@ dy = (maxy - miny) * 0.05
 ax.set_xlim(minx - dx, maxx + dx)
 ax.set_ylim(miny - dy, maxy + dy)
 
+# 1) Sin marco/coordenadas
+ax.set_axis_off()
+
 ax.set_aspect("equal", adjustable="box")
-ax.set_title("Utrecht (R1433619) + Kanaleneiland + WoS de pop_citizen")
-ax.legend()
+ax.set_title("Utrecht (R1433619) + Kanaleneiland + intensidad WoS (nº de ciudadanos)")
 
 plt.tight_layout()
 plt.show()

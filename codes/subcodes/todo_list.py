@@ -30,51 +30,54 @@ def update_warnings(message, path):
     with open(warnings_file, 'a', encoding='utf-8') as f:
         f.write(message + '\n')
 
-def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
+def ring_from_poi(row, lat, lon, mu_log, sigma_log, crs="EPSG:4326", return_point=False):
     """
-    Crea un anillo (corona circular) alrededor de un punto (lat, lon) con radios en metros.
-    
+    Crea un anillo (corona circular) alrededor de un punto (lat, lon) según una
+    distribución LOG-normal (mu_log, sigma_log) y, opcionalmente, muestrea un
+    punto dentro del anillo usando la lognormal truncada.
+
     Parámetros
     ----------
-    row: pd.DataFrame
-        Datos del agente en cuestion
+    row : pd.Series
+        Datos del agente en cuestión. Debe contener 'dist_wos'.
     lat, lon : float
         Coordenadas del punto central (en grados si CRS=EPSG:4326).
-    mu : float
-        Radio central del anillo (en metros).
-    sigma : float
-        Semiancho del anillo (en metros).
+    mu_log : float
+        Media de la normal subyacente (log-espacio) de la log-normal de distancias.
+    sigma_log : float
+        Desviación estándar de la normal subyacente (log-espacio).
     crs : str
         CRS del punto de entrada (por defecto 'EPSG:4326').
+    return_point : bool
+        Si True, devuelve también un punto muestreado dentro del anillo
+        respetando la log-normal truncada.
 
     Retorna
     -------
     shapely.geometry.Polygon
         Polígono del anillo en EPSG:4326.
+    ó, si return_point=True:
+    (Polygon, Point)
+        El anillo y un punto muestreado dentro del mismo.
     """
     import numpy as np
+    import geopandas as gpd
+    from shapely.geometry import Point
+    from scipy.stats import norm, lognorm
 
-    def rango_sigma_lognormal(valor, mu, sigma):
+    # ---------- 1. Helpers internos ----------
+
+    def rango_sigma_lognormal(valor, mu_log, sigma_log):
         """
-        Clasifica un valor de una distribución log-normal según cuántas desviaciones
-        estándar (sigma) se aleja de la media logarítmica y en qué dirección.
-
-        Devuelve una tupla (nivel, lado):
-        - nivel: 1 → dentro de 1σ
-                2 → entre 1σ y 2σ
-                3 → entre 2σ y 3σ
-                4 → más de 3σ
-        - lado: 'low' o 'high'
+        Clasifica 'valor' (en metros) según cuántas sigma se aleja de la media
+        en log-espacio.
         """
+        if valor is None or valor <= 0:
+            return None, None
 
-        if valor <= 0:
-            raise ValueError("El valor debe ser positivo para una distribución log-normal.")
-        
-        # Distancia en número de sigmas
-        z = (np.log(valor) - mu) / sigma
+        z = (np.log(valor) - mu_log) / sigma_log
         n = abs(z)
 
-        # Determinar el nivel
         if n <= 1:
             nivel = 1
         elif n <= 2:
@@ -84,90 +87,119 @@ def ring_from_poi(row, lat, lon, mu, sigma, crs="EPSG:4326"):
         else:
             nivel = 4
 
-        # Determinar el lado
         lado = "high" if z > 0 else "low"
-
         return nivel, lado
 
-    
-    def crear_anillo_sigma(poi, mu_log, sigma_log, n, lado, crs_local="EPSG:3857"):
+    def safe_ppf_log_normal(p, mu_log, sigma_log):
         """
-        Crea un anillo basado en el nivel sigma y lado ('high' o 'low') de una distribución log-normal.
-
-        Parámetros
-        ----------
-        poi : GeoDataFrame o GeoSeries con un solo punto
-        mu_log : float
-            Media de la distribución normal subyacente (en log-espacio)
-        sigma_log : float
-            Desviación estándar de la distribución normal subyacente
-        n : int
-            Nivel sigma (1, 2, 3, 4...)
-        lado : str
-            'high' → zona superior
-            'low' → zona inferior
-        crs_local : str
-            CRS proyectado (en metros, por defecto Web Mercator)
-
-        Devuelve
-        --------
-        shapely.Polygon en EPSG:4326
+        Cuantil seguro de la lognormal, evitando extremos 0 y 1.
         """
+        p = np.clip(p, 1e-6, 1 - 1e-6)
+        return lognorm.ppf(p, s=sigma_log, scale=np.exp(mu_log))
 
-        # Transformar a CRS proyectado (en metros)
+    def sample_radius_lognorm_trunc(mu_log, sigma_log, low, high, rng=None):
+        """
+        Muestra UN radio de una lognormal truncada al intervalo [low, high].
+        """
+        if rng is None:
+            rng = np.random.default_rng()
+
+        F_low = lognorm.cdf(low,  s=sigma_log, scale=np.exp(mu_log))
+        F_high = lognorm.cdf(high, s=sigma_log, scale=np.exp(mu_log))
+
+        eps = 1e-9
+        F_low  = np.clip(F_low,  eps, 1 - eps)
+        F_high = np.clip(F_high, eps, 1 - eps)
+
+        u = rng.uniform(F_low, F_high)
+        r = lognorm.ppf(u, s=sigma_log, scale=np.exp(mu_log))
+        return r
+
+    def crear_anillo_sigma_y_radios(poi, mu_log, sigma_log, n, lado, crs_local):
+        """
+        Calcula el anillo (Polygon) y los radios low/high en metros.
+        """
         poi_m = poi.to_crs(crs_local)
 
-        def safe_ppf(p):
-            """Evita percentiles fuera de [0,1]."""
-            p = np.clip(p, 1e-6, 1 - 1e-6)
-            return lognorm.ppf(p, s=sigma_log, scale=np.exp(mu_log))
+        # Percentiles en la normal estándar
+        if lado == "high":
+            p_low = norm.cdf(n - 1)
+            p_high = norm.cdf(n)
+        elif lado == "low":
+            p_low = norm.cdf(-n)
+            p_high = norm.cdf(-(n - 1))
+        else:
+            raise ValueError("lado debe ser 'high' o 'low'")
 
-        try:
-            # Definir límites percentiles según lado y nivel n
-            if lado == "high":
-                low = safe_ppf(0.5 + 0.34 * (n - 1))
-                high = safe_ppf(0.5 + 0.34 * n)
-            elif lado == "low":
-                low = safe_ppf(0.5 - 0.34 * n)
-                high = safe_ppf(0.5 - 0.34 * (n - 1))
-            else:
-                raise ValueError("El parámetro 'lado' debe ser 'high' o 'low'.")
+        # Radios en metros (lognormal)
+        low = safe_ppf_log_normal(p_low,  mu_log, sigma_log)
+        high = safe_ppf_log_normal(p_high, mu_log, sigma_log)
 
-            # Si los límites están fuera de rango o son iguales, abortar
-            if np.isnan(low) or np.isnan(high) or np.isclose(low, high):
-                return None
+        if np.isnan(low) or np.isnan(high) or np.isclose(low, high):
+            return None, None, None
 
-            # Crear anillo (entre high y low)
-            outer = poi_m.buffer(max(high, low)).iloc[0]
-            inner = poi_m.buffer(min(high, low)).iloc[0]
-            ring = outer.difference(inner)
+        # Crear anillo geométrico en CRS local
+        outer = poi_m.buffer(max(low, high)).iloc[0]
+        inner = poi_m.buffer(min(low, high)).iloc[0]
+        ring_local = outer.difference(inner)
 
-        except Exception as e:
-            print(f"[WARN] Problema al generar anillo n={n}, lado={lado}: {e}")
-            return None
+        # Pasar anillo a WGS84
+        ring_wgs84 = gpd.GeoSeries([ring_local], crs=crs_local).to_crs("EPSG:4326")
+        return ring_wgs84.iloc[0], low, high
 
-        # Convertir de nuevo a WGS84
-        ring_wgs84 = gpd.GeoSeries([ring], crs=crs_local).to_crs("EPSG:4326")
-        return ring_wgs84.iloc[0]
+    # ---------- 2. Clasificar dist_wos en sigma-nivel ----------
 
-    n, lado = rango_sigma_lognormal(row['dist_wos'], mu, sigma)
+    dist = row.get("dist_wos", None)
+    n, lado = rango_sigma_lognormal(dist, mu_log, sigma_log)
+    if n is None:
+        return None if not return_point else (None, None)
 
-    # Crear punto base
+    # ---------- 3. Crear punto base y CRS local ----------
+
     poi = gpd.GeoSeries([Point(lon, lat)], crs=crs)
 
-    # Selección automática de CRS proyectado local
+    # Selección automática del CRS local en metros
     if 50 <= lat <= 54 and -1 <= lon <= 8:
-        # Aprox. Países Bajos, Bélgica, oeste Alemania
-        crs_local = "EPSG:28992"  # Amersfoort / RD New
+        crs_local = "EPSG:28992"  # Países Bajos / entorno
     else:
-        # Por defecto, usa UTM adecuado según longitud
         utm_zone = int((lon + 180) // 6) + 1
         hemisphere = "326" if lat >= 0 else "327"  # norte/sur
         crs_local = f"EPSG:{hemisphere}{utm_zone}"
 
-    ring = crear_anillo_sigma(poi, mu, sigma, n, lado, crs_local)
+    # ---------- 4. Crear anillo y obtener low/high ----------
 
-    return ring
+    ring = None
+    low = None
+    high = None
+    ring, low, high = crear_anillo_sigma_y_radios(poi, mu_log, sigma_log, n, lado, crs_local)
+
+    if ring is None or low is None or high is None:
+        return None if not return_point else (None, None)
+
+    if not return_point:
+        # Comportamiento antiguo: solo el polígono
+        return ring
+
+    # ---------- 5. Muestrear un punto dentro del anillo (opción 1) ----------
+
+    # Punto central en CRS local
+    poi_m = poi.to_crs(crs_local)
+    x0 = poi_m.geometry.iloc[0].x
+    y0 = poi_m.geometry.iloc[0].y
+
+    # Radio desde la log-normal TRUNCADA a [low, high]
+    r = sample_radius_lognorm_trunc(mu_log, sigma_log, low, high)
+
+    # Ángulo uniforme
+    theta = np.random.uniform(0, 2 * np.pi)
+
+    x = x0 + r * np.cos(theta)
+    y = y0 + r * np.sin(theta)
+
+    pt_local = gpd.GeoSeries([Point(x, y)], crs=crs_local)
+    pt_wgs84 = pt_local.to_crs("EPSG:4326").iloc[0]
+
+    return ring, pt_wgs84
 
 def choose_id_in_ring(cand_df, ring_poly, include_border=True):
         """
@@ -260,6 +292,79 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
         results[variable] = var_result
 
     return results
+
+def choose_closest_to_point_in_ring(cand_df, ring_poly, sample_point):
+        """
+        Elige el edificio más cercano a sample_point entre los candidatos de cand_df
+        que estén dentro del anillo ring_poly.
+
+        Supone que:
+        - cand_df tiene columnas ['osm_id', 'lat', 'lon'] en EPSG:4326.
+        - ring_poly está en EPSG:4326 (shapely Polygon o GeoSeries/GeoDataFrame).
+        - sample_point es un shapely Point en EPSG:4326.
+
+        Internamente:
+        - Define un CRS proyectado local (UTM o 28992) a partir de la lat/lon del sample_point.
+        - Reproyecta anillo, candidatos y punto a ese CRS.
+        - Filtra candidatos que intersectan el anillo.
+        - Devuelve el 'osm_id' del candidato más cercano al sample_point.
+        """
+        if cand_df is None or len(cand_df) == 0:
+            return None
+
+        # 1) Determinar CRS local proyectado a partir del sample_point
+        lat = sample_point.y
+        lon = sample_point.x
+
+        if 50 <= lat <= 54 and -1 <= lon <= 8:
+            # Aprox. NL / BE / oeste DE → EPSG:28992
+            crs_local = "EPSG:28992"
+        else:
+            # UTM según longitud
+            utm_zone = int((lon + 180) // 6) + 1
+            hemisphere = "326" if lat >= 0 else "327"  # norte/sur
+            crs_local = f"EPSG:{hemisphere}{utm_zone}"
+
+        # 2) Construir GeoDataFrame de candidatos en WGS84 y reproyectar a CRS local
+        gdf = gpd.GeoDataFrame(
+            cand_df.copy(),
+            geometry=gpd.points_from_xy(cand_df['lon'], cand_df['lat']),
+            crs="EPSG:4326"
+        ).to_crs(crs_local)
+
+        # 3) Anillo como GeoSeries en WGS84 → CRS local
+        if isinstance(ring_poly, (gpd.GeoSeries, gpd.GeoDataFrame)):
+            ring_geom = ring_poly.unary_union
+        else:
+            ring_geom = ring_poly
+
+        ring_gs = gpd.GeoSeries([ring_geom], crs="EPSG:4326").to_crs(crs_local)
+        ring_local = ring_gs.iloc[0]
+
+        # 4) Punto muestreado en WGS84 → CRS local
+        sample_gs = gpd.GeoSeries([sample_point], crs="EPSG:4326").to_crs(crs_local)
+        sample_local = sample_gs.iloc[0]
+
+        # 5) Filtrar candidatos que caen dentro/intersectan el anillo
+        try:
+            idx_hits = list(gdf.sindex.query(ring_local, predicate="intersects"))
+            cand = gdf.iloc[idx_hits] if idx_hits else gdf
+        except Exception:
+            cand = gdf
+
+        mask_in_ring = cand.geometry.intersects(ring_local)
+        gdf_in = cand.loc[mask_in_ring.values]
+
+        if gdf_in.empty:
+            return None
+
+        # 6) Distancias correctas en metros en CRS proyectado local
+        gdf_in = gdf_in.copy()
+        gdf_in["dist_to_sample"] = gdf_in.geometry.distance(sample_local)
+
+        # 7) Elegir el 'osm_id' más cercano
+        chosen_id = gdf_in.sort_values("dist_to_sample").iloc[0]["osm_id"]
+        return chosen_id
 
 def create_family_level_1_schedule(day, pop_building, family_df, activities, system_management, citizen_archetypes, building_archetypes):
     """
@@ -363,14 +468,29 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                         last_poi_data = pop_building[pop_building['osm_id'] == rew_row['osm_id']].iloc[0]
                     except Exception:
                         last_poi_data = pop_building[pop_building['osm_id'] == row_f_df['Home']].iloc[0]
-                    ring = ring_from_poi(row_f_df, last_poi_data['lat'], last_poi_data['lon'], row_f_df['dist_poi_mu'], row_f_df['dist_poi_sigma'])
+
+                    ring, sample_point = ring_from_poi(
+                        row_f_df,
+                        last_poi_data['lat'],
+                        last_poi_data['lon'],
+                        row_f_df['dist_poi_mu']/1.293,
+                        row_f_df['dist_poi_sigma']/1.293,
+                        crs="EPSG:4326",
+                        return_point=True
+                    )
+
                     # Evitamos que el agente vuelva a su ubicacion anterior (puede concatenar en el mismo osm_id)
                     available_options = available_options[available_options['osm_id'] != last_poi_data['osm_id']].copy().reset_index(drop=True)
-                    # Elegimos uno aleatorio del grupo de validos
-                    osm_id = choose_id_in_ring(available_options, ring)
+
+                    osm_id = choose_closest_to_point_in_ring(
+                        available_options,
+                        ring,
+                        sample_point
+                    )
+                    
                     if osm_id == None:
                         osm_id = f"virtual_Dutties_{row_f_df['name']}_{idt}"
-                        
+                              
                 else:
                     # En caso de que el agente cuente ya con un edificio especifico para realizar la accion acude a él
                     osm_id = row_f_df[activity.split('_')[0]]

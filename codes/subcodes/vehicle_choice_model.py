@@ -130,7 +130,6 @@ def _process_family(
 
         if vehicle['name'] in ('walk', 'Public_transport'):
             continue
-      
         new_row = {
             'agent': vehicle['name'],
             'archetype': vehicle['archetype'],
@@ -144,6 +143,7 @@ def _process_family(
             'out': 24*60,
             'user': None,
             'ETC [kWh]': 0,
+            'dist_real': None,
         }     
         
         all_vehicle_schedule.append(new_row)
@@ -346,7 +346,7 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
             out_time = todo_list[idx+1]['opening'] - commute[idx]
             row['in'] = int(in_time)
             row['out'] = int(out_time)
-            row['dist'] = float(0)
+            row['dist_real'] = float(0)
             continue
 
         # tiempo de conmutación para este paso
@@ -363,7 +363,7 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
 
         row['in'] = int(in_time)
         row['out'] = int(out_time)
-        row['dist'] = float(dist)
+        row['dist_real'] = float(dist)
     
     citizen_schedule = todo_list.copy()
     
@@ -372,10 +372,10 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
 def create_vehicles_actions(citizen_schedule, best_transport_distime_matrix):
     '''El objetivo es tener un df que de los datos de consumo relevante para cada actividad'''
 
-    # Antes de iniciar, aseguramos que no sea walk o publico o walk_public
+    '''# Antes de iniciar, aseguramos que no sea walk o publico o walk_public
     if best_transport_distime_matrix[0]['vehicle'] in ['walk', 'Public_transport']:
         # lista vacía = DF vacío
-        return []
+        return []'''
     
     # Simplificamos el 'new_family_schedule', para guardar la info como lo hariamos para el output
     simple_schedule = schedule_simplification(citizen_schedule)
@@ -392,7 +392,7 @@ def create_vehicles_actions(citizen_schedule, best_transport_distime_matrix):
             continue
         row['ETC [kWh]'] = best_transport_distime_matrix[idx-1]['mjkm'] + simple_schedule[idx-1]['ETC [kWh]']
 
-    return simple_schedule    
+    return simple_schedule
     
 def schedule_simplification(citizen_schedule):
 
@@ -437,7 +437,7 @@ def schedule_simplification(citizen_schedule):
         new_row['in'] = def_in
         new_row['out'] = def_out
         # Anadimos la nueva fila al schedule simplificado
-        simple_schedule.extend(new_row)
+        simple_schedule.extend([new_row])
 
     return sorted(simple_schedule, key=lambda x: x['trip'])
 
@@ -637,10 +637,10 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
         # 2) Calcular la distancia
         # Si las distancias son cortas (misma ciudad), euclidiana es suficiente.
-        hubs['dist'] = np.sqrt((hubs['lat'] - home_lat)**2 + (hubs['lon'] - home_lon)**2)
+        hubs['dist_real'] = np.sqrt((hubs['lat'] - home_lat)**2 + (hubs['lon'] - home_lon)**2)
 
         # 3) Seleccionar el más cercano
-        nearest = hubs.loc[hubs['dist'].idxmin(), ['lat', 'lon']]
+        nearest = hubs.loc[hubs['dist_real'].idxmin(), ['lat', 'lon']]
 
         return float(nearest['lat']), float(nearest['lon'])
     
@@ -797,7 +797,7 @@ def vehicle_chosing(vehicle_score_matrix, simplified: bool=True):
     if simplified:
         walk_rows = [row for row in vehicle_score_matrix if row['vehicle'] == 'walk']
         
-        if all(row['conmu_time'] < 15 for row in walk_rows):
+        if all(row['conmu_time'] < 24 for row in walk_rows):
             return walk_rows
         
         rest_rows = [row for row in vehicle_score_matrix if row['vehicle'] not in ('walk', 'Public_transport')]
@@ -996,9 +996,8 @@ def distime_calculation(
                         (c0['lon'], c0['lat']),
                         (c1['lon'], c1['lat']),
                         unit=Unit.METERS
-                    ) / 1000.0
+                    ) / 1000.0 * 1.293
 
-            distance_km = distance_km * 1.293
             cache[cache_key] = distance_km
             new_cache_rows.append({'step': (step_0, step_1), 'map': map_type, 'km': distance_km})
 
@@ -1122,7 +1121,7 @@ def find_p2(poi_B, transport, p2s, pop_building, networks_map):
             unit=Unit.METERS
         ),
         axis=1
-    )
+    ) * 1.293
 
     # Ordenamos de mas cerca a mas lejos
     best = available_P.sort_values(by='distance', ascending=True).iloc[0] # ISSUE 30
