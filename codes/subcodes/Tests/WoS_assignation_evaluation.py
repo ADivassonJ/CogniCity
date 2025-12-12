@@ -62,7 +62,7 @@ pts[cols_out].to_csv(out_perpoint_csv, index=False, encoding="utf-8")
 
 summary_df = pd.DataFrame([{
     "n_total": before,
-    "n_filtrado": after,
+    "n_filtrados": after,
     "n_validos": len(pts),
     "mu_norm": mu_norm,
     "sigma_norm": sigma_norm,
