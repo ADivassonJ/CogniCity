@@ -1015,10 +1015,7 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
         except Exception as e:
             min_var = float(0)
         
-        if variable in ('dist_wos', 'dist_poi'):
-            var_result = np.random.lognormal(mean=mu, sigma=sigma)
-        else:
-            var_result = np.random.normal(mu, sigma)
+        var_result = np.random.normal(mu, sigma)
 
         var_result = max(min(var_result, max_var), min_var)
         results[variable] = var_result
@@ -1517,7 +1514,12 @@ def ring_from_poi(row, lat, lon, mu_log, sigma_log, crs="EPSG:4326", return_poin
     # ---------- 2. Clasificar dist_wos en sigma-nivel ----------
 
     dist = row.get("dist_wos", None)
-    n, lado = rango_sigma_lognormal(dist, mu_log, sigma_log)
+    if dist is not None:
+        # convertir distancia ruteada a equivalente euclidiana (coherente con tu mu/sigma corregidos)
+        dist_adj = dist / 1.293
+    else:
+        dist_adj = None   # o tu factor calibrado real
+    n, lado = rango_sigma_lognormal(dist_adj, mu_log, sigma_log)
     if n is None:
         return None if not return_point else (None, None)
 

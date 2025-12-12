@@ -33,14 +33,6 @@ if pts.empty:
     raise ValueError("No hay ciudadanos con 'dist_wos_real' válido y positivo.")
 
 # =========================
-#   PARÁMETROS LOG-NORMALES
-# =========================
-log_vals = np.log(pts["dist_wos_real"].values)
-
-mu_log = float(np.mean(log_vals))
-sigma_log = float(np.std(log_vals, ddof=1))  # desviación muestral
-
-# =========================
 #   PARÁMETROS NORMALES (MU Y SIGMA SOBRE ESCALA ORIGINAL)
 # =========================
 mu_norm = float(np.mean(pts["dist_wos_real"]))
@@ -56,9 +48,6 @@ p25, p50, p75 = np.percentile(pts["dist_wos_real"], [25, 50, 75])
 # =========================
 print(f"N citizens originales: {before}  → tras filtro: {after}")
 print(f"N con dist_wos_real válido: {len(pts)}")
-print("—— Log-normal parameters ——")
-print(f"μ_log = {mu_log:.5f}")
-print(f"σ_log = {sigma_log:.5f}")
 print("—— Normal (no log) parameters ——")
 print(f"μ_norm = {mu_norm:.5f}")
 print(f"σ_norm = {sigma_norm:.5f}")
@@ -75,8 +64,6 @@ summary_df = pd.DataFrame([{
     "n_total": before,
     "n_filtrado": after,
     "n_validos": len(pts),
-    "mu_log": mu_log,
-    "sigma_log": sigma_log,
     "mu_norm": mu_norm,
     "sigma_norm": sigma_norm,
     "min_m": min_m,
