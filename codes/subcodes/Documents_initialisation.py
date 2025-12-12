@@ -3,6 +3,7 @@ from __future__ import annotations
 # estándar
 import itertools
 import os
+import math
 import random
 import shutil
 import sys
@@ -1603,6 +1604,11 @@ def calculate_centroid(coords):
     centroide = poligono.centroid
     return (centroide.y, centroide.x)
 
+def to_log_scale(mu, sigma):
+    sigma_log = math.sqrt(math.log(1 + (sigma**2) / (mu**2)))
+    mu_log = math.log(mu) - 0.5 * sigma_log**2
+    return mu_log, sigma_log
+
 def Utilities_assignment(
     df_citizens: pd.DataFrame,
     df_families: pd.DataFrame,
@@ -1958,18 +1964,17 @@ def Utilities_assignment(
 
                     # OJO: aquí mu y sigma deben ser los parámetros en log-espacio si ring_from_poi
                     # los interpreta como mu_log y sigma_log.
-                    mu_log    = float(data_filtered['dist_wos_mu'])
-                    sigma_log = float(data_filtered['dist_wos_sigma'])
+                    mu = float(data_filtered['dist_wos_mu'])
+                    sigma = float(data_filtered['dist_wos_sigma'])
 
-                    print(f' archetype: {row.archetype}')
-                    input(f"mu_log: {mu_log}, sigma_log: {sigma_log}")
+                    mu_log, sigma_log = to_log_scale(mu/1.293, sigma/1.293)
 
                     ring, sample_point = ring_from_poi(
                         row_updated,
                         home_lat,
                         home_lon,
-                        mu_log/1.293,
-                        sigma_log/1.293,
+                        mu_log,
+                        sigma_log,
                         crs=ring_crs,
                         return_point=True  # <<< importante
                     )
@@ -2446,7 +2451,7 @@ def Documents_initialisation(population, study_area):
 if __name__ == '__main__':
     
     # Input
-    population = 10
+    population = 1000
     study_area = 'Kanaleneiland'
     
     Documents_initialisation(population, study_area)
