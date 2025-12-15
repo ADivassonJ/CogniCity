@@ -15,6 +15,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed  # o ThreadPool
 from functools import partial
 import pandas as pd
 from tqdm import tqdm
+from haversine import Unit, haversine
 
 def update_warnings(message, path):
     """
@@ -151,7 +152,12 @@ def ring_from_poi(row, lat, lon, mu_log, sigma_log, crs="EPSG:4326", return_poin
     # ---------- 2. Clasificar dist_wos en sigma-nivel ----------
 
     dist = row.get("dist_wos", None)
-    n, lado = rango_sigma_lognormal(dist, mu_log, sigma_log)
+    if dist is not None:
+        # convertir distancia ruteada a equivalente euclidiana (coherente con tu mu/sigma corregidos)
+        dist_adj = dist / 1.293
+    else:
+        dist_adj = None   # o tu factor calibrado real
+    n, lado = rango_sigma_lognormal(dist_adj, mu_log, sigma_log)
     if n is None:
         return None if not return_point else (None, None)
 
@@ -367,6 +373,7 @@ def choose_closest_to_point_in_ring(cand_df, ring_poly, sample_point):
         chosen_id = gdf_in.sort_values("dist_to_sample").iloc[0]["osm_id"]
         return chosen_id
 
+
 def to_log_scale(mu, sigma):
     sigma_log = math.sqrt(math.log(1 + (sigma**2) / (mu**2)))
     mu_log = math.log(mu) - 0.5 * sigma_log**2
@@ -467,52 +474,64 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
             # Hacemos un loop para realizar la suma de tareas la X cantidad de veces necesaria
             for idt in range(int(activity_amount)):
                 if activity == 'Dutties':
-                    # En caso de que el agente NO cuente con un edificio especifico para realizar la accion
-                    # Elegimos, según el tipo de actividad que lista de edificios pueden ser validos
-                    available_options = pop_building[pop_building['archetype'] == activity][['osm_id', 'lat', 'lon']] # ISSUE 33
+                    # 1) Candidatos por tipo de actividad
+                    available_options = pop_building.loc[
+                        pop_building["archetype"].eq(activity),
+                        ["osm_id", "lat", "lon"]
+                    ].copy()
+
                     try:
-                        last_poi_data = pop_building[pop_building['osm_id'] == rew_row['osm_id']].iloc[0]
+                        last_osmid = todolist_agent[-1]['osm_id']
+                        if last_osmid.startswith("virtual"):
+                            flag = False
+                            osm_id = None
+                        else:
+                            flag = True
+                            last_poi_data = pop_building[pop_building['osm_id'] == last_osmid].iloc[0]
                     except Exception:
+                        flag = True
                         last_poi_data = pop_building[pop_building['osm_id'] == row_f_df['Home']].iloc[0]
 
-                    mu = float(row_f_df['dist_poi_mu'])
-                    sigma = float(row_f_df['dist_poi_sigma'])
+                    if flag:
+                        mu = float(row_f_df['dist_poi_mu'])*1000
+                        sigma = float(row_f_df['dist_poi_sigma'])*1000
 
-                    mu_log, sigma_log = to_log_scale(mu/1.293, sigma/1.293)
+                        mu_log, sigma_log = to_log_scale(mu/1.293, sigma/1.293)
 
-                    ring, sample_point = ring_from_poi(
-                        row_f_df,
-                        last_poi_data['lat'],
-                        last_poi_data['lon'],
-                        mu_log,
-                        sigma_log,
-                        crs="EPSG:4326",
-                        return_point=True
-                    )
+                        ring, sample_point = ring_from_poi(
+                            row_f_df,
+                            last_poi_data['lat'],
+                            last_poi_data['lon'],
+                            mu_log,
+                            sigma_log,
+                            crs="EPSG:4326",
+                            return_point=True
+                        )
 
-                    # Evitamos que el agente vuelva a su ubicacion anterior (puede concatenar en el mismo osm_id)
-                    available_options = available_options[available_options['osm_id'] != last_poi_data['osm_id']].copy().reset_index(drop=True)
+                        # Evitamos que el agente vuelva a su ubicacion anterior (puede concatenar en el mismo osm_id)
+                        available_options = available_options[available_options['osm_id'] != last_poi_data['osm_id']].copy().reset_index(drop=True)
 
-                    osm_id = choose_closest_to_point_in_ring(
-                        available_options,
-                        ring,
-                        sample_point
-                    )
-                    
+                        osm_id = choose_closest_to_point_in_ring(
+                            available_options,
+                            ring,
+                            sample_point
+                        )
+
+                    # Vamos a calcular aqui la distancia entre los pois a ver que onda
+                    # viendo que los resultados pone Virtual, interpreto que el anillo lo hace con valores distintos y blablaba
                     if osm_id == None:
                         osm_id = f"virtual_Dutties_{row_f_df['name']}_{idt}"
-                              
                 else:
                     # En caso de que el agente cuente ya con un edificio especifico para realizar la accion acude a él
                     osm_id = row_f_df[activity.split('_')[0]]
-                       
+
                 if activity == 'WoS':
                     # Si el agente tiene una hora de accion especifica fixed True, si no False
                     fixed = True if row_f_df[f'WoS_fixed'] == 1 else False
                 else:
                     # En caso de que el agente NO tenga una hora especifica de accceso y salida
                     fixed = False
-                    
+
                 # Si la actividad es el curro fixed sera WoS, si no Service 
                 fixed_word = 'WoS' if ((activity == 'WoS') & fixed == False) else 'Service'
                 
@@ -528,22 +547,27 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 else:
                     if osm_id.startswith("virtual"):
                         opening, closing = find_time(building_archetypes, activity_re)
-
                     else:
                         opening = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_opening'].iloc[0]
                         closing = pop_building[(pop_building['osm_id'] == osm_id) & (pop_building['archetype'] == activity_re)][f'{fixed_word}_closing'].iloc[0]
-                
+
                 if activity == 'WoS':
                     # En caso de que el agente tenga un tiempo requerido de actividad
                     time2spend = int(row_f_df['WoS_time'])
                     if wos_halftime:
                         time2spend = time2spend/2
-                
+
                 try:
                     node = pop_building[pop_building['osm_id']==osm_id]['node'].iloc[0]
                 except Exception:
                     node = 'unknown'
                 
+                if osm_id.startswith("virtual"):
+                    dist = 'virtual'
+                else:
+                    current_data = pop_building[pop_building['osm_id'] == osm_id].iloc[0]
+                    dist = haversine((current_data['lat'], current_data['lon']), (last_poi_data['lat'], last_poi_data['lon']), unit=Unit.METERS)
+
                 rew_row =[{
                     'agent': row_f_df['name'],
                     'archetype': row_f_df['archetype'],
@@ -558,8 +582,10 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                     'family': row_f_df['family'],
                     'family_archetype': row_f_df['family_archetype'],
                     's_class': row_f_df['s_class'],
-                    'trip': 1 if activity == 'WoS' else 2
+                    'trip': 1 if activity == 'WoS' else 2,
+                    'dist': dist,
                 }]
+
                 # La añadimos    
                 todolist_agent.extend(rew_row)
             
@@ -582,7 +608,8 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 'family': row_f_df['family'],
                 'family_archetype': row_f_df['family_archetype'],
                 's_class': row_f_df['s_class'],
-                'trip': 0 if h_activ == 'Home_out' else 3
+                'trip': 0 if h_activ == 'Home_out' else 3,
+                'dist': 0,
             }]
             # La añadimos
             todolist_agent.extend(rew_row)
@@ -602,7 +629,8 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                 'family': row_f_df['family'],
                 'family_archetype': row_f_df['family_archetype'],
                 's_class': row_f_df['s_class'],
-                'trip': 0
+                'trip': 0,
+                'dist': 0,
             }]
         # Añadimos a los resultados
         todolist_family.extend(todolist_agent)    
@@ -785,6 +813,7 @@ def main_td():
     print(f'docs readed')
     
     days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
+    days = {'Mo'}
 
     found_schedule = set()
     found_vehicles = set()

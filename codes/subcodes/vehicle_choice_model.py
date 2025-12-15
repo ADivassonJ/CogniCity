@@ -965,9 +965,9 @@ def distime_calculation(
         else:
             if has_virtual:
                 if is_dutties:
-                    distance_km = citizen_data['dist_poi'] / 1000.0
+                    distance_km = citizen_data['dist_poi']
                 else:
-                    distance_km = citizen_data['dist_wos'] / 1000.0
+                    distance_km = citizen_data['dist_wos']
             else:
                 c0 = coord_map.get(step_0)
                 c1 = coord_map.get(step_1)

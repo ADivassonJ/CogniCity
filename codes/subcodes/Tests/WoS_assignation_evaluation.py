@@ -14,7 +14,7 @@ out_summary_csv  = Path("resumen_dist_wos_real_lognormal.csv")
 # =========================
 citizens = pd.read_parquet(path_citizens)
 
-mask_ind  = citizens["archetype"].isin(["c_arch_0"])
+mask_ind  = citizens["archetype"].isin(["c_arch_2"])
 mask_home = citizens["WoS_subgroup"].astype(str).str.strip() != "Home"
 
 before = len(citizens)
