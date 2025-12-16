@@ -78,7 +78,7 @@ def _process_family(
         )
 
         # Escoge vehículo
-        best_transport_distime_matrix = vehicle_chosing(distime_matrix)
+        best_transport_distime_matrix = vehicle_chosing(distime_matrix, citizen_data['archetype'])
 
         # Actualiza schedule de la familia con la elección
         schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist)
@@ -792,23 +792,69 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
     return chosen_mode, plugin 
 
-def vehicle_chosing(vehicle_score_matrix, simplified: bool=True): 
+def vehicle_chosing(vehicle_score_matrix, archetype, simplified: bool=True): 
+
+    def mode_probabilities(d: float):
+        """Devuelve (P_walk, P_public, P_private) para distancia d en km."""
+        if d <= D1:
+            return (1.0, 0.0, 0.0)
+        if d < D2:
+            t1 = (d - D1) / (D2 - D1)          # 0..1
+            return (1.0 - t1, t1, 0.0)
+        if d < D3:
+            t2 = (d - D2) / (D3 - D2)          # 0..1
+            return (0.0, 1.0 - t2, t2)
+        return (0.0, 0.0, 1.0)
+
+    def sample_mode(d: float, rng=random.random):
+        """Devuelve una elección concreta ('walk','public','private') vía Monte Carlo."""
+        pw, ppt, ppc = mode_probabilities(d)
+        u = rng()
+        if u < pw:
+            return "walk"
+        if u < pw + ppt:
+            return "Public_transport"
+        return "private"
+
 
     if simplified:
-        walk_rows = [row for row in vehicle_score_matrix if row['vehicle'] == 'walk']
-        
-        if all(row['conmu_time'] < 24 for row in walk_rows):
-            return walk_rows
-        
-        rest_rows = [row for row in vehicle_score_matrix if row['vehicle'] not in ('walk', 'Public_transport')]
 
-        if not rest_rows:
-            current_transport = [row for row in vehicle_score_matrix if row['vehicle'] == 'Public_transport']
+        if archetype == 'c_arch_0':
+            D1, D2, D3 = 1.893, 6.323, 21.313
+        elif archetype == 'c_arch_1':
+            D1, D2, D3 = 1.75, 4.688, 13.938
+        elif archetype == 'c_arch_2':
+            D1, D2, D3 = 1.255, 5.995, 0.00
+        elif archetype == 'c_arch_3':
+            D1, D2, D3 = 1.965, 2.730, 15.48
+        elif archetype == 'c_arch_4':
+            D1, D2, D3 = 1.345, 9.410, 18.865
         else:
-            chosen_vehicle = rest_rows[0]['vehicle']
-            current_transport = [row for row in vehicle_score_matrix if row['vehicle'] == chosen_vehicle]
-        
-        return current_transport
+            D1, D2, D3 = 1.65, 8.48, 17.46
+
+        avg_distance = np.mean([d["distance"] for d in vehicle_score_matrix])
+
+        transport_choice = sample_mode(avg_distance)
+
+        # 1. Filtrar
+        filtered_rows = [
+            row for row in vehicle_score_matrix
+            if isinstance(row.get('vehicle'), str) and 'priv' in row['vehicle']
+        ]
+
+        if filtered_rows == [] and transport_choice == 'private':
+            transport_choice = 'Public_transport'
+
+        if transport_choice in ['Public_transport', 'walk']:
+            return [row for row in vehicle_score_matrix if row['vehicle'] == transport_choice]
+        else:
+            # 2. Ordenar por 'vehicle' (requisito de groupby)
+            filtered_rows.sort(key=lambda x: x['vehicle'])
+            # 3. Agrupar y tomar el primer grupo
+            first_vehicle, first_group_iter = next(
+                groupby(filtered_rows, key=lambda x: x['vehicle'])
+            )
+            return list(first_group_iter)
 
     # Sumamos los scores por transporte
     simplified_df = vehicle_score_matrix.groupby('vehicle', as_index=False).sum()   
