@@ -23,7 +23,7 @@ from subcodes.Daily_schedule_definition import Daily_schedule_definition
 ### Main
 def main():
     # Input
-    population = 1500
+    population = 16000
     study_area = 'Kanaleneiland'
     
     paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
