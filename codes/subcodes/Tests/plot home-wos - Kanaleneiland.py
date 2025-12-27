@@ -166,7 +166,7 @@ gdf_kanaleneiland_proj.boundary.plot(
 counts = gdf_wos_proj["n_citizens"]
 
 # Normalización para el mapa de color (min=blanco/gris claro, max=negro)
-norm = plt.Normalize(vmin=counts.min(), vmax=counts.max())
+norm = plt.Normalize(vmin=counts.min()-10, vmax=counts.max())
 
 # Scatter manual para controlar color en escala de grises
 sc = ax.scatter(

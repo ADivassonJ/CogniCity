@@ -125,7 +125,9 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
             todolist = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
             vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day)
-            
+        
+    files_done, days_missing = check_current_data(days, paths)
+
     ## Todolist
     # Convining docs
     docs_convining(files_done['todolist'], 'todolist', study_area, paths)
@@ -200,7 +202,7 @@ if __name__ == '__main__':
     pop_archetypes['citizen'] = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_citizen.xlsx")
     pop_archetypes['building'] = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_building.xlsx")
     
-    ##############################################################################
+    ##############################################################################################################
     print(f'docs readed')
     
     Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations)

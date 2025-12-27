@@ -1,3 +1,15 @@
+import warnings
+
+warnings.filterwarnings(
+    "error",
+    message="invalid value encountered in intersects",
+    category=RuntimeWarning
+)
+
+import matplotlib.pyplot as plt
+import geopandas as gpd
+
+import shapely
 import os
 import sys
 import geopandas as gpd
@@ -17,6 +29,11 @@ import pandas as pd
 from tqdm import tqdm
 from haversine import Unit, haversine
 
+import numpy as np
+from shapely.geometry import Point
+from shapely.ops import transform as shp_transform
+from pyproj import CRS, Transformer
+
 def update_warnings(message, path):
     """
     Escribe o agrega un mensaje al archivo 'warnings.txt' dentro de path['results'].
@@ -31,6 +48,79 @@ def update_warnings(message, path):
     # Abrir el archivo en modo 'append' para agregar al final
     with open(warnings_file, 'a', encoding='utf-8') as f:
         f.write(message + '\n')
+
+def _aeqd_transformers(lat: float, lon: float, crs_in: str = "EPSG:4326"):
+    """
+    Devuelve transformadores (a_metros, a_wgs84) usando AEQD centrado en (lat,lon).
+    """
+    crs_in_obj = CRS.from_user_input(crs_in)
+    crs_local = CRS.from_proj4(
+        f"+proj=aeqd +lat_0={lat} +lon_0={lon} +datum=WGS84 +units=m +no_defs"
+    )
+    crs_out_obj = CRS.from_epsg(4326)
+
+    to_local = Transformer.from_crs(crs_in_obj, crs_local, always_xy=True).transform
+    to_wgs84 = Transformer.from_crs(crs_local, crs_out_obj, always_xy=True).transform
+    return to_local, to_wgs84
+
+
+def _sigma_band_from_value(dist_value: float, mu_log: float, sigma_log: float):
+    """
+    Clasifica un valor >0 en banda sigma n=1..4 y lado ('high'/'low') según z en log-espacio.
+    """
+    if dist_value is None or not np.isfinite(dist_value) or dist_value <= 0:
+        return None, None, None  # (band, lado, z)
+
+    z = (np.log(dist_value) - mu_log) / sigma_log
+    az = abs(z)
+
+    if az <= 1:
+        band = 1
+    elif az <= 2:
+        band = 2
+    elif az <= 3:
+        band = 3
+    else:
+        band = 4
+
+    lado = "high" if z > 0 else "low"
+    return band, lado, z
+
+
+def _radii_for_sigma_band(mu_log: float, sigma_log: float, band: int, lado: str, *, low_disk: bool = False):
+    """
+    Convierte (band, lado) a (r_in, r_out) en metros usando:
+      r = exp(mu + sigma*z)
+
+    Convención:
+      - lado='high', band=n  -> z in [n-1, n]
+      - lado='low',  band=n  -> z in [-n, -(n-1)]
+
+    low_disk=True:
+      - si lado='low' y band es el más bajo que quieras tratar como “hasta r_out”,
+        entonces fuerza r_in=0 (disco). Útil si conceptualmente quieres que el bin
+        “más cercano” sea [0, r_out].
+    """
+    if band < 1:
+        raise ValueError("band debe ser >= 1")
+    if lado not in ("high", "low"):
+        raise ValueError("lado debe ser 'high' o 'low'")
+
+    if lado == "high":
+        z_low, z_high = band - 1, band
+    else:
+        z_low, z_high = -band, -(band - 1)
+
+    r_in = float(np.exp(mu_log + sigma_log * z_low))
+    r_out = float(np.exp(mu_log + sigma_log * z_high))
+
+    # ordenar por seguridad numérica
+    r_in, r_out = (min(r_in, r_out), max(r_in, r_out))
+
+    if low_disk and lado == "low":
+        r_in = 0.0
+
+    return r_in, r_out
 
 def ring_from_poi(row, lat, lon, mu_log, sigma_log, crs="EPSG:4326", return_point=False):
     """
@@ -74,8 +164,11 @@ def ring_from_poi(row, lat, lon, mu_log, sigma_log, crs="EPSG:4326", return_poin
         Clasifica 'valor' (en metros) según cuántas sigma se aleja de la media
         en log-espacio.
         """
-        if valor is None or valor <= 0:
+        if valor is None or valor < 0:
             return None, None
+        
+        if valor == 0:
+            valor = 1e-9
 
         z = (np.log(valor) - mu_log) / sigma_log
         n = abs(z)
@@ -157,7 +250,9 @@ def ring_from_poi(row, lat, lon, mu_log, sigma_log, crs="EPSG:4326", return_poin
         dist_adj = dist / 1.293
     else:
         dist_adj = None   # o tu factor calibrado real
+
     n, lado = rango_sigma_lognormal(dist_adj, mu_log, sigma_log)
+
     if n is None:
         return None if not return_point else (None, None)
 
@@ -208,6 +303,7 @@ def ring_from_poi(row, lat, lon, mu_log, sigma_log, crs="EPSG:4326", return_poin
 
     return ring, pt_wgs84
 
+
 def choose_id_in_ring(cand_df, ring_poly, include_border=True):
         """
         Devuelve un osm_id aleatorio de cand_df dentro del anillo/polígono.
@@ -229,10 +325,10 @@ def choose_id_in_ring(cand_df, ring_poly, include_border=True):
 
         # 2) Extraer geometría del anillo y su CRS
         if isinstance(ring_poly, gpd.GeoDataFrame):
-            ring_geom = ring_poly.geometry.unary_union
+            ring_geom = ring_poly.geometry.union_all()
             ring_crs = ring_poly.crs
         elif isinstance(ring_poly, gpd.GeoSeries):
-            ring_geom = ring_poly.unary_union
+            ring_geom = ring_poly.union_all()
             ring_crs = ring_poly.crs
         else:
             ring_geom = ring_poly
@@ -300,7 +396,44 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
 
     return results
 
+def debug_plot_ring(ring_local, sample_local=None, cand_gdf=None, title="DEBUG ring_local"):
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Ring
+    gpd.GeoSeries([ring_local]).plot(
+        ax=ax,
+        facecolor="none",
+        edgecolor="red",
+        linewidth=2,
+        label="ring_local"
+    )
+
+    # Punto sample
+    if sample_local is not None:
+        gpd.GeoSeries([sample_local]).plot(
+            ax=ax,
+            color="blue",
+            markersize=50,
+            label="sample_point"
+        )
+
+    # Candidatos (opcional)
+    if cand_gdf is not None and not cand_gdf.empty:
+        cand_gdf.plot(
+            ax=ax,
+            color="black",
+            markersize=5,
+            alpha=0.5,
+            label="candidates"
+        )
+
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_title(title)
+    ax.legend()
+    plt.show()
+
 def choose_closest_to_point_in_ring(cand_df, ring_poly, sample_point):
+    
         """
         Elige el edificio más cercano a sample_point entre los candidatos de cand_df
         que estén dentro del anillo ring_poly.
@@ -330,7 +463,7 @@ def choose_closest_to_point_in_ring(cand_df, ring_poly, sample_point):
             # UTM según longitud
             utm_zone = int((lon + 180) // 6) + 1
             hemisphere = "326" if lat >= 0 else "327"  # norte/sur
-            crs_local = f"EPSG:{hemisphere}{utm_zone}"
+            crs_local = f"EPSG:{hemisphere}{utm_zone:02d}"
 
         # 2) Construir GeoDataFrame de candidatos en WGS84 y reproyectar a CRS local
         gdf = gpd.GeoDataFrame(
@@ -341,7 +474,7 @@ def choose_closest_to_point_in_ring(cand_df, ring_poly, sample_point):
 
         # 3) Anillo como GeoSeries en WGS84 → CRS local
         if isinstance(ring_poly, (gpd.GeoSeries, gpd.GeoDataFrame)):
-            ring_geom = ring_poly.unary_union
+            ring_geom = ring_poly.union_all()
         else:
             ring_geom = ring_poly
 
@@ -493,10 +626,13 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                         last_poi_data = pop_building[pop_building['osm_id'] == row_f_df['Home']].iloc[0]
 
                     if flag:
-                        mu = float(row_f_df['dist_poi_mu'])*1000
-                        sigma = float(row_f_df['dist_poi_sigma'])*1000
+                        mu = float(row_f_df['dist_poi_mu'])
+                        sigma = float(row_f_df['dist_poi_sigma'])
 
                         mu_log, sigma_log = to_log_scale(mu/1.293, sigma/1.293)
+
+                        print(f"row_f_df:\n{row_f_df}")
+                        input(f"lat:{last_poi_data['lat']}, lon:{last_poi_data['lon']}, mu_log:{mu_log}, sigma_log:{sigma_log}")
 
                         ring, sample_point = ring_from_poi(
                             row_f_df,
@@ -507,6 +643,8 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                             crs="EPSG:4326",
                             return_point=True
                         )
+
+                        debug_plot_ring(ring)                       
 
                         # Evitamos que el agente vuelva a su ubicacion anterior (puede concatenar en el mismo osm_id)
                         available_options = available_options[available_options['osm_id'] != last_poi_data['osm_id']].copy().reset_index(drop=True)
@@ -566,7 +704,10 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                     dist = 'virtual'
                 else:
                     current_data = pop_building[pop_building['osm_id'] == osm_id].iloc[0]
-                    dist = haversine((current_data['lat'], current_data['lon']), (last_poi_data['lat'], last_poi_data['lon']), unit=Unit.METERS)
+                    try:
+                        dist = haversine((current_data['lat'], current_data['lon']), (last_poi_data['lat'], last_poi_data['lon']), unit=Unit.METERS)
+                    except Exception:
+                        dist = 'Error'
 
                 rew_row =[{
                     'agent': row_f_df['name'],
@@ -721,7 +862,7 @@ def todolist_family_creation(
                      activities=activities, citizen_archetypes=citizen_archetypes, system_management=system_management, building_archetypes=building_archetypes)
     # Lanzamos en paralelo
     results = []
-    with Executor(max_workers=n_jobs) as ex:
+    '''with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam): fam[0] for fam in families}
         # Progreso
         for fut in tqdm(as_completed(futures), total=total, desc=f"Families todo list creation ({day}): "):
@@ -731,13 +872,13 @@ def todolist_family_creation(
                 results.extend(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
-                print(f"[ERROR] familia '{fam_name}': {e}")
+                print(f"[ERROR] familia '{fam_name}': {e}")'''
     
-    '''# Iteración secuencial con barra de progreso
+    # Iteración secuencial con barra de progreso
     results = []
     for fam in tqdm(families, total=total, desc=f"/secuential/ Families todo list creation ({day}): "):
         df_level1 = _build_family_level1(fam, day, pop_building, activities, citizen_archetypes, system_management, building_archetypes)
-        results.extend(df_level1)'''
+        results.extend(df_level1)
     
     # Un solo concat al final (mucho más rápido)
     if results:

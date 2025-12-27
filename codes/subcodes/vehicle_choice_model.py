@@ -336,9 +336,16 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
     # Se usará el índice de la iteración para tomar el conmu_time
     commute = [row['conmu_time'] for row in best_transport_distime_matrix]
     distance = [row['distance'] for row in best_transport_distime_matrix]
+    walk_time = [row['walk_time'] for row in best_transport_distime_matrix]
+    travel_time = [row['travel_time'] for row in best_transport_distime_matrix]
+    wait_time = [row['wait_time'] for row in best_transport_distime_matrix]
+    cost = [row['cost'] for row in best_transport_distime_matrix]
+    mjkm = [row['mjkm'] for row in best_transport_distime_matrix]
+    benefits = [row['benefits'] for row in best_transport_distime_matrix]
+    emissions = [row['emissions'] for row in best_transport_distime_matrix]
 
     out_time = None  # se actualizará en el bucle
-
+    
     for idx, row in enumerate(todo_list):
         if row['todo'] == 'Home_out':
             # Sale de casa con antelación igual a la conmutación hasta la primera actividad
@@ -347,11 +354,25 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
             row['in'] = int(in_time)
             row['out'] = int(out_time)
             row['dist_real'] = float(0)
+            row['walk_time'] = float(0)
+            row['travel_time'] = float(0)
+            row['wait_time'] = float(0)
+            row['cost'] = float(0)
+            row['mjkm'] = float(0)
+            row['benefits'] = float(0)
+            row['emissions'] = float(0)
             continue
 
         # tiempo de conmutación para este paso
         conmu_time = commute[idx-1]
         dist = distance[idx-1]
+        a_walk_time = walk_time[idx-1]
+        a_travel_time = travel_time[idx-1]
+        a_wait_time = wait_time[idx-1]
+        a_cost = cost[idx-1]
+        a_mjkm = mjkm[idx-1]
+        a_benefits = benefits[idx-1]
+        a_emissions = emissions[idx-1]
 
         # Para el resto, llega tras la conmutación desde el punto anterior
         if out_time is None:
@@ -364,6 +385,13 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
         row['in'] = int(in_time)
         row['out'] = int(out_time)
         row['dist_real'] = float(dist)
+        row['walk_time'] = float(a_walk_time)
+        row['travel_time'] = float(a_travel_time)
+        row['wait_time'] = float(a_wait_time)
+        row['cost'] = float(a_cost)
+        row['mjkm'] = float(a_mjkm)
+        row['benefits'] = float(a_benefits)
+        row['emissions'] = float(a_emissions)
     
     citizen_schedule = todo_list.copy()
     
@@ -1051,6 +1079,12 @@ def distime_calculation(
         waiting_time = waiting_time_calculation(distance_km, step_1, transport)
         benefits     = benefits_calculation(citizen_data, step_1)
 
+
+        mjkm = transport['mjkm'] if transport['archetype'] != 'Public_transport' else 1
+        distance_cost = distance_km if transport['archetype'] != 'Public_transport' else 1
+
+        cost = (transport['price'] * mjkm * distance_cost) if (map_type == 'drive' and distance_km > 0) else 0
+
         rows.append({
             'citizen':      citizen_data['name'],
             'vehicle':      transport['name'],
@@ -1060,10 +1094,10 @@ def distime_calculation(
             'walk_time':    (distance_km / citizen_data['walk_speed']) if (map_type == 'walk'  and distance_km > 0) else 0,
             'travel_time':  (distance_km / transport['v'])            if (map_type == 'drive' and distance_km > 0) else 0,
             'wait_time':    waiting_time,
-            'cost':         (transport['price'] * transport['mjkm'] * distance_km) if (map_type == 'drive' and distance_km > 0) else 0,
-            'mjkm':         (transport['mjkm']   * distance_km)                     if (map_type == 'drive' and distance_km > 0) else 0,
+            'cost':         cost,
+            'mjkm':         (transport['mjkm']  * distance_km)                     if (map_type == 'drive' and distance_km > 0) else 0,
             'benefits':     benefits,
-            'emissions':    (transport['CO2km']  * distance_km)                     if (map_type == 'drive' and distance_km > 0) else 0,
+            'emissions':    (transport['CO2km'] * distance_km)                     if (map_type == 'drive' and distance_km > 0) else 0,
         })
 
     # --- 5) Agregación final ---

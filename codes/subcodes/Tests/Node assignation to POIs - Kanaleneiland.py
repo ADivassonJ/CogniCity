@@ -9,31 +9,15 @@ from shapely.ops import voronoi_diagram
 # --------------------------------------------------------
 # 1. Leer datos
 # --------------------------------------------------------
-path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population"
+path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Aradas\population"
 
-nodes = pd.read_csv(f"{path}\\node_data_Kanaleneiland.csv")     # columnas: lat, lon, i
-edges = pd.read_csv(f"{path}\\Kanaleneiland_data.csv")          # columnas: i, j
+nodes = pd.read_excel(f"{path}\\electric_system_Aradas.xlsx")     # columnas: lat, lon, i
+edges = pd.read_excel(f"{path}\\electric_system_Aradas.xlsx")          # columnas: i, j
 
 # --------------------------------------------------------
 # 2. Definir polígono de Kanaleneiland (lat, lon -> lon, lat)
 # --------------------------------------------------------
-boundary_latlon = [
-    (52.07904398, 5.081736117),
-    (52.07624318, 5.08308264),
-    (52.06046958, 5.09756737),
-    (52.06021839, 5.097758556),
-    (52.06008988, 5.11164107),
-    (52.06328398, 5.113065093),
-    (52.06860149, 5.111588679),
-    (52.07642504, 5.109425399),
-    (52.07861645, 5.108711591),
-    (52.08034774, 5.107271173),
-    (52.08592257, 5.097037869),
-    (52.08498639, 5.096460351),
-    (52.08309467, 5.094751129),
-    (52.0803543,  5.087985518),
-    (52.07904398, 5.081736117),
-]
+boundary_latlon = 
 
 # Convertir a (lon, lat)
 boundary_lonlat = [(lon, lat) for (lat, lon) in boundary_latlon]

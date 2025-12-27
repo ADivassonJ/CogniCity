@@ -926,30 +926,44 @@ def get_osm_elements(polygon, poss_ref):
     Descarga y filtra elementos de OSM dentro de un polígono dado para UN servicio (poss_ref).
     Calcula centroides en un CRS proyectado y retorna columnas estandarizadas.
 
-    Parámetros:
-    - polygon (shapely Polygon/MultiPolygon): área de búsqueda.
-    - poss_ref (dict): reglas de filtrado {key: [values] | value} (p.ej. {'amenity':['school','hospital']}).
-
     Retorna:
     - GeoDataFrame con columnas: ['building_type','osm_id','geometry','lat','lon'] (CRS EPSG:4326).
     """
 
-    # 1) Preparar etiquetas (una sola descarga por servicio)
     if not poss_ref or not isinstance(poss_ref, dict):
         return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
 
     tags = {key: True for key in poss_ref.keys()}
 
-    # 2) Descargar datos
-
     try:
-        gdf = ox.features_from_polygon(polygon, tags).reset_index(drop=True)
+        gdf = ox.features_from_polygon(polygon, tags)
     except Exception:
-        # Si Overpass falla, devolvemos vacío con esquema correcto
         return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
 
     if gdf.empty:
         return gpd.GeoDataFrame(columns=['building_type','osm_id','geometry','lat','lon'], crs="EPSG:4326")
+
+    # --- CLAVE: recuperar OSM ID desde el índice ---
+    # En OSMnx suele ser MultiIndex: (element_type, osmid)
+    gdf = gdf.reset_index()  # NO uses drop=True
+
+    # Normalizar columnas de id
+    if "osmid" in gdf.columns:
+        gdf["osm_id"] = pd.to_numeric(gdf["osmid"], errors="coerce")
+    elif "id" in gdf.columns:
+        gdf["osm_id"] = pd.to_numeric(gdf["id"], errors="coerce")
+    else:
+        # último recurso: si viene como segundo nivel del índice ya reseteado
+        # (normalmente se llamará 'osmid' tras reset_index, pero por robustez)
+        possible = [c for c in gdf.columns if str(c).lower() in ("osm_id", "osmid", "osmids")]
+        if possible:
+            gdf["osm_id"] = pd.to_numeric(gdf[possible[0]], errors="coerce")
+        else:
+            gdf["osm_id"] = pd.NA
+
+    # opcional: guardar tipo (node/way/relation) si existe
+    if "element_type" in gdf.columns:
+        gdf["osm_type"] = gdf["element_type"]
 
     # 3) Filtrar según poss_ref (OR entre keys/values)
     mask = pd.Series(False, index=gdf.index)
@@ -979,12 +993,16 @@ def get_osm_elements(polygon, poss_ref):
     gdf_geo['lat'] = centroids_geo.y
     gdf_geo['lon'] = centroids_geo.x
 
-    # 5) Campos derivados (usa tus funciones existentes)
-    #    Nota: 'building_type' depende de poss_ref del servicio actual
+    # 5) Campos derivados
     gdf_geo['building_type'] = gdf_geo.apply(lambda row: building_type(row, poss_ref), axis=1)
-    gdf_geo['osm_id'] = gdf_geo.apply(osmid_reform, axis=1)
 
-    return gdf_geo[['building_type','osm_id','geometry','lat','lon']]
+    # esto mejor no?
+    gdf_geo["osm_id"] = gdf_geo.apply(osmid_reform, axis=1)
+
+    # 6) Salida estándar
+    out = gdf_geo[['building_type', 'osm_id', 'geometry', 'lat', 'lon']].copy()
+
+    return out
 
 def get_vehicle_stats(archetype, transport_archetypes, variables):
     results = {}   
@@ -1193,8 +1211,9 @@ def load_filter_sort_reset(filepath):
 
 
 def osmid_reform(row):
-    osmid = row.get('osmid')
-    element_type = row.get('element_type')
+
+    osmid = row.get('id')
+    element_type = row.get('element')
     
     if pd.isna(osmid) or pd.isna(element_type):
         return None  # Si faltan datos, devolver None
@@ -1436,8 +1455,11 @@ def ring_from_poi(row, lat, lon, mu_log, sigma_log, crs="EPSG:4326", return_poin
         Clasifica 'valor' (en metros) según cuántas sigma se aleja de la media
         en log-espacio.
         """
-        if valor is None or valor <= 0:
+        if valor is None or valor < 0:
             return None, None
+        
+        if valor == 0:
+            valor = 1e-9
 
         z = (np.log(valor) - mu_log) / sigma_log
         n = abs(z)
@@ -1519,7 +1541,9 @@ def ring_from_poi(row, lat, lon, mu_log, sigma_log, crs="EPSG:4326", return_poin
         dist_adj = dist / 1.293
     else:
         dist_adj = None   # o tu factor calibrado real
+
     n, lado = rango_sigma_lognormal(dist_adj, mu_log, sigma_log)
+
     if n is None:
         return None if not return_point else (None, None)
 
@@ -1610,6 +1634,43 @@ def to_log_scale(mu, sigma):
     sigma_log = math.sqrt(math.log(1 + (sigma**2) / (mu**2)))
     mu_log = math.log(mu) - 0.5 * sigma_log**2
     return mu_log, sigma_log
+
+def debug_plot_ring(ring_local, sample_local=None, cand_gdf=None, title="DEBUG ring_local"):
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Ring
+    gpd.GeoSeries([ring_local]).plot(
+        ax=ax,
+        facecolor="none",
+        edgecolor="red",
+        linewidth=2,
+        label="ring_local"
+    )
+
+    # Punto sample
+    if sample_local is not None:
+        gpd.GeoSeries([sample_local]).plot(
+            ax=ax,
+            color="blue",
+            markersize=50,
+            label="sample_point"
+        )
+
+    # Candidatos (opcional)
+    if cand_gdf is not None and not cand_gdf.empty:
+        cand_gdf.plot(
+            ax=ax,
+            color="black",
+            markersize=5,
+            alpha=0.5,
+            label="candidates"
+        )
+
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_title(title)
+    ax.legend()
+    plt.show()
+
 
 def Utilities_assignment(
     df_citizens: pd.DataFrame,
@@ -1978,8 +2039,10 @@ def Utilities_assignment(
                         mu_log,
                         sigma_log,
                         crs=ring_crs,
-                        return_point=True  # <<< importante
+                        return_point=True
                     )
+
+                    #debug_plot_ring(ring) 
 
                     cand_df = class_work_df if citizens_arr.at[idx, 'WoS_fixed'] != 1 else study_df
 
@@ -2092,10 +2155,14 @@ def voronoi_from_nodes(electric_system: pd.DataFrame, boundary_polygon: Polygon)
     # Proyectar a un CRS métrico (UTM automático)
     utm_crs = nodes_gdf.estimate_utm_crs()
     nodes_gdf_proj = nodes_gdf.to_crs(utm_crs)
-    boundary_proj = gpd.GeoSeries([boundary_polygon], crs="EPSG:4326").to_crs(utm_crs).unary_union
+    boundary_proj = (
+        gpd.GeoSeries([boundary_polygon], crs="EPSG:4326")
+        .to_crs(utm_crs)
+        .union_all()
+    )
 
     # Generar Voronoi
-    multipoint = nodes_gdf_proj.unary_union
+    multipoint = nodes_gdf_proj.union_all()
     voronoi = voronoi_diagram(multipoint, envelope=boundary_proj)
 
     # Convertir polígonos Voronoi a GeoDataFrame
@@ -2453,7 +2520,7 @@ def Documents_initialisation(population, study_area):
 if __name__ == '__main__':
     
     # Input
-    population = 1000
+    population = 500
     study_area = 'Kanaleneiland'
     
     Documents_initialisation(population, study_area)
