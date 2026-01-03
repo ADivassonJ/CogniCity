@@ -1,0 +1,13 @@
+{
+"type": "FeatureCollection",
+"name": "craft",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "building_type": "craft_optician", "osm_id": "N1699733104", "lat": 40.6186761, "lon": -8.6253461, "archetype": "Salariat" }, "geometry": { "type": "Point", "coordinates": [ -8.6253461, 40.6186761 ] } },
+{ "type": "Feature", "properties": { "building_type": "craft_caterer", "osm_id": "N1799474048", "lat": 40.6393165, "lon": -8.6544806, "archetype": "Salariat" }, "geometry": { "type": "Point", "coordinates": [ -8.6544806, 40.6393165 ] } },
+{ "type": "Feature", "properties": { "building_type": "craft_winery", "osm_id": "N1799575752", "lat": 40.642588, "lon": -8.6539625, "archetype": "Salariat" }, "geometry": { "type": "Point", "coordinates": [ -8.6539625, 40.642588 ] } },
+{ "type": "Feature", "properties": { "building_type": "craft_caterer", "osm_id": "N4888379523", "lat": 40.6385127, "lon": -8.6517436, "archetype": "Salariat" }, "geometry": { "type": "Point", "coordinates": [ -8.6517436, 40.6385127 ] } },
+{ "type": "Feature", "properties": { "building_type": "craft_caterer", "osm_id": "N11818747682", "lat": 40.6819009, "lon": -8.5993713, "archetype": "Salariat" }, "geometry": { "type": "Point", "coordinates": [ -8.5993713, 40.6819009 ] } },
+{ "type": "Feature", "properties": { "building_type": "craft_metal_construction", "osm_id": "N11819995416", "lat": 40.6797052, "lon": -8.5875861, "archetype": "Salariat" }, "geometry": { "type": "Point", "coordinates": [ -8.5875861, 40.6797052 ] } }
+]
+}

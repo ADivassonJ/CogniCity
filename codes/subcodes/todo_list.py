@@ -631,9 +631,6 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
 
                         mu_log, sigma_log = to_log_scale(mu/1.293, sigma/1.293)
 
-                        print(f"row_f_df:\n{row_f_df}")
-                        input(f"lat:{last_poi_data['lat']}, lon:{last_poi_data['lon']}, mu_log:{mu_log}, sigma_log:{sigma_log}")
-
                         ring, sample_point = ring_from_poi(
                             row_f_df,
                             last_poi_data['lat'],
@@ -644,7 +641,7 @@ def create_family_level_1_schedule(day, pop_building, family_df, activities, sys
                             return_point=True
                         )
 
-                        debug_plot_ring(ring)                       
+                        #debug_plot_ring(ring)                       
 
                         # Evitamos que el agente vuelva a su ubicacion anterior (puede concatenar en el mismo osm_id)
                         available_options = available_options[available_options['osm_id'] != last_poi_data['osm_id']].copy().reset_index(drop=True)
@@ -862,7 +859,7 @@ def todolist_family_creation(
                      activities=activities, citizen_archetypes=citizen_archetypes, system_management=system_management, building_archetypes=building_archetypes)
     # Lanzamos en paralelo
     results = []
-    '''with Executor(max_workers=n_jobs) as ex:
+    with Executor(max_workers=n_jobs) as ex:
         futures = {ex.submit(worker, fam): fam[0] for fam in families}
         # Progreso
         for fut in tqdm(as_completed(futures), total=total, desc=f"Families todo list creation ({day}): "):
@@ -872,13 +869,13 @@ def todolist_family_creation(
                 results.extend(df_level1)
             except Exception as e:
                 # No abortamos todo el run por una familia: registramos y seguimos
-                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                print(f"[ERROR] familia '{fam_name}': {e}")
     
-    # Iteración secuencial con barra de progreso
+    '''# Iteración secuencial con barra de progreso
     results = []
     for fam in tqdm(families, total=total, desc=f"/secuential/ Families todo list creation ({day}): "):
         df_level1 = _build_family_level1(fam, day, pop_building, activities, citizen_archetypes, system_management, building_archetypes)
-        results.extend(df_level1)
+        results.extend(df_level1)'''
     
     # Un solo concat al final (mucho más rápido)
     if results:

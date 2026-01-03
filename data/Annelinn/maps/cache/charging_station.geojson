@@ -1,0 +1,23 @@
+{
+"type": "FeatureCollection",
+"name": "charging_station",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N2093086206", "lat": 58.3859433, "lon": 26.7244935, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.7244935, 58.3859433 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N4880165657", "lat": 58.3743239, "lon": 26.7070815, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.7070815, 58.3743239 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N5143243123", "lat": 58.3679996, "lon": 26.737724, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.737724, 58.3679996 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N7577178715", "lat": 58.3778196, "lon": 26.7328542, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.7328542, 58.3778196 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N7814921387", "lat": 58.3782276, "lon": 26.7263118, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.7263118, 58.3782276 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N7838021578", "lat": 58.3768345, "lon": 26.735009, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.735009, 58.3768345 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N7884740092", "lat": 58.3759155, "lon": 26.7332787, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.7332787, 58.3759155 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N8115000975", "lat": 58.3754841, "lon": 26.7363043, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.7363043, 58.3754841 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N11948465778", "lat": 58.3920894, "lon": 26.730521, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.730521, 58.3920894 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N12022912899", "lat": 58.3761399, "lon": 26.6978726, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.6978726, 58.3761399 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N12032130505", "lat": 58.3692013, "lon": 26.6896526, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.6896526, 58.3692013 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N12041473932", "lat": 58.3780441, "lon": 26.7147485, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.7147485, 58.3780441 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N12178325685", "lat": 58.3595453, "lon": 26.6756493, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.6756493, 58.3595453 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N12198572244", "lat": 58.3831408, "lon": 26.7597232, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.7597232, 58.3831408 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N12716428954", "lat": 58.3783194, "lon": 26.6843009, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.6843009, 58.3783194 ] } },
+{ "type": "Feature", "properties": { "building_type": "amenity_charging_station", "osm_id": "N13116578151", "lat": 58.3576875, "lon": 26.6806132, "archetype": "charging_station" }, "geometry": { "type": "Point", "coordinates": [ 26.6806132, 58.3576875 ] } }
+]
+}

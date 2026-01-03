@@ -31,9 +31,32 @@ for c in [LAT_COL, LON_COL]:
 # Quitar filas sin coords
 df_building = df_building.dropna(subset=[LAT_COL, LON_COL]).copy()
 
-# (Opcional) quitar duplicados por osm_id si existe
-if "osm_id" in df_building.columns:
-    df_building = df_building.drop_duplicates(subset=["osm_id"])
+# (Opcional) deduplicación por osm_id con prioridad: Working > Intermediate > Salariat
+if "osm_id" in df_building.columns and "archetype" in df_building.columns:
+    df_building["archetype"] = df_building["archetype"].astype("string").str.strip()
+
+    priority = ["Working", "Intermediate", "Salariat"]
+
+    def dedup_group(g: pd.DataFrame) -> pd.DataFrame:
+        # Elige la primera categoría disponible por prioridad
+        for cat in priority:
+            m = g["archetype"].eq(cat)
+            if m.any():
+                return g.loc[m].iloc[[0]]  # una sola fila
+        # Si no hay ninguna de las 3, simplifica a una fila
+        return g.iloc[[0]]
+
+    df_building = (
+        df_building
+        .groupby("osm_id", group_keys=False, sort=False)
+        .apply(dedup_group, include_groups=False)
+        .reset_index(drop=True)
+    )
+
+elif "osm_id" in df_building.columns:
+    # Fallback si no existe archetype
+    df_building = df_building.drop_duplicates(subset=["osm_id"], keep="first")
+
 
 # -----------------------------
 # 2. GeoDataFrame de buildings (WGS84 -> CRS métrico)
@@ -286,25 +309,59 @@ fig, ax = plt.subplots(figsize=(8, 8))
 gdf_Aveiro_proj.boundary.plot(
     ax=ax,
     linewidth=1,
-    edgecolor="0.6"
+    edgecolor="0.25"
 )
 
 # Perímetro Aradas
+# Base blanca continua (halo)
 gdf_Aradas_proj.boundary.plot(
     ax=ax,
-    linewidth=2,
-    linestyle="--",
-    edgecolor="0.2"
+    linewidth=3.0,
+    linestyle="-",
+    edgecolor="white",
+    zorder=3
 )
 
-# Buildings como puntos (gris oscuro)
+# Línea superior gris discontinua
+gdf_Aradas_proj.boundary.plot(
+    ax=ax,
+    linewidth=2.0,
+    linestyle="--",
+    edgecolor="0.25",
+    zorder=4
+)
+
+# -----------------------------
+# Buildings como puntos: gris para todo menos archetype in {Salariat, Intermediate, Working}
+# -----------------------------
+# Asegura que existe la columna
+if "archetype" not in gdf_buildings_proj.columns:
+    raise KeyError("La columna 'archetype' no existe en pop_building.parquet")
+
+# Normaliza a string (por si hay NaN o categorías)
+arch = gdf_buildings_proj["archetype"].astype("string")
+
+# Define categorías de interés
+cats = ["Salariat", "Intermediate", "Working"]
+
+# Colores: cambia estos 3 si quieres otros
+color_map = {
+    "Salariat": "#000000",       # azul
+    "Intermediate": "#000000",   # naranja
+    "Working": "#000000",        # verde
+}
+
+# Asigna color: por defecto gris
+colors = arch.map(color_map).fillna("0.70")  # gris para el resto
+
 ax.scatter(
     gdf_buildings_proj.geometry.x,
     gdf_buildings_proj.geometry.y,
-    s=4,
-    c="0.15",
-    alpha=0.7,
-    linewidths=0
+    s=10,
+    c=colors,
+    alpha=0.75,
+    linewidths=0,
+    zorder=2
 )
 
 # Ajustar límites al perímetro de Aveiro
@@ -316,7 +373,22 @@ ax.set_ylim(miny - dy, maxy + dy)
 
 ax.set_axis_off()
 ax.set_aspect("equal", adjustable="box")
-ax.set_title("Aveiro (R5325138) + Aradas + pop_building (puntos)")
+
+# -----------------------------
+# Conteo simple de archetype en el dataset ORIGINAL
+# -----------------------------
+if "archetype" not in df_building.columns:
+    raise KeyError("La columna 'archetype' no existe en pop_building.parquet")
+
+arch = df_building["archetype"].astype("string").str.strip()
+
+counts = arch.value_counts()
+
+print("\nArchetype counts (dataset original):")
+print(f"  Working:       {int(counts.get('Working', 0))}")
+print(f"  Intermediate:  {int(counts.get('Intermediate', 0))}")
+print(f"  Salariat:      {int(counts.get('Salariat', 0))}")
+print(f"  Total rows:    {len(df_building)}\n")
 
 plt.tight_layout()
 plt.show()
