@@ -24,18 +24,18 @@ from subcodes.Daily_schedule_definition import Daily_schedule_definition
 def main():
     # Input
 
-    '''  
+      
     population = 16000
     study_area = 'Kanaleneiland'
-    '''   
-        
+       
+    '''    
     population = 10000
     study_area = 'Aradas'
-        
+    '''
     '''        
     population = 28000
     study_area = 'Annelinn'
-    '''    
+    '''        
     
     paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
     
