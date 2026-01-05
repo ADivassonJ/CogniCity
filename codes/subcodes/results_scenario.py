@@ -288,7 +288,7 @@ def paths_initialization(study_area):
 # Ejecución típica
 # ============================================================
 if __name__ == "__main__":
-    study_area = "Annelinn"
+    study_area = "Aradas"
     paths, _ = paths_initialization(study_area)
 
     out = build_daily_total_stats_from_constructed_outputs(
