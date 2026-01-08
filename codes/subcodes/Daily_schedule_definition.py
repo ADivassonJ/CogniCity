@@ -27,7 +27,9 @@ def delete_used_files(file_type, paths):
         # We analyze docs names
         parts = file.stem.split('_')
         # If file is not f'{use_case}_{day}_{file_type}.xlsx' style, we ignore it
-        if len(parts) != 3:
+        if parts[-1].lower() == "todolist" and len(parts) != 3:
+            continue
+        elif parts[-2] == "schedule" and len(parts) != 4:
             continue
         # We delete used file
         file.unlink()
@@ -43,7 +45,10 @@ def docs_convining(final_doc_done, file_type, study_area, paths):
             current = pd.read_excel(file)
             parts = file.stem.split('_')
             current = current.copy()
-            current['day'] = parts[-2]
+            if file_type == "todolist":
+                current['day'] = parts[-2]
+            else:
+                current['day'] = parts[-3]
             final_doc.append(current)
         # Path to convined results
         final_file_type_path = os.path.join(paths['results'], f"{study_area}_{file_type}.xlsx")
@@ -53,13 +58,13 @@ def docs_convining(final_doc_done, file_type, study_area, paths):
 
 def check_current_data(days, paths):
     
-    found_files = {'schedule': set(),
-                   'vehicles': set(),
+    found_files = {'schedule_citizen': set(),
+                   'schedule_vehicle': set(),
                    'todolist': set()
                 }
     
-    files_done = {'schedule': False,
-                  'vehicles': False,
+    files_done = {'schedule_citizen': False,
+                  'schedule_vehicle': False,
                   'todolist': False
                 }
     
@@ -71,27 +76,37 @@ def check_current_data(days, paths):
         if len(parts) == 2:
             kind = parts[-1].lower()
             files_done[kind] = True
-        elif (len(parts) != 3):
             continue
-        # Formato: studyarea_day_kind
-        day, kind = parts[-2], parts[-1].lower()
+        elif len(parts) == 4:
+            # Formato: studyarea_day_kind
+            day = parts[-3]
+            kind = f"{parts[-2]}_{parts[-1].lower()}"
+        elif len(parts) == 3:
+            # Formato: studyarea_day_kind
+            day = parts[-2]
+            kind = parts[-1].lower()
+        else:
+            continue
+
         if day not in days:
             continue
         found_files[kind].add(day)
 
     # Faltantes por tipo
-    missing_schedule = days - found_files['schedule']
-    missing_vehicles = days - found_files['vehicles']
+    missing_schedule = days - found_files['schedule_citizen']
+    missing_vehicles = days - found_files['schedule_vehicle']
 
     days_missing['todolist'] = days - found_files['todolist']
     # Faltantes en general (en al menos uno)
-    days_missing['schedules'] = missing_schedule | missing_vehicles
+    days_missing['schedule'] = missing_schedule | missing_vehicles
     
     return files_done, days_missing
 
 def Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations):
     
     days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
+
+    days = {'Mo'}
     
     files_done, days_missing = check_current_data(days, paths)
     
@@ -102,16 +117,17 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
             todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths, day, pop_archetypes['citizen'], pop_archetypes['building'])
     
     #################### SCHEDULES ################
-    
     # In case of having days to model
-    if days_missing['schedules'] and ((not files_done['schedule']) or (not files_done['vehicles'])):
+    if days_missing['schedule'] and ((not files_done['schedule_citizen']) or (not files_done['schedule_vehicle'])):
         # We act on each different day
-        for day in days_missing['schedules']:
+        for day in days_missing['schedule']:
             # Input reading
             todolist = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
             vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day)
-            
+        
+    files_done, days_missing = check_current_data(days, paths)
+
     ## Todolist
     # Convining docs
     docs_convining(files_done['todolist'], 'todolist', study_area, paths)
@@ -120,15 +136,15 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
     
     ## Vehicles
     # Convining docs
-    docs_convining(files_done['vehicles'], 'vehicles', study_area, paths)
+    docs_convining(files_done['schedule_vehicle'], 'schedule_vehicle', study_area, paths)
     # Delete used files
-    delete_used_files('vehicles', paths)
+    delete_used_files('schedule_vehicle', paths)
     
     ## Schedule
     # Convining docs
-    docs_convining(files_done['schedule'], 'schedule', study_area, paths)
+    docs_convining(files_done['schedule_citizen'], 'schedule_citizen', study_area, paths)
     # Delete used files
-    delete_used_files('schedule', paths)
+    delete_used_files('schedule_citizen', paths)
         
         
         
@@ -186,7 +202,7 @@ if __name__ == '__main__':
     pop_archetypes['citizen'] = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_citizen.xlsx")
     pop_archetypes['building'] = pd.read_excel(f"{paths['archetypes']}/pop_archetypes_building.xlsx")
     
-    ##############################################################################
+    ##############################################################################################################
     print(f'docs readed')
     
     Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations)
