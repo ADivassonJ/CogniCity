@@ -9,6 +9,7 @@ import shutil
 import sys
 from pathlib import Path
 from scipy.stats import norm
+from scipy.stats import truncnorm
 
 # terceros
 import folium
@@ -1004,6 +1005,7 @@ def get_osm_elements(polygon, poss_ref):
 
     return out
 
+
 def get_vehicle_stats(archetype, transport_archetypes, variables):
     results = {}   
     
@@ -1024,18 +1026,22 @@ def get_vehicle_stats(archetype, transport_archetypes, variables):
 
         mu = float(row[f'{variable}_mu'])
         sigma = float(row[f'{variable}_sigma'])
-        try:
-            max_var = float(row[f'{variable}_max'])
-        except Exception as e:
-            max_var = float('inf')
-        try:
-            min_var = float(row[f'{variable}_min'])
-        except Exception as e:
-            min_var = float(0)
-        
-        var_result = np.random.normal(mu, sigma)
 
-        var_result = max(min(var_result, max_var), min_var)
+        if sigma == 0:
+            var_result = 1 if random.random() < mu else 0
+        else:
+            try:
+                max_var = float(row[f'{variable}_max'])
+            except Exception as e:
+                max_var = float('inf')
+            try:
+                min_var = float(row[f'{variable}_min'])
+            except Exception as e:
+                min_var = float(0)
+
+            var_result = np.random.normal(mu, sigma)
+            var_result = max(min(var_result, max_var), min_var)
+
         results[variable] = var_result
 
     return results
@@ -1804,18 +1810,38 @@ def Utilities_assignment(
             df_families.at[_, 'Home_type'] = pick_building_type(home_id)
 
             # --- 5) Vehículos según el arquetipo de la familia ---
-            trans_subset = stats_trans[stats_trans['item_1'] == family_archetype]
-            for _, row in trans_subset.iterrows():
-                n_vehicles = int(computate_stats(row))
-                for _ in range(n_vehicles):
-                    vehicle_vars = get_vehicle_stats(row['item_2'], pop_archetypes['transport'], transport_vars)
-                    vehicles.append({
-                        'name': f"priv_vehicle_{len(vehicles)}",
-                        'archetype': row['item_2'],
-                        'family': family_name,
-                        'ubication': home_id,
-                        **vehicle_vars
-                    })
+            trans_subset = stats_trans[stats_trans['item_1'] == family_archetype].reset_index(drop=True)
+
+            petrol_data = trans_subset[trans_subset['item_2'] == 'PC_petrol']
+            electric_data = trans_subset[trans_subset['item_2'] == 'PC_electric']
+
+            mu = petrol_data['mu']
+            sigma = petrol_data['sigma']
+            min_val = petrol_data['min']
+            max_val = petrol_data['max']
+
+            a = (min_val - mu) / sigma
+            b = (max_val - mu) / sigma
+
+            valor = truncnorm.rvs(a, b, loc=mu, scale=sigma)
+
+            n_vehicles = int(round(valor))
+
+            for _ in range(n_vehicles):
+
+                if random.random() < float(electric_data['mu'].iloc[0]):
+                    archetype = 'PC_electric'
+                else:
+                    archetype = 'PC_petrol'
+
+                vehicle_vars = get_vehicle_stats(archetype, pop_archetypes['transport'], transport_vars)
+                vehicles.append({
+                    'name': f"priv_vehicle_{len(vehicles)}",
+                    'archetype': archetype,
+                    'family': family_name,
+                    'ubication': home_id,
+                    **vehicle_vars
+                })
             
             ## Public transport
             vehicle_vars = get_vehicle_stats('UB_diesel', pop_archetypes['transport'], transport_vars)
@@ -1827,7 +1853,6 @@ def Utilities_assignment(
                     'ubication': home_id,
                     **vehicle_vars
                 })
-
 
             # --- 6) Construir DataFrame final ---
             df_priv_vehicle = pd.DataFrame(vehicles, columns=['name', 'archetype', 'family', 'ubication'] + transport_vars)
