@@ -175,7 +175,7 @@ def build_maps_by_hour(df_veh: pd.DataFrame,
             for _, r in dfh.iterrows():
                 folium.CircleMarker(
                     [float(r["lat"]), float(r["lon"])],
-                    radius=2, color="blue", fill=True, fill_opacity=0.6
+                    radius=2, color="#134f5c", fill=True, fill_opacity=0.6
                 ).add_to(fg)
             fg.add_to(m)
             folium.LayerControl(collapsed=False).add_to(m)
@@ -217,8 +217,8 @@ def build_animated_dots(g: gpd.GeoDataFrame, out_html: str, zoom_start=14, tiles
                 "properties": {
                     "time": timestamp,
                     "style": {
-                        "color": "blue",
-                        "fillColor": "blue",
+                        "color": "#134f5c",
+                        "fillColor": "#134f5c",
                         "opacity": 0.5,
                         "fillOpacity": 0.5,
                         "radius": 2

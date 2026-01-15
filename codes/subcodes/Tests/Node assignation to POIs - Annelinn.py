@@ -9,7 +9,7 @@ from shapely.ops import voronoi_diagram
 # --------------------------------------------------------
 # 1. Leer datos
 # --------------------------------------------------------
-path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Annelinn\population"
+path = r"C:\Users\asier\Documents\GitHub\CogniCity\data\Annelinn\population"
 
 nodes = pd.read_excel(f"{path}\\electric_system_Annelinn.xlsx")     # columnas: lat, lon, i
 edges = pd.read_excel(f"{path}\\electric_system_Annelinn.xlsx")          # columnas: i, j

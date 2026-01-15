@@ -96,7 +96,7 @@ fig, ax = plt.subplots(figsize=(8, 8))
 gdf_Aveiro_proj.boundary.plot(
     ax=ax,
     linewidth=1,
-    edgecolor="0.25"
+    edgecolor="#0c343d"
 )
 
 # Perímetro Kanaleneiland
@@ -114,7 +114,7 @@ gdf_Kanaleneiland_proj.boundary.plot(
     ax=ax,
     linewidth=2.0,
     linestyle="--",
-    edgecolor="0.25",
+    edgecolor="#0c343d",
     zorder=4
 )
 
@@ -133,13 +133,13 @@ cats = ["Salariat", "Intermediate", "Working"]
 
 # Colores: cambia estos 3 si quieres otros
 color_map = {
-    "Salariat": "#000000",       # azul
-    "Intermediate": "#000000",   # naranja
-    "Working": "#000000",        # verde
+    "Salariat": "#0c343d",       # azul
+    "Intermediate": "#0c343d",   # naranja
+    "Working": "#0c343d",        # verde
 }
 
 # Asigna color: por defecto gris
-colors = arch.map(color_map).fillna("0.70")  # gris para el resto
+colors = arch.map(color_map).fillna("#a2c4c9")  # gris para el resto
 
 ax.scatter(
     gdf_buildings_proj.geometry.x,

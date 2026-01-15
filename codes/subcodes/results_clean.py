@@ -395,7 +395,7 @@ def build_quantified_outputs_per_excel(
 if __name__ == "__main__":
     # Inputs
     population = 450
-    study_area = "Aradas"
+    study_area = "Kanaleneiland"
 
     # Paths
     paths, system_management = paths_initialization(study_area)

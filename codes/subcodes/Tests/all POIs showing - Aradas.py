@@ -308,15 +308,15 @@ fig, ax = plt.subplots(figsize=(8, 8))
 # Perímetro Aveiro
 gdf_Aveiro_proj.boundary.plot(
     ax=ax,
-    linewidth=1,
-    edgecolor="0.25"
+    linewidth=2,
+    edgecolor="#7f6000"
 )
 
 # Perímetro Aradas
 # Base blanca continua (halo)
 gdf_Aradas_proj.boundary.plot(
     ax=ax,
-    linewidth=3.0,
+    linewidth=4.0,
     linestyle="-",
     edgecolor="white",
     zorder=3
@@ -327,7 +327,7 @@ gdf_Aradas_proj.boundary.plot(
     ax=ax,
     linewidth=2.0,
     linestyle="--",
-    edgecolor="0.25",
+    edgecolor="#7f6000",
     zorder=4
 )
 
@@ -346,13 +346,13 @@ cats = ["Salariat", "Intermediate", "Working"]
 
 # Colores: cambia estos 3 si quieres otros
 color_map = {
-    "Salariat": "#000000",       # azul
-    "Intermediate": "#000000",   # naranja
-    "Working": "#000000",        # verde
+    "Salariat": "#7f6000",       # azul
+    "Intermediate": "#7f6000",   # naranja
+    "Working": "#7f6000",        # verde
 }
 
 # Asigna color: por defecto gris
-colors = arch.map(color_map).fillna("0.70")  # gris para el resto
+colors = arch.map(color_map).fillna("#ffe599")  # gris para el resto
 
 ax.scatter(
     gdf_buildings_proj.geometry.x,

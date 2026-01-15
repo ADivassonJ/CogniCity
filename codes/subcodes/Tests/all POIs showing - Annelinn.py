@@ -146,15 +146,15 @@ fig, ax = plt.subplots(figsize=(8, 8))
 # Perímetro Tartu
 gdf_Tartu_proj.boundary.plot(
     ax=ax,
-    linewidth=1,
-    edgecolor="0.25"
+    linewidth=2,
+    edgecolor="#4c1130"
 )
 
 # Perímetro Annelinn
 # Base blanca continua (halo)
 gdf_Annelinn_proj.boundary.plot(
     ax=ax,
-    linewidth=3.0,
+    linewidth=4.0,
     linestyle="-",
     edgecolor="white",
     zorder=3
@@ -165,7 +165,7 @@ gdf_Annelinn_proj.boundary.plot(
     ax=ax,
     linewidth=2.0,
     linestyle="--",
-    edgecolor="0.25",
+    edgecolor="#4c1130",
     zorder=4
 )
 
@@ -184,13 +184,13 @@ cats = ["Salariat", "Intermediate", "Working"]
 
 # Colores: cambia estos 3 si quieres otros
 color_map = {
-    "Salariat": "#000000",       # azul
-    "Intermediate": "#000000",   # naranja
-    "Working": "#000000",        # verde
+    "Salariat": "#4c1130",       # azul
+    "Intermediate": "#4c1130",   # naranja
+    "Working": "#4c1130",        # verde
 }
 
 # Asigna color: por defecto gris
-colors = arch.map(color_map).fillna("0.70")  # gris para el resto
+colors = arch.map(color_map).fillna("#d5a6bd")  # gris para el resto
 
 ax.scatter(
     gdf_buildings_proj.geometry.x,
