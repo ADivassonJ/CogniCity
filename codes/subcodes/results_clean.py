@@ -355,6 +355,9 @@ def build_quantified_outputs_per_excel(
     """
     Genera un .xlsx de salida para citizen y otro para vehicle, en paths['results'].
     """
+
+    print(f"Adding the results of {study_area} on an hourly basis:")
+
     results_dir = Path(paths["results"])
 
     citizen_in = results_dir / f"{study_area}_schedule_citizen.xlsx"
@@ -386,6 +389,10 @@ def build_quantified_outputs_per_excel(
         write_summary=True,
     )
 
+    print("[OK] Outputs generated:")
+    print(f" - Citizen: {citizen_out}")
+    print(f" - Vehicle: {vehicle_out}")
+
     return {"citizen": citizen_out, "vehicle": vehicle_out}
 
 
@@ -395,7 +402,7 @@ def build_quantified_outputs_per_excel(
 if __name__ == "__main__":
     # Inputs
     population = 450
-    study_area = "Annelinn"
+    study_area = "Aradas"
 
     # Paths
     paths, system_management = paths_initialization(study_area)

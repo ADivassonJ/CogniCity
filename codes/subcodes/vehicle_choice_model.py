@@ -32,6 +32,7 @@ import os
 def _process_family(
     family_tuple,
     paths,
+    study_area,
     transport_families_dict,
     agent_populations,
     pop_archetypes,
@@ -78,7 +79,7 @@ def _process_family(
         )
 
         # Escoge vehículo
-        best_transport_distime_matrix = vehicle_chosing(distime_matrix, citizen_data['archetype'])
+        best_transport_distime_matrix = vehicle_chosing(distime_matrix, citizen_data['archetype'], study_area)
 
         # Actualiza schedule de la familia con la elección
         schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist)
@@ -196,6 +197,7 @@ def vehicle_choice_model(
     worker = partial(
         _process_family,
         paths=paths,
+        study_area=study_area,
         transport_families_dict=transport_families_dict,
         agent_populations=agent_populations,
         pop_archetypes=pop_archetypes,
@@ -820,7 +822,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
     return chosen_mode, plugin 
 
-def vehicle_chosing(vehicle_score_matrix, archetype, simplified: bool=True): 
+def vehicle_chosing(vehicle_score_matrix, archetype, study_area, simplified: bool=True): 
 
     def mode_probabilities(d: float):
         """Devuelve (P_walk, P_public, P_private) para distancia d en km."""
@@ -846,8 +848,9 @@ def vehicle_chosing(vehicle_score_matrix, archetype, simplified: bool=True):
 
 
     if simplified:
-
-        if archetype == 'c_arch_0':
+        if study_area == "Aradas":
+            D1, D2, D3 = 0.342, 0.501, 0.661
+        elif archetype == 'c_arch_0':
             D1, D2, D3 = 1.893, 6.323, 21.313
         elif archetype == 'c_arch_1':
             D1, D2, D3 = 1.75, 4.688, 13.938

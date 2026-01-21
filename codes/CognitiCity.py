@@ -20,6 +20,7 @@ from sklearn.cluster import KMeans
 from subcodes.Documents_initialisation import Documents_initialisation
 from subcodes.Daily_schedule_definition import Daily_schedule_definition
 from subcodes.results_clean import build_quantified_outputs_per_excel
+from subcodes.results_scenario import build_daily_total_stats_from_constructed_outputs
 
 ### Main
 def main():
@@ -29,20 +30,25 @@ def main():
     population = 16000
     study_area = 'Kanaleneiland'
     '''    
-    '''     
-    population = 10000
+         
+    population = 100
     study_area = 'Aradas'
-    '''
-          
+    
+    '''          
     population = 28000
     study_area = 'Annelinn'
-         
+    '''         
     
     paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
     
     Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations)
 
-    #build_quantified_outputs_per_excel(paths=paths, study_area=study_area)
+    build_quantified_outputs_per_excel(paths=paths, study_area=study_area)
+
+    build_daily_total_stats_from_constructed_outputs(
+        paths=paths,
+        study_area=study_area,
+    )
 
 
 
