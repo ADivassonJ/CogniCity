@@ -80,7 +80,7 @@ def _process_family(
 
         # Escoge vehículo
         best_transport_distime_matrix = vehicle_chosing(distime_matrix, citizen_data['archetype'], study_area)
-
+        
         # Actualiza schedule de la familia con la elección
         schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist)
         citizen_schedule = copy.deepcopy(schedule)
@@ -111,8 +111,14 @@ def _process_family(
         
         results = WP3_parameters_simplified(paths, pop_archetypes, agent_populations, avail_vehicles, best_transport_distime_matrix, citizen_schedule, vehicle_schedule, choices3)
         
+        print(f"\nresults:\n{results}")
+
         new_row = citizen_data
         
+    
+        input(f"\ncitizen_schedule:\n{citizen_schedule}")
+        
+
         # “Consume” vehículo si no es compartible
         vehicle_name = best_transport_distime_matrix[0]['vehicle']
         if vehicle_name not in ('walk', 'Public_transport') and avail_vehicles != []:
@@ -182,9 +188,10 @@ def vehicle_choice_model(
     citizen_schedules = []
     vehicle_schedules = []      
     
-    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
+                                                   study_area,
                                                    transport_families_dict,
                                                    agent_populations,
                                                    pop_archetypes,
@@ -192,9 +199,9 @@ def vehicle_choice_model(
         if fam_schedule is not None and fam_schedule != []:
             citizen_schedules.extend(fam_schedule)
         if fam_actions is not None and fam_actions != []:
-            vehicle_schedules.extend(fam_actions)'''
+            vehicle_schedules.extend(fam_actions)
         
-    worker = partial(
+    '''worker = partial(
         _process_family,
         paths=paths,
         study_area=study_area,
@@ -217,7 +224,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and fam_actions != []:
                     vehicle_schedules.extend(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")
+                print(f"[ERROR] familia '{fam_name}': {e}")'''
 
     # --- Agregación en el proceso principal ---
     df_citizen_schedules = pd.DataFrame(citizen_schedules)
@@ -559,6 +566,10 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         #print(f"Total: {(P_1+P_2+P_3):.3f}")
         
         modes = ["P_1", "P_2", "P_3"]
+
+        print(f"\nV1:{V1}\nV2:{V2}\nV3:{V3}")
+        input(f"\nP_1:{P_1}\nP_2:{P_2}\nP_3:{P_3}")
+
         chosen_mode = random.choices(modes, weights=[P_1, P_2, P_3], k=1)[0]
         
         return chosen_mode
@@ -640,7 +651,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
             results[variable] = var_result
         return results
     
-    def virtual_EV_generator(archetypes_transport: pd.DataFrame, CSEV: bool):
+    def virtual_EV_generator(archetypes_transport: pd.DataFrame, CSEV: bool, home_lat, home_lon):
 
         archetype = 'CS_electric' if CSEV else 'PC_electric'
         
@@ -650,12 +661,19 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
                 for col in archetypes_transport.columns
                 if col.endswith('_mu')
             ]
+        
+        file2read = 'share_mob_hubs.xlsx' if CSEV else 'charging_station.xlsx'
+
+        file_path = os.path.join(paths['new_POIs'], file2read)
+        hubs = pd.read_excel(file_path)
+
+        ubication = closest_share_mob_hubs(home_lat, home_lon, hubs)
 
         virtual_EV = {
-            'name':         'virtual',
+            'name':         'virtual_vehicle',
             'archetype':    archetype,
             'family':       '-',
-            'ubication':    'W448331296'
+            'ubication':    ubication
         }
 
         values = get_vehicle_stats(archetype, archetypes_transport, variables)
@@ -670,53 +688,26 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         hubs['dist_real'] = np.sqrt((hubs['lat'] - home_lat)**2 + (hubs['lon'] - home_lon)**2)
 
         # 3) Seleccionar el más cercano
-        nearest = hubs.loc[hubs['dist_real'].idxmin(), ['lat', 'lon']]
+        nearest = hubs.loc[hubs['dist_real'].idxmin()]
 
-        return float(nearest['lat']), float(nearest['lon'])
+        return nearest['osm_id']
     
     def generate_ev_data(trip, pop_building, citizen_data, networks_map, CSEV):
         
-        transport = virtual_EV_generator(pop_archetypes['transport'], CSEV)
+        home_lat, home_lon = pop_building.loc[pop_building['osm_id'] == citizen_data['Home'], ['lat', 'lon']].iloc[0]
 
-        if CSEV:
-            
-            home_lat, home_lon = pop_building.loc[pop_building['osm_id'] == citizen_data['Home'], ['lat', 'lon']].iloc[0]
+        transport = virtual_EV_generator(pop_archetypes['transport'], CSEV, home_lat, home_lon)
 
-            # 1) Leer el Excel
-            file_path = os.path.join(paths['new_POIs'], 'share_mob_hubs.xlsx')
-            hubs = pd.read_excel(file_path)
-
-            lat, lon = closest_share_mob_hubs(home_lat, home_lon, hubs)
-            
-            csev_hub = [{
-                'building_type': 'share_mob_hubs',
-                'osm_id': ''
-                '',
-                'lat': lat,
-                'lon': lon,
-                'archetype': 'share_mob_hubs',
-                'WoS_opening': 0,
-                'WoS_closing': 24*60,
-                'Service_opening': 0,
-                'Service_closing': 24*60, 
-                'node': '-'
-            }]
-            
-            new_pop_building = pd.concat([pop_building, pd.DataFrame(csev_hub)], ignore_index=True)
-            
-            last_P = 'share_mob_hubs'
-        else:
-            last_P = transport['ubication']
-            new_pop_building = pop_building
+        last_P = transport['ubication']
+        new_pop_building = pop_building
         
         distime_matrix, last_P = score_calculation(trip, transport, pop_archetypes['transport'], last_P, new_pop_building, networks_map, citizen_data)
         
         TRAVEL_TIME = distime_matrix['travel_time']
         WALK_TIME = distime_matrix['walk_time']
         COST = distime_matrix['cost']
-        
-        return TRAVEL_TIME, WALK_TIME, COST
-        
+
+        return TRAVEL_TIME, WALK_TIME, COST     
     
     def data_gathering(paths: list, pop_archetypes: dict, agent_populations: dict, 
                        avail_vehicles: list, current_transport: list, 
