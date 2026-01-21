@@ -80,15 +80,19 @@ def _process_family(
 
         # Escoge vehículo
         best_transport_distime_matrix = vehicle_chosing(distime_matrix, citizen_data['archetype'], study_area)
-        
+
         # Actualiza schedule de la familia con la elección
         schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist)
+
         citizen_schedule = copy.deepcopy(schedule)
-        all_citizen_schedule.extend(citizen_schedule)
+        #all_citizen_schedule.extend(citizen_schedule) Aun no sabemos si es esto o si cambiara de opinion
 
         # Actualiza acciones de vehículos
         vehicle_schedule = create_vehicles_actions(schedule, best_transport_distime_matrix)
-        all_vehicle_schedule.extend(vehicle_schedule)
+        #all_vehicle_schedule.extend(vehicle_schedule) Aun no sabemos si es esto o si cambiara de opinion
+
+        if citizen_data['independent_type'] == 0:
+            continue
 
         ####################################################
         # Aqui es donde debemos meter el modelo de Qiaochu #
@@ -109,15 +113,42 @@ def _process_family(
         else:
             choices3 = False
         
-        results = WP3_parameters_simplified(paths, pop_archetypes, agent_populations, avail_vehicles, best_transport_distime_matrix, citizen_schedule, vehicle_schedule, choices3)
-        
-        print(f"\nresults:\n{results}")
+        decision, plug_in, transport, _ = WP3_parameters_simplified(paths, pop_archetypes, agent_populations, avail_vehicles, best_transport_distime_matrix, citizen_schedule, vehicle_schedule, choices3)
+
+        #este distime_matrix tiene un fallo en trip, solo sale un osmid y deberia ser (x, y)
 
         new_row = citizen_data
-        
-    
-        input(f"\ncitizen_schedule:\n{citizen_schedule}")
-        
+
+        # Se ha dado que se cambia de transporte?
+        if decision != 'P_1':
+            
+            # Calcula matriz dist/tiempo y actualiza cache local
+            distime_matrix = VSM_calculation(
+                citizen_route,
+                [transport],
+                citizen_data,
+                pop_archetypes['transport'],
+                agent_populations['building'],
+                networks_map
+            )
+
+            filtrados = [d for d in distime_matrix if d.get("vehicle") == transport['name']]
+
+            best_transport_distime_matrix = filtrados
+
+            # Actualiza schedule de la familia con la elección
+            schedule = create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist)
+            citizen_schedule = copy.deepcopy(schedule)
+
+            # Actualiza acciones de vehículos
+            vehicle_schedule = create_vehicles_actions(schedule, best_transport_distime_matrix)     
+
+        all_citizen_schedule.extend(citizen_schedule)
+
+        for d in vehicle_schedule:
+            d["plugged"] = plug_in
+
+        all_vehicle_schedule.extend(vehicle_schedule)
 
         # “Consume” vehículo si no es compartible
         vehicle_name = best_transport_distime_matrix[0]['vehicle']
@@ -132,6 +163,8 @@ def _process_family(
     family_home = filtered[0]['osm_id']
     family_node = filtered[0]['node']
     family_archetype = filtered[0]['family_archetype']
+
+    # Para los vehiculos NO utilizados este dia
 
     for vehicle in avail_vehicles:
 
@@ -151,6 +184,7 @@ def _process_family(
             'user': None,
             'ETC [kWh]': 0,
             'dist_real': None,
+            'plugged': False,
         }     
         
         all_vehicle_schedule.append(new_row)
@@ -217,6 +251,7 @@ def vehicle_choice_model(
         futures = {ex.submit(worker, fam_tuple): fam_tuple[0] for fam_tuple in families}
         for fut in tqdm(as_completed(futures), total=len(families), desc=f"Transport Choice Modelling ({day})"):
             fam_name = futures[fut]
+            fam_schedule, fam_actions = fut.result()
             try:
                 fam_schedule, fam_actions = fut.result()
                 if fam_schedule is not None and fam_schedule != []:
@@ -326,7 +361,7 @@ def main():
             vehicle_schedules, citizen_schedules = vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day)
     else:
         print(f"All days' schedules already modeled.")
-        
+
 def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todolist):
     """
     Actualiza los tiempos de entrada/salida ('in'/'out') del agente `c_name`
@@ -337,10 +372,9 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
       - en `todo_list_family`: ['agent', 'trip', 'todo', 'opening', 'closing', 'time2spend']
       - en `best_transport_distime_matrix`: ['conmu_time']
     """
-
     # Filtrar y ordenar la lista del agente
-    todo_list = sorted(citizen_todolist, key=lambda x: x['trip'])
-    
+    todo_list = copy.deepcopy(sorted(citizen_todolist, key=lambda x: x['trip']))
+
     # Asegurar mismo largo (simple y directo)
     # Se usará el índice de la iteración para tomar el conmu_time
     commute = [row['conmu_time'] for row in best_transport_distime_matrix]
@@ -354,7 +388,7 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
     emissions = [row['emissions'] for row in best_transport_distime_matrix]
 
     out_time = None  # se actualizará en el bucle
-    
+
     for idx, row in enumerate(todo_list):
         if row['todo'] == 'Home_out':
             # Sale de casa con antelación igual a la conmutación hasta la primera actividad
@@ -406,7 +440,7 @@ def create_citizen_schedule(best_transport_distime_matrix, c_name, citizen_todol
     
     return citizen_schedule
 
-def create_vehicles_actions(citizen_schedule, best_transport_distime_matrix):
+def create_vehicles_actions(citizen_schedule_old, best_transport_distime_matrix):
     '''El objetivo es tener un df que de los datos de consumo relevante para cada actividad'''
 
     '''# Antes de iniciar, aseguramos que no sea walk o publico o walk_public
@@ -414,6 +448,8 @@ def create_vehicles_actions(citizen_schedule, best_transport_distime_matrix):
         # lista vacía = DF vacío
         return []'''
     
+    citizen_schedule = citizen_schedule_old.copy()
+
     # Simplificamos el 'new_family_schedule', para guardar la info como lo hariamos para el output
     simple_schedule = schedule_simplification(citizen_schedule)
 
@@ -567,9 +603,6 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         
         modes = ["P_1", "P_2", "P_3"]
 
-        print(f"\nV1:{V1}\nV2:{V2}\nV3:{V3}")
-        input(f"\nP_1:{P_1}\nP_2:{P_2}\nP_3:{P_3}")
-
         chosen_mode = random.choices(modes, weights=[P_1, P_2, P_3], k=1)[0]
         
         return chosen_mode
@@ -702,12 +735,12 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         new_pop_building = pop_building
         
         distime_matrix, last_P = score_calculation(trip, transport, pop_archetypes['transport'], last_P, new_pop_building, networks_map, citizen_data)
-        
+
         TRAVEL_TIME = distime_matrix['travel_time']
         WALK_TIME = distime_matrix['walk_time']
         COST = distime_matrix['cost']
 
-        return TRAVEL_TIME, WALK_TIME, COST     
+        return transport, TRAVEL_TIME, WALK_TIME, COST, distime_matrix    
     
     def data_gathering(paths: list, pop_archetypes: dict, agent_populations: dict, 
                        avail_vehicles: list, current_transport: list, 
@@ -775,17 +808,17 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         networks_map = None
         
         # 6) EV2G data
-        data['TRAVEL_TIME_EV2G'], data['WALK_TIME_EV2G'], data['COST_EV2G'] = generate_ev_data(trip, pop_building, citizen_data, networks_map, False)
+        transport, data['TRAVEL_TIME_EV2G'], data['WALK_TIME_EV2G'], data['COST_EV2G'], distime_matrix = generate_ev_data(trip, pop_building, citizen_data, networks_map, False)
         
         if choices3:
-            data['TRAVEL_TIME_CSV2G'], data['WALKING_TIME_CV2G'], data['COST_CSV2G']  = generate_ev_data(trip, pop_building, citizen_data, networks_map, True)
+            transport, data['TRAVEL_TIME_CSV2G'], data['WALKING_TIME_CV2G'], data['COST_CSV2G'], distime_matrix  = generate_ev_data(trip, pop_building, citizen_data, networks_map, True)
         else:
             # In this case this data will not be considered, but the tags must exists so '0' will do
             data['TRAVEL_TIME_CSV2G'] = data['WALKING_TIME_CV2G'] = data['COST_CSV2G'] = 0
 
-        return data
+        return data, transport, distime_matrix
     
-    data = data_gathering(paths, pop_archetypes, agent_populations, avail_vehicles, current_transport, citizen_schedule, vehicle_schedule, choices3)
+    data, transport, distime_matrix = data_gathering(paths, pop_archetypes, agent_populations, avail_vehicles, current_transport, citizen_schedule, vehicle_schedule, choices3)
 
     chosen_mode = Mode_choice(choices3,
                               data['IS_Gaso'], data['IS_EV'], data['IS_PT'], data['IS_Bike'],
@@ -798,7 +831,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
     #print(f"chosen_mode: {chosen_mode}")
 
     if (chosen_mode == 'P_1') & (not data['IS_EV']):
-        return chosen_mode, False
+        return chosen_mode, False, None, None
 
     if chosen_mode == 'P_2':
         COST_P = data['COST_EV2G']
@@ -811,7 +844,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
     #print(f"plugin: {plugin}")
 
-    return chosen_mode, plugin 
+    return chosen_mode, plugin, transport, distime_matrix
 
 def vehicle_chosing(vehicle_score_matrix, archetype, study_area, simplified: bool=True): 
 
