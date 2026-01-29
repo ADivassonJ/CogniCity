@@ -92,6 +92,16 @@ def _process_family(
         #all_vehicle_schedule.extend(vehicle_schedule) Aun no sabemos si es esto o si cambiara de opinion
 
         if citizen_data['independent_type'] == 0:
+            '''all_citizen_schedule.extend(citizen_schedule)
+            for d in vehicle_schedule:
+                d["plugged"] = False
+
+            all_vehicle_schedule.extend(vehicle_schedule)
+
+            # “Consume” vehículo si no es compartible
+            vehicle_name = best_transport_distime_matrix[0]['vehicle']
+            if vehicle_name not in ('walk', 'Public_transport') and avail_vehicles != []:
+                avail_vehicles = [v for v in avail_vehicles if v['name'] != vehicle_name]'''
             continue
 
         ####################################################

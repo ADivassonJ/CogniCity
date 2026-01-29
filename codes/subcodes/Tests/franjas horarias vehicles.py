@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 # 1. Cargar datos
 # --------------------------------------------------------
 
-file_path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results\Aradas_schedule_vehicle.xlsx"
+file_path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results\Kanaleneiland_schedule_vehicle.xlsx"
 df = pd.read_excel(file_path)
 df.columns = df.columns.str.strip()
 
@@ -92,7 +92,7 @@ for arch in archetypes:
     # --------------------------------------------------------
 
     # 4 tonos por si incluyes Home_always
-    colors = ["#3d300c", "#686716", "#8b9329", "#c1c9a2"]
+    colors = ["#0c343d", "#134f5c", "#45818e", "#d0e0e3"]
 
     fig, ax = plt.subplots()
 
