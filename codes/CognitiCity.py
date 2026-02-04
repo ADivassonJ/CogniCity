@@ -26,15 +26,16 @@ from subcodes.results_scenario import build_daily_total_stats_from_constructed_o
 def main():
     # Input
 
-    '''  
+    
     population = 260
     study_area = 'Kanaleneiland'
-    '''
     
-              
+    
+    '''      
     population = 200
     study_area = 'Aradas'
-        
+
+    ''' 
     '''          
     population = 28000
     study_area = 'Annelinn'

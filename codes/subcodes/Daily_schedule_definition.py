@@ -104,6 +104,8 @@ def check_current_data(days, paths):
 
 def Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations):
     
+    print('#'*20, ' System running ','#'*20)
+
     days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
 
     days = {'Mo'}
@@ -128,6 +130,8 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
         
     files_done, days_missing = check_current_data(days, paths)
 
+    print('#'*20, ' Simulation Completed ','#'*20)
+
     ## Todolist
     # Convining docs
     docs_convining(files_done['todolist'], 'todolist', study_area, paths)
@@ -145,6 +149,8 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
     docs_convining(files_done['schedule_citizen'], 'schedule_citizen', study_area, paths)
     # Delete used files
     delete_used_files('schedule_citizen', paths)
+
+
         
         
         

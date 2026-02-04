@@ -9,16 +9,16 @@ from shapely.ops import voronoi_diagram
 # --------------------------------------------------------
 # 1. Leer datos
 # --------------------------------------------------------
-path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population"
+path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Aradas\population"
 
-nodes = pd.read_csv(f"{path}\\node_data_Annelinn.csv")     # columnas: lat, lon, i
-edges = pd.read_csv(f"{path}\\Annelinn_line_data.csv")          # columnas: i, j
+nodes = pd.read_csv(f"{path}\\node_data_Aradas.csv")     # columnas: lat, lon, i
+edges = pd.read_csv(f"{path}\\Aradas_line_data.csv")          # columnas: i, j
 
 # --------------------------------------------------------
 # 2. Definir polígono de Kanaleneiland (lat, lon -> lon, lat)
 # --------------------------------------------------------
 # Kanaleneiland
-'''boundary_latlon = [
+boundary_latlon = [
     (52.07904398, 5.081736117),
     (52.07624318, 5.08308264),
     (52.06046958, 5.09756737),
@@ -34,9 +34,9 @@ edges = pd.read_csv(f"{path}\\Annelinn_line_data.csv")          # columnas: i, j
     (52.08309467, 5.094751129),
     (52.0803543,  5.087985518),
     (52.07904398, 5.081736117),
-]'''
+]
 # Aradas
-'''boundary_latlon = [ (40.6260277,-8.6691095),
+boundary_latlon = [ (40.6260277,-8.6691095),
                     (40.6242125,-8.666836),
                     (40.6236329,-8.6659728),
                     (40.6234128,-8.6657849),
@@ -243,9 +243,10 @@ edges = pd.read_csv(f"{path}\\Annelinn_line_data.csv")          # columnas: i, j
                     (40.6267452,-8.6672412),
                     (40.6265183,-8.6674498),
                     (40.6260277,-8.6691095),
-                ]'''
+                ]
+
 # Annelinn
-boundary_latlon =   [(58.37779995285961, 26.737546920776367),
+'''boundary_latlon =   [(58.37779995285961, 26.737546920776367),
                     (58.38207378048632,  26.74806118011475),
                     (58.38095016884387,  26.753661632537845),
                     (58.380230379627854, 26.761858463287357),
@@ -291,7 +292,7 @@ boundary_latlon =   [(58.37779995285961, 26.737546920776367),
                     (58.377168553744575, 26.737632751464847),
                     (58.3777421867492,   26.73758983612061),
                      ]
-
+'''
 # Convertir a (lon, lat)
 boundary_lonlat = [(lon, lat) for (lat, lon) in boundary_latlon]
 boundary_poly = Polygon(boundary_lonlat)
@@ -314,11 +315,11 @@ for poly in voronoi_multi.geoms:
     clipped = poly.intersection(boundary_poly)
     if not clipped.is_empty:
         x, y = clipped.exterior.xy
-        plt.plot(x, y, linestyle="-", color="#AAAAAA", linewidth=1.2, dashes=(4, 7))
+        plt.plot(x, y, linestyle="-", color="#a2c4c9", linewidth=1.2, dashes=(4, 7))
 
 # 4.2 Dibujar el perímetro de Kanaleneiland
 bx, by = boundary_poly.exterior.xy
-plt.plot(bx, by, color="black", linewidth=1.2)
+plt.plot(bx, by, color="#134f5c", linewidth=1.2)
 
 # 4.3 Dibujar líneas eléctricas en gris oscuro
 node_dict = {row["i"]: (row["lon"], row["lat"]) for _, row in nodes.iterrows()}
@@ -327,10 +328,10 @@ for _, row in edges.iterrows():
     if n1 in node_dict and n2 in node_dict:
         x1, y1 = node_dict[n1]
         x2, y2 = node_dict[n2]
-        plt.plot([x1, x2], [y1, y2], color="#555555", linewidth=1.0)
+        plt.plot([x1, x2], [y1, y2], color="#45818e", linewidth=1.0)
 
 # 4.4 Dibujar nodos en negro
-plt.scatter(nodes["lon"], nodes["lat"], s=25, color="black")
+plt.scatter(nodes["lon"], nodes["lat"], s=25, color="#0c343d")
 
 plt.xlabel("Longitude")
 plt.ylabel("Latitude")

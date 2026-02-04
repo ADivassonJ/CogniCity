@@ -15,11 +15,13 @@ import matplotlib.pyplot as plt
 # ============================================================
 S_FOLDERS = [f"s{i}" for i in range(5)]
 
-# ROOT por caso
+# ROOT por caso (los que ya fijaste; añade los nuevos cuando quieras)
 root_map = {
     "Annelinn": "Node_43",
     "Aradas": "Node_20",
     "Kanaleneiland": "Node_67",
+    # "OtroCaso": "Node_XX",
+    # "OtroCaso2": "Node_YY",
 }
 
 SAT_THRESHOLD_PCT = 100.0     # saturación
@@ -27,18 +29,6 @@ DEMAND_SCALE = 1.0            # si pDemand está en kW, pon 1/1000 para MW
 
 OUT_DIR_NAME = "heatmaps_line_saturation"
 SAVE_FIGS = False
-
-# ============================================================
-# CONFIG MOVILIDAD (transporte)
-# ============================================================
-# Tu ruta (la que has puesto tú)
-TRANSPORT_BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
-
-# Ajusta si la movilidad necesita reescalar (p.ej. si está en W -> kW sería 1/1000)
-MOBILITY_SCALE = 1.0
-
-# Patrón de ficheros dentro de BASE_PATH/s/scenario
-TRANSPORT_PATTERN = "*{scen}_schedule_vehicle_quantified_24*.xlsx"
 
 
 # ============================================================
@@ -54,6 +44,12 @@ def candidate_desktops():
     ]
     return [p for p in cands if p.exists() and p.is_dir()]
 
+def find_files_on_desktop(pattern: str):
+    hits = []
+    for d in candidate_desktops():
+        hits += list(d.glob(pattern))
+    return hits
+
 def pick_best_excel(case_name: str):
     """
     Busca en el escritorio un Excel que contenga el case_name y tenga hojas pDemand y pPmax_line.
@@ -63,6 +59,7 @@ def pick_best_excel(case_name: str):
     for d in candidate_desktops():
         excels += list(d.glob(f"*{case_name}*.xls*"))
 
+    # preferencia: datos_extraidos primero
     excels.sort(key=lambda p: (0 if "datos_extraidos" in p.name.lower() else 1, len(p.name)))
 
     for x in excels:
@@ -72,9 +69,11 @@ def pick_best_excel(case_name: str):
                 return x
         except Exception:
             continue
+
     return None
 
 def pick_best_nodes_csv(case_name: str):
+    # típico: node_data_<case>.csv
     candidates = []
     for d in candidate_desktops():
         candidates += list(d.glob(f"*node*data*{case_name}*.csv"))
@@ -85,6 +84,7 @@ def pick_best_nodes_csv(case_name: str):
     return candidates[0] if candidates else None
 
 def pick_best_edges_csv(case_name: str):
+    # típico: <case>_line_data.csv o Aradas_line_data.csv
     candidates = []
     for d in candidate_desktops():
         candidates += list(d.glob(f"*{case_name}*line*data*.csv"))
@@ -179,7 +179,7 @@ def edge_key(a, b):
 
 
 # ============================================================
-# INPUTS: Pmax y Demanda (doméstica)
+# INPUTS: Pmax y Demanda
 # ============================================================
 def load_pmax_map(pPmax_line_df: pd.DataFrame):
     pmax = {}
@@ -190,10 +190,6 @@ def load_pmax_map(pPmax_line_df: pd.DataFrame):
     return pmax
 
 def load_hourly_demand(pDemand_df: pd.DataFrame):
-    """
-    Espera columnas: Time, Buses, values (en kW si DEMAND_SCALE=1, etc).
-    Devuelve hours (ordenadas) y demand_by_time[t] = {bus: demand}
-    """
     df = pDemand_df.copy()
     df["Buses"] = df["Buses"].astype(str).map(to_node_label)
     df["values"] = pd.to_numeric(df["values"], errors="coerce").fillna(0.0) * float(DEMAND_SCALE)
@@ -212,130 +208,12 @@ def load_hourly_demand(pDemand_df: pd.DataFrame):
 
 
 # ============================================================
-# MOVILIDAD: cargar *_schedule_vehicle_quantified_24*.xlsx
-# ============================================================
-def _find_transport_files(base_path: str, s: str, scen: str) -> list[str]:
-    folder = os.path.join(base_path, s, scen)
-    pattern = os.path.join(folder, TRANSPORT_PATTERN.format(scen=scen))
-    return sorted(glob.glob(pattern))
-
-def _normalize_transport_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normaliza a columnas: Time (0..23), Buses (Node_XX), values (float).
-    Soporta:
-      - formato largo: Time/Hour + Bus/Buses/Node + values/power/kW/...
-      - formato ancho: Time/Hour + columnas Node_XX (o números) con valores
-    """
-    df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-
-    # columna de hora
-    time_col = None
-    for c in ["Time", "time", "Hour", "hour", "h", "t"]:
-        if c in df.columns:
-            time_col = c
-            break
-    if time_col is None:
-        # a veces viene como índice
-        if df.index.name and str(df.index.name).lower() in ["time", "hour"]:
-            df = df.reset_index()
-            time_col = df.columns[0]
-        else:
-            raise ValueError(f"No encuentro columna de hora en movilidad. Columnas={list(df.columns)}")
-
-    # formato largo (bus + valor)
-    bus_col = None
-    for c in ["Buses", "Bus", "bus", "Node", "node", "Nodo", "nodo"]:
-        if c in df.columns:
-            bus_col = c
-            break
-
-    val_col = None
-    for c in ["values", "value", "Value", "pDemand", "demand", "Demand", "P", "power", "Power", "kW", "KW", "mw", "MW"]:
-        if c in df.columns:
-            val_col = c
-            break
-
-    if bus_col is not None and val_col is not None:
-        out = df[[time_col, bus_col, val_col]].rename(
-            columns={time_col: "Time", bus_col: "Buses", val_col: "values"}
-        )
-    else:
-        # formato ancho
-        candidates = []
-        for c in df.columns:
-            if c == time_col:
-                continue
-            sc = str(c).strip()
-            if sc.startswith("Node_"):
-                candidates.append(c)
-            else:
-                try:
-                    int(sc)
-                    candidates.append(c)
-                except Exception:
-                    pass
-
-        if not candidates:
-            raise ValueError(
-                f"Movilidad: no detecto columnas de buses ni formato ancho. Columnas={list(df.columns)}"
-            )
-
-        wide = df[[time_col] + candidates].rename(columns={time_col: "Time"})
-        out = wide.melt(id_vars=["Time"], var_name="Buses", value_name="values")
-
-    # normalización final
-    out["Time"] = pd.to_numeric(out["Time"], errors="coerce")
-    out = out.dropna(subset=["Time"])
-    out["Time"] = out["Time"].astype(int)
-    out = out[(out["Time"] >= 0) & (out["Time"] <= 23)]
-
-    out["values"] = pd.to_numeric(out["values"], errors="coerce").fillna(0.0) * float(MOBILITY_SCALE)
-
-    out["Buses"] = out["Buses"].astype(str).str.strip().apply(to_node_label)
-
-    out = out.groupby(["Time", "Buses"], as_index=False)["values"].sum()
-    return out
-
-def load_transport_demand_quantified24(base_path: str, s: str, scen: str) -> pd.DataFrame:
-    """
-    Lee TODOS los excels *_schedule_vehicle_quantified_24*.xlsx en base_path/s/scen
-    y devuelve Time,Buses,values agregado.
-    Lee todas las hojas; ignora hojas no compatibles.
-    """
-    files = _find_transport_files(base_path, s, scen)
-    if not files:
-        return pd.DataFrame(columns=["Time", "Buses", "values"])
-
-    frames = []
-    for fp in files:
-        try:
-            xls = pd.ExcelFile(fp)
-            for sh in xls.sheet_names:
-                try:
-                    df = pd.read_excel(xls, sh)
-                    if df is None or df.empty:
-                        continue
-                    frames.append(_normalize_transport_df(df))
-                except Exception:
-                    continue
-        except Exception:
-            continue
-
-    if not frames:
-        return pd.DataFrame(columns=["Time", "Buses", "values"])
-
-    mob = pd.concat(frames, ignore_index=True)
-    mob = mob.groupby(["Time", "Buses"], as_index=False)["values"].sum()
-    return mob
-
-
-# ============================================================
 # CÁLCULO: flujo radial + saturación por línea y hora
 # ============================================================
 def compute_line_flows_and_saturation(hours, demand_by_time, universe, parent, root, pmax_map):
     children, post = build_children_and_postorder(parent, root=root)
 
+    # lista de líneas orientadas (parent -> child)
     oriented = []
     for u in universe:
         p = parent.get(u, None)
@@ -345,6 +223,7 @@ def compute_line_flows_and_saturation(hours, demand_by_time, universe, parent, r
 
     line_names = [f"{p}->{u}" for p, u in oriented]
     sat = np.full((len(oriented), len(hours)), np.nan, dtype=float)
+
     anomalies = {t: [] for t in hours}
 
     for hi, t in enumerate(hours):
@@ -399,8 +278,6 @@ def plot_heatmap_panel_5(mats: dict, s_order: list[str], title: str, vmin=0.0, v
         )
         mappable = im
         ax.set_title(s, fontsize=11)
-
-        # eje X horas
         ax.set_xlim(-0.5, 23.5)
         even_hours = np.arange(0, 24, 2)
         ax.set_xticks(even_hours)
@@ -420,20 +297,44 @@ def plot_heatmap_panel_5(mats: dict, s_order: list[str], title: str, vmin=0.0, v
     plt.show()
     return fig
 
-
 # ============================================================
-# RESUMEN
+# RESUMEN: saturación promedio por sistema y por hora
 # ============================================================
-def sat_stats_overall(satM: np.ndarray) -> dict:
+def mean_saturation_overall(satM: np.ndarray) -> float:
+    """Promedio global (líneas x horas), ignorando NaN."""
     x = np.asarray(satM, dtype=float)
     if np.all(np.isnan(x)):
-        return {"avg": float("nan"), "min": float("nan"), "max": float("nan")}
+        return float("nan")
+    return float(np.nanmean(x))
+
+def mean_saturation_by_hour(satM: np.ndarray) -> np.ndarray:
+    """Vector de 24 elementos: promedio por hora (promedio sobre líneas), ignorando NaN."""
+    x = np.asarray(satM, dtype=float)
+    # axis=0 => promedio sobre líneas
+    return np.nanmean(x, axis=0)
+
+def mean_saturation_by_line(satM: np.ndarray) -> np.ndarray:
+    """Promedio por línea (promedio sobre horas), ignorando NaN."""
+    x = np.asarray(satM, dtype=float)
+    # axis=1 => promedio sobre horas
+    return np.nanmean(x, axis=1)
+
+def sat_stats_overall(satM: np.ndarray) -> dict:
+    """Devuelve avg, min y max global (líneas x horas), ignorando NaN."""
+    x = np.asarray(satM, dtype=float)
+
+    if np.all(np.isnan(x)):
+        return {
+            "avg": float("nan"),
+            "min": float("nan"),
+            "max": float("nan"),
+        }
+
     return {
         "avg": float(np.nanmean(x)),
         "min": float(np.nanmin(x)),
         "max": float(np.nanmax(x)),
     }
-
 
 # ============================================================
 # MAIN por caso
@@ -441,7 +342,6 @@ def sat_stats_overall(satM: np.ndarray) -> dict:
 def run_one_case(case_name: str, out_dir: Path):
     root = root_map.get(case_name)
     if not root:
-        print(f"[SKIP] case sin root_map: {case_name}")
         return
 
     nodes_csv = pick_best_nodes_csv(case_name)
@@ -449,7 +349,6 @@ def run_one_case(case_name: str, out_dir: Path):
     excel_path = pick_best_excel(case_name)
 
     if not nodes_csv or not edges_csv or not excel_path:
-        print(f"[SKIP] faltan inputs para {case_name}: nodes={nodes_csv}, edges={edges_csv}, excel={excel_path}")
         return
 
     nodes = pd.read_csv(nodes_csv)
@@ -463,32 +362,16 @@ def run_one_case(case_name: str, out_dir: Path):
     pDemand = pd.read_excel(xls, "pDemand")
     pPmax_line = pd.read_excel(xls, "pPmax_line")
 
+    hours, demand_by_time = load_hourly_demand(pDemand)
     pmax_map = load_pmax_map(pPmax_line)
-
-    # --- doméstico base agregado (Time,Buses,values) ---
-    pDemand_dom = pDemand.copy()
-    pDemand_dom["Buses"] = pDemand_dom["Buses"].astype(str).map(to_node_label)
-    pDemand_dom["values"] = pd.to_numeric(pDemand_dom["values"], errors="coerce").fillna(0.0)
-    dom_agg = pDemand_dom.groupby(["Time", "Buses"], as_index=False)["values"].sum()
 
     mats = {}
     text_anoms = {}
-    stats_rows = []
+
+    # >>> PROMEDIOS: iremos acumulando un resumen por sistema
+    avg_rows = []  # lista de dicts para DataFrame
 
     for s in S_FOLDERS:
-        # --- movilidad por sistema s y escenario case_name ---
-        mob_s = load_transport_demand_quantified24(TRANSPORT_BASE_PATH, s, case_name)
-
-        # --- suma doméstico + movilidad ---
-        if not mob_s.empty:
-            tot = pd.concat([dom_agg, mob_s], ignore_index=True)
-            pDemand_total = tot.groupby(["Time", "Buses"], as_index=False)["values"].sum()
-        else:
-            pDemand_total = dom_agg
-
-        # estructura por hora
-        hours, demand_by_time = load_hourly_demand(pDemand_total)
-
         line_names, satM, anomalies = compute_line_flows_and_saturation(
             hours=hours,
             demand_by_time=demand_by_time,
@@ -497,11 +380,28 @@ def run_one_case(case_name: str, out_dir: Path):
             root=root,
             pmax_map=pmax_map,
         )
-
         mats[s] = {"M": satM, "y_labels": line_names}
         text_anoms[s] = anomalies
 
+        # >>> PROMEDIOS
+        avg_global = mean_saturation_overall(satM)
+        stats_rows = []
+
+    for s in S_FOLDERS:
+        line_names, satM, anomalies = compute_line_flows_and_saturation(
+            hours=hours,
+            demand_by_time=demand_by_time,
+            universe=universe,
+            parent=parent,
+            root=root,
+            pmax_map=pmax_map,
+        )
+        mats[s] = {"M": satM, "y_labels": line_names}
+        text_anoms[s] = anomalies
+
+        # >>> avg / min / max
         stats = sat_stats_overall(satM)
+
         stats_rows.append({
             "case": case_name,
             "root": root,
@@ -511,56 +411,64 @@ def run_one_case(case_name: str, out_dir: Path):
             "max_saturation_pct": stats["max"],
         })
 
-    # ---- resumen por sistema
+    # >>> imprime tabla de promedios por sistema para este caso
     stats_df = pd.DataFrame(stats_rows).sort_values(["case", "system"])
 
     print("\n" + "-" * 90)
-    print(f"RESUMEN SATURACIÓN | CASO: {case_name} | ROOT: {root} | (Doméstico + Transporte)")
+    print(f"RESUMEN SATURACIÓN | CASO: {case_name} | ROOT: {root}")
     print(
-        stats_df[["system", "avg_saturation_pct", "min_saturation_pct", "max_saturation_pct"]].to_string(
+        stats_df[
+            ["system", "avg_saturation_pct", "min_saturation_pct", "max_saturation_pct"]
+        ].to_string(
             index=False,
             float_format=lambda x: f"{x:7.2f}"
         )
     )
     print("-" * 90)
 
+    # >>> (Opcional) guarda CSV por caso
     if SAVE_FIGS:
-        stats_out = out_dir / f"avg_line_saturation_{case_name}_root{root}.csv"
-        stats_df.to_csv(stats_out, index=False)
+        avg_out = out_dir / f"avg_line_saturation_{case_name}_root{root}.csv"
+        avg_df.to_csv(avg_out, index=False)
 
-    # ---- anomalías: por defecto muestro s0 (igual que tu versión anterior)
-    anomalies_s0 = text_anoms.get("s0", {})
-    if anomalies_s0:
+    # TEXTO anomalías (como ya lo tenías)
+    anomalies = text_anoms["s0"]
+    if anomalies:
         print("\n" + "=" * 80)
         print(f"CASO: {case_name} | ROOT: {root}")
         print(f"Inputs: {excel_path.name} | Nodes: {nodes_csv.name} | Lines: {edges_csv.name}")
         print("=" * 80)
 
-        for t in sorted(anomalies_s0.keys()):
-            hits = sorted(anomalies_s0[t], key=lambda x: x[1], reverse=True)
+        for t in sorted(anomalies.keys()):
+            hits = sorted(anomalies[t], key=lambda x: x[1], reverse=True)
             print(f"\nAnomalía detectada a las {int(t):02d}:00 (línea(s) saturada(s) >=100%)")
             for (lname, pct, flow, pmax) in hits[:8]:
                 print(f"  - {lname}: {pct:.1f}%  (P={flow:.3f} MW, Pmax={pmax:.3f} MW)")
 
-    # ---- heatmaps
-    title = f"{case_name} — Saturación líneas [%] (cap 100) — root {root} — (Dom + Transp)"
+    # HEATMAPS
+    title = f"{case_name} — Saturación líneas [%] (cap 100) — root {root}"
     fig = plot_heatmap_panel_5(mats=mats, s_order=S_FOLDERS, title=title, vmin=0.0, vmax=100.0)
 
     if SAVE_FIGS:
         out_path = out_dir / f"panel_line_saturation_{case_name}_root{root}.png"
         fig.savefig(out_path, dpi=200, bbox_inches="tight")
 
-
 def main():
+    # Salida en escritorio
+    out_dir = None
     desks = candidate_desktops()
     if not desks:
         raise RuntimeError("No encuentro Desktop/Escritorio en rutas típicas.")
     out_dir = desks[0] / OUT_DIR_NAME
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Casos a evaluar: los que estén en root_map (así no inventamos)
+    # (Si tienes 5 study_cases, añade los 2 que faltan al root_map y listo)
     for case_name in list(root_map.keys()):
         run_one_case(case_name, out_dir)
 
+    # Guardados
+    # (No imprimimos nada extra si no hay anomalías; las figuras sí se guardan.)
 
 if __name__ == "__main__":
     main()

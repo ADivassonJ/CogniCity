@@ -1180,17 +1180,17 @@ def load_or_download_networks(study_area, study_area_path, networks, city_distri
                 # ---------- CREAR FIGURA ----------
                 fig, ax = plt.subplots(figsize=(10, 10))
                 # Dibujar buffer
-                gdf_buffered_proj.plot(ax=ax, facecolor='lightblue', edgecolor='blue', alpha=0.3, label='Buffer')
+                gdf_buffered_proj.plot(ax=ax, facecolor='#d0e0e3', edgecolor='#45818e', alpha=0.3, label='Buffer')
                 # Dibujar polígono original
-                gdf_original_proj.plot(ax=ax, facecolor='none', edgecolor='blue', linewidth=2, label='Área original')
+                gdf_original_proj.plot(ax=ax, facecolor='none', edgecolor='#0c343d', linewidth=2, label='Área original')
                 # Dibujar grafo de la red en negro sin nodos
-                ox.plot_graph(graph_proj, ax=ax, node_size=0, edge_color='black', show=False, close=False)
+                ox.plot_graph(graph_proj, ax=ax, node_size=0, edge_color='#45818e', show=False, close=False)
                 # Ajustar la visualización
                 ax.set_aspect('equal')  # Mantener proporción real
                 ax.set_xlim(gdf_buffered_proj.total_bounds[[0, 2]])  # xmin, xmax del buffer
                 ax.set_ylim(gdf_buffered_proj.total_bounds[[1, 3]])  # ymin, ymax del buffer
                 # Título y etiquetas
-                ax.set_title(f"{study_area} ({net_type}) with buffer of {buff} meters.")
+                ax.set_title(f"")
                 ax.set_xlabel("X (m)")
                 ax.set_ylabel("Y (m)")
                 plt.show()
@@ -1741,30 +1741,45 @@ def Utilities_assignment(
 
         # --- ANILLO ---
         if not ring_proj.is_empty.all():
-            ring_proj.plot(ax=ax, color="lightgrey", edgecolor="dimgray", alpha=0.3)
+            ring_proj.plot(ax=ax, color="#a2c4c9", edgecolor="#45818e", alpha=0.3)
 
         # --- EDIFICIOS FUERA ---
         gdf_out = gdf_proj[~mask_inside]
         if not gdf_out.empty:
-            gdf_out.plot(ax=ax, color="gainsboro", markersize=25, label="Fuera")
+            gdf_out.plot(ax=ax, color="#76a5af", markersize=25, label="Fuera")
 
         # --- EDIFICIOS DENTRO ---
         gdf_in = gdf_proj[mask_inside]
         if not gdf_in.empty:
-            gdf_in.plot(ax=ax, color="dimgray", markersize=35, label="Dentro")
+            gdf_in.plot(ax=ax, color="#0c343d", markersize=35, label="Dentro")
 
         # --- EDIFICIO ELEGIDO ---
         if chosen_id is not None and chosen_id in gdf_proj['osm_id'].values:
             elegido = gdf_proj.loc[gdf_proj['osm_id'] == chosen_id]
             elegido.plot(ax=ax, facecolor="white", edgecolor="black",
                         markersize=80, marker="o", zorder=3, label="Elegido")
+            
+        # --- HOME (CENTRO DEL ANILLO) ---
+        if not ring_proj.is_empty.all():
+            centroid = ring_proj.iloc[0].centroid
+
+            # Dibujar cuadrado
+            ax.scatter(
+                centroid.x,
+                centroid.y,
+                marker='s',              # cuadrado
+                s=100,                   # tamaño
+                facecolor='#0c343d',
+                zorder=4
+            )
 
         # --- LEYENDA MANUAL ---
         legend_elements = [
-            mpatches.Patch(facecolor='lightgrey', edgecolor='dimgray', alpha=0.3, label='Ring'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='dimgray', markersize=8, label='Inside'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='gainsboro', markersize=8, label='Outside'),
-            Line2D([0], [0], marker='o', color='black', markerfacecolor='white', markersize=10, label='Choosen ID')
+            mpatches.Patch(facecolor='#a2c4c9', edgecolor='#45818e', alpha=0.3, label='Ring'),
+            Line2D([0], [0], marker='s', color='w', markerfacecolor='#0c343d', markersize=8, label='Home'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='#0c343d', markersize=8, label='Inside'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='#76a5af', markersize=8, label='Outside'),
+            Line2D([0], [0], marker='o', color='black', markerfacecolor='white', markersize=8, label='Choosen ID')
         ]
         ax.legend(handles=legend_elements, loc='upper right')
 
@@ -1973,6 +1988,9 @@ def Utilities_assignment(
 
         # 7) Elegir el 'osm_id' más cercano
         chosen_id = gdf_in.sort_values("dist_to_sample").iloc[0]["osm_id"]
+
+        #visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id)
+
         return chosen_id
 
 

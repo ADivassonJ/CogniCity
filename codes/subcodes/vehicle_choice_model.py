@@ -101,7 +101,7 @@ def _process_family(
             # “Consume” vehículo si no es compartible
             vehicle_name = best_transport_distime_matrix[0]['vehicle']
             if vehicle_name not in ('walk', 'Public_transport') and avail_vehicles != []:
-                avail_vehicles = [v for v in avail_vehicles if v['name'] != vehicle_name]'''
+                avail_vehicles = [v for v in avail_vehicles if v['name'] != vehicle_name]''' #ISSUE 
             continue
 
         ####################################################
@@ -232,7 +232,7 @@ def vehicle_choice_model(
     citizen_schedules = []
     vehicle_schedules = []      
     
-    for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
+    '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
                                                    study_area,
@@ -243,9 +243,9 @@ def vehicle_choice_model(
         if fam_schedule is not None and fam_schedule != []:
             citizen_schedules.extend(fam_schedule)
         if fam_actions is not None and fam_actions != []:
-            vehicle_schedules.extend(fam_actions)
+            vehicle_schedules.extend(fam_actions)'''
         
-    '''worker = partial(
+    worker = partial(
         _process_family,
         paths=paths,
         study_area=study_area,
@@ -269,7 +269,7 @@ def vehicle_choice_model(
                 if fam_actions is not None and fam_actions != []:
                     vehicle_schedules.extend(fam_actions)
             except Exception as e:
-                print(f"[ERROR] familia '{fam_name}': {e}")'''
+                print(f"[ERROR] familia '{fam_name}': {e}")
 
     # --- Agregación en el proceso principal ---
     df_citizen_schedules = pd.DataFrame(citizen_schedules)
@@ -694,7 +694,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
             results[variable] = var_result
         return results
     
-    def virtual_EV_generator(archetypes_transport: pd.DataFrame, CSEV: bool, home_lat, home_lon):
+    def virtual_EV_generator(archetypes_transport: pd.DataFrame, CSEV: bool, home_lat, home_lon, citizen_data):
 
         archetype = 'CS_electric' if CSEV else 'PC_electric'
         
@@ -713,7 +713,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         ubication = closest_share_mob_hubs(home_lat, home_lon, hubs)
 
         virtual_EV = {
-            'name':         'virtual_vehicle',
+            'name':         f'virtual_vehicle_{citizen_data['name']}',
             'archetype':    archetype,
             'family':       '-',
             'ubication':    ubication
@@ -739,7 +739,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         
         home_lat, home_lon = pop_building.loc[pop_building['osm_id'] == citizen_data['Home'], ['lat', 'lon']].iloc[0]
 
-        transport = virtual_EV_generator(pop_archetypes['transport'], CSEV, home_lat, home_lon)
+        transport = virtual_EV_generator(pop_archetypes['transport'], CSEV, home_lat, home_lon, citizen_data)
 
         last_P = transport['ubication']
         new_pop_building = pop_building

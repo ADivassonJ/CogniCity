@@ -91,106 +91,74 @@ def assign_battery_and_initial_soc(
     batt = np.clip(batt, batt_min_kwh, batt_max_kwh)
     out["battery_kwh"] = batt
 
-    out["soc0"] = rng.uniform(low=soc_min, high=soc_max, size=len(out))  # fracción 0..1
+    out["soc0"] = rng.uniform(low=soc_min, high=soc_max, size=len(out))
 
     return out
 
 
-def simulate_fleet_soc_rule(
+def simulate_fleet_soc_rule_multi_power(
     agents: pd.DataFrame,
+    powers_kw: list[float],
     n_days: int = 7,
-    soc_threshold: float = 0.50,   # si SoC < 50% -> carga
-    soc_target: float = 0.80,      # si carga, carga hasta 80%
-    p_slow_kw: float = P_SLOW_KW,
-    p_fast_kw: float = P_FAST_KW,
+    soc_threshold: float = 0.50,
+    soc_target: float = 0.80,
     day_names: list[str] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """
-    Regla:
-      - Lunes 00:00 cada vehículo empieza con SoC aleatorio en [50%,80%] (ya asignado en agents['soc0'])
-      - Cada día, al llegar a casa (start_hour), se resta el consumo del día al SoC
-      - Si SoC < 50% -> empieza a cargar desde esa hora hasta alcanzar 80% (o hasta fin de horizonte)
-      - Si SoC >= 50% -> no carga ese día
-
-    La carga se modela hora a hora y puede hacer spillover al día siguiente (igual que antes).
+    Same SoC rule as before, but simulated for an arbitrary list of charging powers.
+    Each power is simulated independently (parallel what-if scenarios).
     """
+
     horizon = n_days * 24
     if day_names is None:
         day_names = [f"D{d+1}" for d in range(n_days)]
-    else:
-        if len(day_names) != n_days:
-            raise ValueError(f"day_names debe tener longitud n_days={n_days}")
 
-    fleet_slow = np.zeros(horizon, dtype=float)
-    fleet_fast = np.zeros(horizon, dtype=float)
+    # Initialize aggregated power profiles
+    fleet_power = {
+        p: np.zeros(horizon, dtype=float)
+        for p in powers_kw
+    }
 
-    # Métricas
-    n_charge_events_slow = 0
-    n_charge_events_fast = 0
+    charge_events = {p: 0 for p in powers_kw}
 
     for _, row in agents.iterrows():
         start_hour = int(row["start_hour"])
         e_daily = float(row["e_daily_kwh"])
         batt = float(row["battery_kwh"])
-        soc = float(row["soc0"])  # fracción 0..1
+        soc0 = float(row["soc0"])
 
-        # Simula día a día (decisión en llegada a casa)
-        for d in range(n_days):
-            t_arr = d * 24 + start_hour
-            if t_arr >= horizon:
-                break
+        for p_kw in powers_kw:
+            soc = soc0  # reset SoC per scenario
 
-            # Al llegar a casa: baja SoC por consumo del día
-            soc -= (e_daily / batt)
-            soc = max(soc, 0.0)
+            for d in range(n_days):
+                t_arr = d * 24 + start_hour
+                if t_arr >= horizon:
+                    break
 
-            # Decide si carga
-            if soc < soc_threshold:
-                # Energía necesaria para llegar a soc_target
-                e_need = max(0.0, (soc_target - soc) * batt)
+                # Daily driving consumption
+                soc -= e_daily / batt
+                soc = max(soc, 0.0)
 
-                # --- SLOW charging ---
-                if e_need > 0:
-                    n_charge_events_slow += 1
-                    remaining = e_need
-                    for t in range(t_arr, horizon):
-                        if remaining <= 0:
-                            break
-                        e_can = p_slow_kw * 1.0
-                        e_this = min(remaining, e_can)
-                        fleet_slow[t] += e_this / 1.0  # kW promedio
-                        remaining -= e_this
-                    # Nota: no actualizamos soc aquí para slow, porque el SoC real dependería del cargador elegido.
-                    # El SoC para la decisión diaria lo simularemos con FAST o SLOW? Para mantener coherencia,
-                    # simulamos el SoC con una "política" única: usar FAST para actualizar SoC sería inconsistente.
-                    # Solución: actualizamos SoC con una carga "ideal" hasta target (sin importar potencia),
-                    # ya que la decisión diaria depende del estado al día siguiente.
-                    # Pero para spillover, el perfil ya está en fleet_slow.
-                    soc = min(soc_target, soc + e_need / batt)
+                if soc < soc_threshold:
+                    e_need = max(0.0, (soc_target - soc) * batt)
+                    if e_need > 0:
+                        charge_events[p_kw] += 1
+                        remaining = e_need
 
-                # --- FAST charging ---
-                if e_need > 0:
-                    n_charge_events_fast += 1
-                    remaining = e_need
-                    for t in range(t_arr, horizon):
-                        if remaining <= 0:
-                            break
-                        e_can = p_fast_kw * 1.0
-                        e_this = min(remaining, e_can)
-                        fleet_fast[t] += e_this / 1.0  # kW promedio
-                        remaining -= e_this
+                        for t in range(t_arr, horizon):
+                            if remaining <= 0:
+                                break
+                            e_this = min(remaining, p_kw)
+                            fleet_power[p_kw][t] += e_this
+                            remaining -= e_this
 
-                # Importante: el SoC que se usa para el día siguiente ya lo dejamos en soc_target.
-                # Si quieres que el SoC dependa de si con SLOW llega o no a tiempo, hay que modelar
-                # ventanas de carga (p.ej., hasta la hora de salida). Como no tenemos salida, usamos este supuesto.
+                        soc = soc_target  # idealized completion
 
-            # Si soc >= threshold, no carga ese día
+    # Build output DataFrame
+    out = pd.DataFrame({"t": np.arange(horizon)})
+    for p_kw in powers_kw:
+        out[f"P_{p_kw:.1f}_kW"] = fleet_power[p_kw]
 
-    out = pd.DataFrame({
-        "t": np.arange(horizon),
-        "P_slow_kW": fleet_slow,
-        "P_fast_kW": fleet_fast,
-    })
     out["day_index"] = out["t"] // 24
     out["hour"] = out["t"] % 24
     out["day"] = out["day_index"].map(lambda i: day_names[int(i)])
@@ -198,14 +166,11 @@ def simulate_fleet_soc_rule(
 
     meta = {
         "n_days": n_days,
-        "horizon_hours": horizon,
         "soc_threshold": soc_threshold,
         "soc_target": soc_target,
-        "p_slow_kw": p_slow_kw,
-        "p_fast_kw": p_fast_kw,
-        "n_agents": int(agents["agent"].nunique()) if "agent" in agents.columns else len(agents),
-        "n_charge_events_slow": n_charge_events_slow,
-        "n_charge_events_fast": n_charge_events_fast,
+        "powers_kw": powers_kw,
+        "charge_events": charge_events,
+        "n_agents": len(agents),
     }
 
     return out, meta
@@ -229,10 +194,10 @@ if __name__ == "__main__":
         soc_min=0.50,
         soc_max=0.80,
         batt_mean_kwh=60.0,   # promedio típico
-        batt_sd_kwh=10.0,
+        batt_sd_kwh=5.0,
         batt_min_kwh=30.0,
-        batt_max_kwh=100.0,
-        seed=123
+        batt_max_kwh=120.0,
+        seed=453
     )
     print("\nAgents with battery and soc0:")
     print(agents.head())
@@ -241,87 +206,43 @@ if __name__ == "__main__":
     base_week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
     day_names = (base_week * (n_days // 7)) + base_week[:(n_days % 7)]
 
-    fleet_7d, meta_sim = simulate_fleet_soc_rule(
+    powers_kw = [3.7, 50]
+
+    fleet, meta_sim = simulate_fleet_soc_rule_multi_power(
         agents=agents,
+        powers_kw=powers_kw,
         n_days=n_days,
         soc_threshold=0.50,
         soc_target=0.80,
-        p_slow_kw=P_SLOW_KW,
-        p_fast_kw=P_FAST_KW,
         day_names=day_names
     )
-    
-    print("\nMETA SIM:", meta_sim)
-    print("\nFleet 7d head:")
-    print(fleet_7d.head(30))
-    print("\nFleet 7d tail:")
-    print(fleet_7d.tail(30))
 
-    # 4) Plot 168h (muestra todos los días)
-    plt.figure()
-    plt.plot(fleet_7d["t"], fleet_7d["P_slow_kW"], label="Lenta (3.7 kW/VE)")
-    plt.plot(fleet_7d["t"], fleet_7d["P_fast_kW"], label="Rápida (50 kW/VE)")
+    plt.figure(figsize=(14, 5))
 
-    ticks = np.arange(0, 7 * 24, 24)
-    ticklabels = [fleet_7d.loc[fleet_7d["t"] == t, "day"].iloc[0] for t in ticks]
-    plt.xticks(ticks, ticklabels)
+    # Plot all charging power scenarios
+    for p_kw in powers_kw:
+        plt.plot(
+            fleet["t"],
+            fleet[f"P_{p_kw:.1f}_kW"],
+            label=f"{p_kw:.1f} kW charger"
+        )
 
-    plt.xlabel("Día")
-    plt.ylabel("Potencia agregada (kW)")
-    plt.title("Curva agregada 7 días con regla SoC (<50% carga hasta 80%)")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    # ---- X axis: hours of day every 2 hours ----
+    t_max = fleet["t"].max()
 
-    # 5) (Opcional) Curvas slow por día (0..23)
-    plt.figure()
-    for d in range(7):
-        day_df = fleet_7d[fleet_7d["day_index"] == d]
-        plt.plot(day_df["hour"], day_df["P_slow_kW"], label=f"{day_df['day'].iloc[0]} (slow)")
+    xticks = np.arange(0, t_max + 1, 2)
+    xtick_labels = [f"{int(t % 24):02d}" for t in xticks]
 
-    plt.xlabel("Hora del día")
-    plt.ylabel("Potencia agregada (kW)")
-    plt.title("Curvas slow por día (7 días)")
-    plt.xticks(range(0, 24, 1))
-    plt.grid(True)
-    plt.legend(ncol=2, fontsize=8)
-    plt.tight_layout()
-    plt.show()
+    plt.xticks(xticks, xtick_labels)
 
-    # 5) Curvas solapadas: solo 1 de cada 6 días (día 6, 12, 18, ...)
-    days_to_plot = list(range(5, n_days, 6))  # 0-based: 5->día 6, 11->día 12, ...
+    # ---- Vertical lines: day boundaries ----
+    for d in range(0, int(t_max / 24) + 1):
+        plt.axvline(x=d * 24, color="k", linewidth=0.5, alpha=0.3)
 
-    # --- SLOW solapado ---
-    plt.figure()
-    for d in days_to_plot:
-        day_df = fleet_7d[fleet_7d["day_index"] == d]
-        if day_df.empty:
-            continue
-        plt.plot(day_df["hour"], day_df["P_slow_kW"], label=f"{day_df['day'].iloc[0]} (día {d+1})")
-
-    plt.xlabel("Hora del día")
-    plt.ylabel("Potencia agregada (kW)")
-    plt.title("Curvas SLOW solapadas: días 6, 12, 18, ...")
-    plt.xticks(range(0, 24, 1))
-    plt.grid(True)
-    plt.legend(ncol=2, fontsize=8)
-    plt.tight_layout()
-    plt.show()
-
-    # --- FAST solapado ---
-    plt.figure()
-    for d in days_to_plot:
-        day_df = fleet_7d[fleet_7d["day_index"] == d]
-        if day_df.empty:
-            continue
-        plt.plot(day_df["hour"], day_df["P_fast_kW"], label=f"{day_df['day'].iloc[0]} (día {d+1})")
-
-    plt.xlabel("Hora del día")
-    plt.ylabel("Potencia agregada (kW)")
-    plt.title("Curvas FAST solapadas: días 6, 12, 18, ...")
-    plt.xticks(range(0, 24, 1))
-    plt.grid(True)
-    plt.legend(ncol=2, fontsize=8)
+    # Labels and styling
+    plt.xlabel("Hour of day")
+    plt.ylabel("Aggregated charging power (kW)")
+    plt.grid(True, axis="y")  # only horizontal grid
+    plt.legend(ncol=2, fontsize=9, loc="upper right")
     plt.tight_layout()
     plt.show()

@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 # -----------------------------
 # USER CONFIG
 # -----------------------------
-study_case = "Kanaleneiland"
+study_case = "Aradas"
 path = Path(r"C:/Users/asier.divasson/Documents/GitHub/CogniCity/data") / study_case / "population"
 
 nodes_csv = path / f"node_data_{study_case}.csv"
