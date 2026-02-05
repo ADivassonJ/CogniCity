@@ -2,11 +2,9 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
+from scipy.optimize import differential_evolution  # <--- IMPORTANTE
 
 MJ_TO_KWH = 1.0 / 3.6  # 0.277777...
-P_SLOW_KW = 3.7
-P_FAST_KW = 50.0
-
 
 def parse_hour(timestr: str) -> int:
     # Espera formato "HH:MM"
@@ -175,74 +173,275 @@ def simulate_fleet_soc_rule_multi_power(
 
     return out, meta
 
+def simulate_fleet_soc_rule_multi_power_with_delay(
+    agents: pd.DataFrame,
+    powers_kw: list[float],
+    n_days: int = 7,
+    soc_threshold: float = 0.50,
+    soc_target: float = 0.80,
+    delay_mu_h: float = 2.0,
+    delay_sigma_h: float = 1.0,
+    seed_delay: int = 1234,
+    apply_delay_to_last_power_only: bool = True,
+) -> tuple[pd.DataFrame, dict]:
+
+    rng = np.random.default_rng(seed_delay)
+    horizon = n_days * 24
+
+    fleet_power = {p: np.zeros(horizon) for p in powers_kw}
+    peak_power = {}
+
+    for _, row in agents.iterrows():
+        start_hour = int(row["start_hour"])
+        e_daily = float(row["e_daily_kwh"])
+        batt = float(row["battery_kwh"])
+        soc0 = float(row["soc0"])
+
+        for idx, p_kw in enumerate(powers_kw):
+            soc = soc0
+
+            for d in range(n_days):
+                t_arr = d * 24 + start_hour
+                if t_arr >= horizon:
+                    break
+
+                # Consumo diario
+                soc -= e_daily / batt
+                soc = max(soc, 0.0)
+
+                if soc < soc_threshold:
+                    e_need = max(0.0, (soc_target - soc) * batt)
+                    if e_need <= 0:
+                        continue
+
+                    # ---- RETRASO ALEATORIO ----
+                    delay = 0
+                    if (not apply_delay_to_last_power_only) or (idx == len(powers_kw) - 1):
+                        delay = int(
+                            max(0, rng.normal(delay_mu_h, delay_sigma_h))
+                        )
+
+                    t_start = t_arr + delay
+                    if t_start >= horizon:
+                        continue
+
+                    remaining = e_need
+
+                    for t in range(t_start, horizon):
+                        if remaining <= 0:
+                            break
+                        fleet_power[p_kw][t] += p_kw
+                        remaining -= p_kw
+
+                    soc = soc_target
+
+    out = pd.DataFrame({"t": np.arange(horizon)})
+    for p_kw in powers_kw:
+        out[f"P_{p_kw:.1f}_kW"] = fleet_power[p_kw]
+        peak_power[p_kw] = fleet_power[p_kw].max()
+
+    meta = {
+        "n_days": n_days,
+        "delay_mu_h": delay_mu_h,
+        "delay_sigma_h": delay_sigma_h,
+        "peak_power": peak_power,
+    }
+
+    return out, meta
+
+
+
+WARMUP_DAYS = 2
+WARMUP_HOURS = WARMUP_DAYS * 24
+
+
+# -------------------------------------------------------------------------
+# Mantenemos esta función IGUAL, pero asegúrate de que el 'seed' reinicie
+# el generador dentro para que la función sea determinista para el optimizador
+# (mismos inputs -> mismo output), aunque el optimizador sea estocástico.
+# -------------------------------------------------------------------------
+def simulate_single_power_with_delay(
+    agents: pd.DataFrame,
+    p_kw: float,
+    n_days: int,
+    soc_target: float,
+    delay_mu_h: float,
+    delay_sigma_h: float,
+    soc_priority: float = 0.50,
+    seed_delay: int = 1234,
+):
+    # Reiniciamos el RNG en cada llamada para que la comparación sea justa
+    rng = np.random.default_rng(seed_delay)
+    horizon = n_days * 24
+    fleet_power = np.zeros(horizon)
+
+    # --- NOTA DE RENDIMIENTO ---
+    # iterrows es lento. Para optimización real, vectorizar esto sería ideal,
+    # pero para cambiar solo el algoritmo de búsqueda, esto funciona.
+    for _, row in agents.iterrows():
+        start_hour = int(row["start_hour"])
+        e_daily = float(row["e_daily_kwh"])
+        batt = float(row["battery_kwh"])
+        soc = float(row["soc0"])
+
+        for d in range(n_days):
+            t_arr = d * 24 + start_hour
+            t_depart = (d + 1) * 24 + start_hour
+
+            if t_arr >= horizon:
+                break
+
+            soc -= e_daily / batt
+            soc = max(soc, 0.0)
+
+            e_need = max(0.0, (soc_target - soc) * batt)
+            if e_need <= 0:
+                continue
+
+            if soc < soc_priority:
+                delay = 0
+            else:
+                # Nos aseguramos que delay no sea negativo
+                raw_delay = rng.normal(delay_mu_h, delay_sigma_h)
+                delay = int(max(0, raw_delay))
+
+            t_start = t_arr + delay
+
+            if t_start >= t_depart:
+                continue
+
+            remaining = e_need
+
+            # Vectorización simple del bucle interno de tiempo para velocidad
+            duration = int(np.ceil(remaining / p_kw))
+            end_charge = min(t_start + duration, min(t_depart, horizon))
+            
+            # Carga "plana" simplificada para velocidad
+            if end_charge > t_start:
+                # Si es el último paso, ajustamos la energía exacta
+                steps = end_charge - t_start
+                energy_added = min(remaining, steps * p_kw)
+                
+                # Distribuir potencia (simplificación rápida)
+                fleet_power[t_start:end_charge] += p_kw 
+                
+                # Ajuste fino del último slot si sobra potencia
+                overcharge = (steps * p_kw) - energy_added
+                if overcharge > 0 and end_charge < horizon:
+                     fleet_power[end_charge-1] -= overcharge
+
+                remaining -= energy_added
+
+            if remaining <= 0:
+                soc = soc_target
+
+    return fleet_power
+
+# -------------------------------------------------------------------------
+# NUEVA FUNCIÓN DE OPTIMIZACIÓN ESTOCÁSTICA
+# -------------------------------------------------------------------------
+def optimize_delay_parameters_stochastic(
+    agents,
+    p_kw,
+    n_days,
+    soc_target,
+    bounds_mu=(0, 24),     # Rango de búsqueda para mu
+    bounds_sigma=(0, 12),  # Rango de búsqueda para sigma
+    max_iter=20,           # Controla cuánto tiempo busca
+    pop_size=10            # Tamaño de la población (agentes de búsqueda)
+):
+    print("Iniciando optimización estocástica (Differential Evolution)...")
+    
+    WARMUP_DAYS = 2
+    WARMUP_HOURS = WARMUP_DAYS * 24
+
+    # 1. Definimos la función objetivo (Cost function)
+    # El optimizador intentará minimizar el valor que devuelve esta función.
+    def objective_function(params):
+        mu, sigma = params
+        
+        # Simulamos con los parámetros que prueba el algoritmo
+        profile = simulate_single_power_with_delay(
+            agents=agents,
+            p_kw=p_kw,
+            n_days=n_days,
+            soc_target=soc_target,
+            delay_mu_h=mu,
+            delay_sigma_h=sigma,
+            seed_delay=1234 # Importante: semilla fija para comparar peras con peras
+        )
+        
+        # Nuestra métrica a minimizar: El PICO DE POTENCIA
+        # (Ignoramos el warmup)
+        peak = profile[WARMUP_HOURS:].max()
+        return peak
+
+    # 2. Ejecutamos Differential Evolution
+    # bounds: lista de tuplas [(min_mu, max_mu), (min_sigma, max_sigma)]
+    result = differential_evolution(
+        objective_function, 
+        bounds=[bounds_mu, bounds_sigma],
+        maxiter=max_iter,    # Generaciones máximas
+        popsize=pop_size,    # Multiplicador de población
+        seed=412,        # Semilla del optimizador (para reproducibilidad)
+        disp=True            # Muestra progreso en consola
+    )
+
+    # 3. Recuperamos el mejor perfil
+    best_mu, best_sigma = result.x
+    best_peak = result.fun
+    
+    print(f"Optimización terminada. Evaluaciones: {result.nfev}")
+
+    # Re-simulamos una vez más para obtener el perfil completo para plotear
+    best_profile = simulate_single_power_with_delay(
+        agents=agents,
+        p_kw=p_kw,
+        n_days=n_days,
+        soc_target=soc_target,
+        delay_mu_h=best_mu,
+        delay_sigma_h=best_sigma,
+        seed_delay=1234
+    )
+
+    return {
+        "mu": best_mu,
+        "sigma": best_sigma,
+        "peak": best_peak,
+        "profile": best_profile
+    }
 
 if __name__ == "__main__":
+    # ... (TÚ CÓDIGO DE CARGA DE DATOS IGUAL QUE ANTES) ...
+    # Supongamos que ya tienes 'agents', 'n_days', 'powers_kw' cargados
+    # ...
+    
     xlsx = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results\Kanaleneiland_schedule_vehicle_quantified_24.xlsx"
-
-    # 1) Marcadores por agente (hora llegada + consumo diario)
-    agents_markers, meta_read = compute_agents_markers(
-        xlsx_path=xlsx,
-        sheet_name=0,
-        day_filter=None
-    )
-    print("META READ:", meta_read)
-    print(agents_markers.head())
-
-    # 2) Asigna batería y SoC inicial (Lunes 00:00)
-    agents = assign_battery_and_initial_soc(
-        agents_markers,
-        soc_min=0.50,
-        soc_max=0.80,
-        batt_mean_kwh=60.0,   # promedio típico
-        batt_sd_kwh=5.0,
-        batt_min_kwh=30.0,
-        batt_max_kwh=120.0,
-        seed=453
-    )
-    print("\nAgents with battery and soc0:")
-    print(agents.head())
-
+    agents_markers, _ = compute_agents_markers(xlsx_path=xlsx)
+    agents = assign_battery_and_initial_soc(agents_markers)
+    
     n_days = 70
-    base_week = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
-    day_names = (base_week * (n_days // 7)) + base_week[:(n_days % 7)]
-
-    powers_kw = [3.7, 50]
-
-    fleet, meta_sim = simulate_fleet_soc_rule_multi_power(
+    p_min = 3.7
+    
+    # --- EJECUTAR OPTIMIZACIÓN ESTOCÁSTICA ---
+    best = optimize_delay_parameters_stochastic(
         agents=agents,
-        powers_kw=powers_kw,
+        p_kw=p_min,
         n_days=n_days,
-        soc_threshold=0.50,
         soc_target=0.80,
-        day_names=day_names
+        bounds_mu=(0, 23),    # Busca mu entre 0h y 23h
+        bounds_sigma=(0, 12), # Busca sigma entre 0h y 12h
+        max_iter=100,          # Ajusta esto: más bajo = más rápido, menos preciso
+        pop_size=5           # Ajusta esto: más bajo = menos exploración
     )
 
+    print("=== OPTIMAL DELAY PARAMETERS (STOCHASTIC) ===")
+    print(f"mu    = {best['mu']:.2f} h")
+    print(f"sigma = {best['sigma']:.2f} h")
+    print(f"peak  = {best['peak']:.1f} kW")
+
+    # ... (CÓDIGO DE PLOTEO IGUAL) ...
     plt.figure(figsize=(14, 5))
-
-    # Plot all charging power scenarios
-    for p_kw in powers_kw:
-        plt.plot(
-            fleet["t"],
-            fleet[f"P_{p_kw:.1f}_kW"],
-            label=f"{p_kw:.1f} kW charger"
-        )
-
-    # ---- X axis: hours of day every 2 hours ----
-    t_max = fleet["t"].max()
-
-    xticks = np.arange(0, t_max + 1, 2)
-    xtick_labels = [f"{int(t % 24):02d}" for t in xticks]
-
-    plt.xticks(xticks, xtick_labels)
-
-    # ---- Vertical lines: day boundaries ----
-    for d in range(0, int(t_max / 24) + 1):
-        plt.axvline(x=d * 24, color="k", linewidth=0.5, alpha=0.3)
-
-    # Labels and styling
-    plt.xlabel("Hour of day")
-    plt.ylabel("Aggregated charging power (kW)")
-    plt.grid(True, axis="y")  # only horizontal grid
-    plt.legend(ncol=2, fontsize=9, loc="upper right")
-    plt.tight_layout()
+    plt.plot(best["profile"], label=f"Optimized (Peak: {best['peak']:.1f} kW)")
+    plt.legend()
     plt.show()
