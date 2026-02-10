@@ -36,7 +36,8 @@ def _process_family(
     transport_families_dict,
     agent_populations,
     pop_archetypes,
-    networks_map
+    networks_map, 
+    WP2_active: bool = False,
 ):
     f_name, family = family_tuple
 
@@ -91,8 +92,8 @@ def _process_family(
         vehicle_schedule = create_vehicles_actions(schedule, best_transport_distime_matrix)
         #all_vehicle_schedule.extend(vehicle_schedule) Aun no sabemos si es esto o si cambiara de opinion
 
-        if citizen_data['independent_type'] == 0:
-            '''all_citizen_schedule.extend(citizen_schedule)
+        if not WP2_active or citizen_data['independent_type'] == 0:
+            all_citizen_schedule.extend(citizen_schedule)
             for d in vehicle_schedule:
                 d["plugged"] = False
 
@@ -101,8 +102,8 @@ def _process_family(
             # “Consume” vehículo si no es compartible
             vehicle_name = best_transport_distime_matrix[0]['vehicle']
             if vehicle_name not in ('walk', 'Public_transport') and avail_vehicles != []:
-                avail_vehicles = [v for v in avail_vehicles if v['name'] != vehicle_name]''' #ISSUE 
-            continue
+                avail_vehicles = [v for v in avail_vehicles if v['name'] != vehicle_name]
+            continue #ISSUE 
 
         ####################################################
         # Aqui es donde debemos meter el modelo de Qiaochu #
@@ -286,7 +287,7 @@ def vehicle_choice_model(
 def main():
     # Input
     population = 20
-    study_area = 'Kanaleneiland'
+    study_area = 'Annelinn'
     
     ## Code initialization
     # Paths initialization

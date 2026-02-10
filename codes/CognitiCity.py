@@ -26,20 +26,20 @@ from subcodes.results_scenario import build_daily_total_stats_from_constructed_o
 def main():
     # Input
 
-    
+    '''    
     population = 260
     study_area = 'Kanaleneiland'
-    
+    '''    
     
     '''      
     population = 200
     study_area = 'Aradas'
 
     ''' 
-    '''          
-    population = 28000
+          
+    population = 280
     study_area = 'Annelinn'
-    '''         
+           
     
     paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
     
