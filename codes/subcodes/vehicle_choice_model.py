@@ -37,7 +37,7 @@ def _process_family(
     agent_populations,
     pop_archetypes,
     networks_map, 
-    WP2_active: bool = False,
+    WP2_active: bool = True,
 ):
     f_name, family = family_tuple
 
@@ -124,7 +124,7 @@ def _process_family(
         else:
             choices3 = False
         
-        decision, plug_in, transport, _ = WP3_parameters_simplified(paths, pop_archetypes, agent_populations, avail_vehicles, best_transport_distime_matrix, citizen_schedule, vehicle_schedule, choices3)
+        decision, plug_in, transport, _ = WP3_parameters_simplified(paths, study_area, pop_archetypes, agent_populations, avail_vehicles, best_transport_distime_matrix, citizen_schedule, vehicle_schedule, choices3)
 
         #este distime_matrix tiene un fallo en trip, solo sale un osmid y deberia ser (x, y)
 
@@ -245,6 +245,9 @@ def vehicle_choice_model(
             citizen_schedules.extend(fam_schedule)
         if fam_actions is not None and fam_actions != []:
             vehicle_schedules.extend(fam_actions)'''
+
+
+
         
     worker = partial(
         _process_family,
@@ -287,7 +290,7 @@ def vehicle_choice_model(
 def main():
     # Input
     population = 20
-    study_area = 'Annelinn'
+    study_area = 'Aradas'
     
     ## Code initialization
     # Paths initialization
@@ -525,37 +528,62 @@ def schedule_simplification(citizen_schedule):
 
     return sorted(simple_schedule, key=lambda x: x['trip'])
 
-def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populations: dict, avail_vehicles: list, current_transport: list, 
+def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict, agent_populations: dict, avail_vehicles: list, current_transport: list, 
                               citizen_schedule: list, vehicle_schedule: list, choices3: bool=True):
-    def Mode_choice(choices3: bool,
+    def Mode_choice(choices3: bool, study_area: str,
                     IS_Gaso: bool, IS_EV: bool, IS_PT: bool, IS_Bike: bool,
-                    EV_OWNERSHIP: bool, HAVING_KIDS: bool,
-                    AGE: int, INCOME: int, 
+                    EV_OWNERSHIP: bool, CAR_OWNERSHIP: bool,
+                    HAVING_KIDS: bool,
+                    AGE: int, INCOME: str, GENDER: int, EDUCATION: int,
                     COST: float, COST_EV2G: float, COST_CSV2G: float, 
                     WALK_TIME: float, WALK_TIME_EV2G: float, WALKING_TIME_CV2G: float, 
                     TRAVEL_TIME: float, TRAVEL_TIME_EV2G: float, TRAVEL_TIME_CSV2G: float,
-                    WAIT_TIME: float=20.5, PARK_COST: float=0, SOC_PEV: float=0):
-        
-        B_Cost_all          = -0.05 if choices3 else -0.03
-        B_Parkcost_GasoEV   = -0.03 
-        B_TravelTime_PTBike = -0.02 if choices3 else -0.05
-        B_WalkTime_all      = -0.04 if choices3 else -0.03
-        B_WaitTime_PT       = -0.16 if choices3 else -0.14
-        B_SOC_PEV           = 0.01
-        ASC_EV2G_PTUser             = -1.27 if choices3 else 0
-        ASC_EV2G_GasoEVUser         = -1.76 if choices3 else 0
-        ASC_EV2G_BikeUser           = -2.66 if choices3 else 0
-        B_TravelTime_V2G_PTBikeUser = -0.05 if choices3 else 0
-        B_EV_OWNERSHIP_EV2G         = 0.52 if choices3 else 0
-        B_HAVING_KIDS_EV2G          = -0.37 if choices3 else 0
-        ASC_CSV2G_PTUser        = -1.27 if choices3 else -1.17 # SURE?
-        ASC_CSV2G_GasoEVUser    = -1.76 if choices3 else 0 # SURE?
-        ASC_CSV2G_BikeUser      = -2.66 if choices3 else -3.48
-        B_EV_OWNERSHIP_CSV2G    = 0.52 if choices3 else 0.64
-        B_HAVING_KIDS_CSV2G     = -0.2 if choices3 else 0
-        B_AGE_YOUNG_CSV2G       = 0.21
-        B_INCOME_LOW_CSV2G      = 0.35 if choices3 else 0.34
+                    WAIT_TIME: float=20.5, PARK_COST: float=0, SOC_PEV: float=0,
+                    PARK_SEARCH_TIME_EV2G: float=0, BATTERY_CSV2G: float=70, BATTERY_EV2G: float=70):
 
+        # Leemos el excel
+        ruta = f"{paths['archetypes']}/v2g_behaviour.xlsx"
+        sheet = "ModeChoice_3modes" if choices3 else "ModeChoice_2modes"
+
+        df = pd.read_excel(ruta, sheet_name=sheet)
+
+        ASC_CSV2G_BikeUser = df.loc[df["Parameter"] == "ASC_CSV2G_BikeUser", "Value"].squeeze() if "ASC_CSV2G_BikeUser" in df["Parameter"].values else 0
+        ASC_CSV2G_EVUser = df.loc[df["Parameter"] == "ASC_CSV2G_EVUser", "Value"].squeeze() if "ASC_CSV2G_EVUser" in df["Parameter"].values else 0
+        ASC_CSV2G_GasoUser = df.loc[df["Parameter"] == "ASC_CSV2G_GasoUser", "Value"].squeeze() if "ASC_CSV2G_GasoUser" in df["Parameter"].values else 0
+        ASC_CSV2G_PTUser = df.loc[df["Parameter"] == "ASC_CSV2G_PTUser", "Value"].squeeze() if "ASC_CSV2G_PTUser" in df["Parameter"].values else 0
+        ASC_EV2G_BikeUser = df.loc[df["Parameter"] == "ASC_EV2G_BikeUser", "Value"].squeeze() if "ASC_EV2G_BikeUser" in df["Parameter"].values else 0
+        ASC_EV2G_EVUser = df.loc[df["Parameter"] == "ASC_EV2G_EVUser", "Value"].squeeze() if "ASC_EV2G_EVUser" in df["Parameter"].values else 0
+        ASC_EV2G_GasoUser = df.loc[df["Parameter"] == "ASC_EV2G_GasoUser", "Value"].squeeze() if "ASC_EV2G_GasoUser" in df["Parameter"].values else 0
+        ASC_EV2G_PTUser = df.loc[df["Parameter"] == "ASC_EV2G_PTUser", "Value"].squeeze() if "ASC_EV2G_PTUser" in df["Parameter"].values else 0
+        B_AGE_CSV2G = df.loc[df["Parameter"] == "B_AGE_CSV2G", "Value"].squeeze() if "B_AGE_CSV2G" in df["Parameter"].values else 0
+        B_AGE_EV2G = df.loc[df["Parameter"] == "B_AGE_EV2G", "Value"].squeeze() if "B_AGE_EV2G" in df["Parameter"].values else 0
+        B_Battery_V2G_allUser = df.loc[df["Parameter"] == "B_Battery_V2G_allUser", "Value"].squeeze() if "B_Battery_V2G_allUser" in df["Parameter"].values else 0
+        B_Cost_all = df.loc[df["Parameter"] == "B_Cost_all", "Value"].squeeze() if "B_Cost_all" in df["Parameter"].values else 0
+        B_EDUCATION_CSV2G = df.loc[df["Parameter"] == "B_EDUCATION_CSV2G", "Value"].squeeze() if "B_EDUCATION_CSV2G" in df["Parameter"].values else 0
+        B_EV_OWNERSHIP_CSV2G = df.loc[df["Parameter"] == "B_EV_OWNERSHIP_CSV2G", "Value"].squeeze() if "B_EV_OWNERSHIP_CSV2G" in df["Parameter"].values else 0
+        B_GENDER_CSV2G = df.loc[df["Parameter"] == "B_GENDER_CSV2G", "Value"].squeeze() if "B_GENDER_CSV2G" in df["Parameter"].values else 0
+        B_HAVING_KIDS_CSV2G = df.loc[df["Parameter"] == "B_HAVING_KIDS_CSV2G", "Value"].squeeze() if "B_HAVING_KIDS_CSV2G" in df["Parameter"].values else 0
+        B_INCOME_HIGH_CSV2G = df.loc[df["Parameter"] == "B_INCOME_HIGH_CSV2G", "Value"].squeeze() if "B_INCOME_HIGH_CSV2G" in df["Parameter"].values else 0
+        B_INCOME_LOW_CSV2G = df.loc[df["Parameter"] == "B_INCOME_LOW_CSV2G", "Value"].squeeze() if "B_INCOME_LOW_CSV2G" in df["Parameter"].values else 0
+        B_ParkSearchTime_EV2G_all = df.loc[df["Parameter"] == "B_ParkSearchTime_EV2G_all", "Value"].squeeze() if "B_ParkSearchTime_EV2G_all" in df["Parameter"].values else 0
+        B_ParkSearchTime_GasoEVBike = df.loc[df["Parameter"] == "B_ParkSearchTime_GasoEVBike", "Value"].squeeze() if "B_ParkSearchTime_GasoEVBike" in df["Parameter"].values else 0
+        B_Parkcost_GasoEV = df.loc[df["Parameter"] == "B_Parkcost_GasoEV", "Value"].squeeze() if "B_Parkcost_GasoEV" in df["Parameter"].values else 0
+        B_SOC_PEV = df.loc[df["Parameter"] == "B_SOC_PEV", "Value"].squeeze() if "B_SOC_PEV" in df["Parameter"].values else 0
+        B_TravelTime_PTBike = df.loc[df["Parameter"] == "B_TravelTime_PTBike", "Value"].squeeze() if "B_TravelTime_PTBike" in df["Parameter"].values else 0
+        B_TravelTime_V2G_PTBikeUser = df.loc[df["Parameter"] == "B_TravelTime_V2G_PTBikeUser", "Value"].squeeze() if "B_TravelTime_V2G_PTBikeUser" in df["Parameter"].values else 0
+        B_WaitTime_PT = df.loc[df["Parameter"] == "B_WaitTime_PT", "Value"].squeeze() if "B_WaitTime_PT" in df["Parameter"].values else 0
+        B_WalkTime_all = df.loc[df["Parameter"] == "B_WalkTime_all", "Value"].squeeze() if "B_WalkTime_all" in df["Parameter"].values else 0
+        ASC_EV2G_GasoEVUser = df.loc[df["Parameter"] == "ASC_EV2G_GasoEVUser", "Value"].squeeze() if "ASC_EV2G_GasoEVUser" in df["Parameter"].values else 0
+        B_EV_OWNERSHIP_EV2G = df.loc[df["Parameter"] == "B_EV_OWNERSHIP_EV2G", "Value"].squeeze() if "B_EV_OWNERSHIP_EV2G" in df["Parameter"].values else 0
+        B_HAVING_KIDS_EV2G = df.loc[df["Parameter"] == "B_HAVING_KIDS_EV2G", "Value"].squeeze() if "B_HAVING_KIDS_EV2G" in df["Parameter"].values else 0
+        ASC_CSV2G_GasoEVUser = df.loc[df["Parameter"] == "ASC_CSV2G_GasoEVUser", "Value"].squeeze() if "ASC_CSV2G_GasoEVUser" in df["Parameter"].values else 0
+        B_AGE_YOUNG_CSV2G = df.loc[df["Parameter"] == "B_AGE_YOUNG_CSV2G", "Value"].squeeze() if "B_AGE_YOUNG_CSV2G" in df["Parameter"].values else 0
+        B_EDUCATION_HIGHER_CSV2G = df.loc[df["Parameter"] == "B_EDUCATION_HIGHER_CSV2G", "Value"].squeeze() if "B_EDUCATION_HIGHER_CSV2G" in df["Parameter"].values else 0
+        B_INCOME_HIGH_V2G = df.loc[df["Parameter"] == "B_INCOME_HIGH_V2G", "Value"].squeeze() if "B_INCOME_HIGH_V2G" in df["Parameter"].values else 0
+        B_INCOME_LOW_EV2G = df.loc[df["Parameter"] == "B_INCOME_LOW_EV2G", "Value"].squeeze() if "B_INCOME_LOW_EV2G" in df["Parameter"].values else 0
+        B_CAR_OWNERSHIP_V2G = df.loc[df["Parameter"] == "B_CAR_OWNERSHIP_V2G", "Value"].squeeze() if "B_CAR_OWNERSHIP_V2G" in df["Parameter"].values else 0
+        B_HAVING_KIDS_V2G = df.loc[df["Parameter"] == "B_HAVING_KIDS_V2G", "Value"].squeeze() if "B_HAVING_KIDS_V2G" in df["Parameter"].values else 0
+        B_AGE_V2G = df.loc[df["Parameter"] == "B_AGE_V2G", "Value"].squeeze() if "B_AGE_V2G" in df["Parameter"].values else 0
 
         V1 = (
             B_Cost_all * COST +
@@ -570,6 +598,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
         if choices3:
             V2 = (
+                # Todos igual
                 ASC_EV2G_PTUser * IS_PT +
                 ASC_EV2G_GasoEVUser * IS_EV +
                 ASC_EV2G_GasoEVUser * IS_Gaso +
@@ -578,26 +607,67 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
                 B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_EV2G * IS_PT +
                 B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_EV2G * IS_Bike +
                 B_WalkTime_all * WALK_TIME_EV2G + 
-                B_EV_OWNERSHIP_EV2G * EV_OWNERSHIP + 
-                B_HAVING_KIDS_EV2G * HAVING_KIDS 
+                B_ParkSearchTime_EV2G_all * PARK_SEARCH_TIME_EV2G +
+                B_AGE_EV2G * AGE
             )
+
+            if study_area == "Aradas":
+                V2 += B_Battery_V2G_allUser * BATTERY_EV2G
+
+            elif study_area == "Annelinn":
+                V2 += (
+                    B_INCOME_HIGH_V2G * 1 if INCOME == "Salariat" else 0 +
+                    B_INCOME_LOW_EV2G * 1 if INCOME == "Working" else 0 +
+                    B_CAR_OWNERSHIP_V2G * CAR_OWNERSHIP +
+                    B_HAVING_KIDS_V2G * HAVING_KIDS
+                )
+
+            elif study_area == "Kanaleneiland":
+                V2 += (
+                    B_EV_OWNERSHIP_EV2G * EV_OWNERSHIP +
+                    B_HAVING_KIDS_V2G * HAVING_KIDS
+                )
         else:
             V2 = 0
 
         V3 = (
             ASC_CSV2G_PTUser*IS_PT +
-            ASC_CSV2G_GasoEVUser*IS_EV +
             ASC_CSV2G_GasoEVUser*IS_Gaso +
+            ASC_CSV2G_GasoEVUser*IS_EV +
             ASC_CSV2G_BikeUser*IS_Bike +
             B_Cost_all * COST_CSV2G  +
             B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_CSV2G * IS_PT +
             B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_CSV2G * IS_Bike +
-            B_WalkTime_all * WALKING_TIME_CV2G +
-            B_EV_OWNERSHIP_CSV2G * EV_OWNERSHIP +
-            (B_HAVING_KIDS_CSV2G * HAVING_KIDS if choices3 else 0) +
-            B_AGE_YOUNG_CSV2G * (AGE <= 35) +
-            B_INCOME_LOW_CSV2G * (INCOME <= 3000) 
+            B_WalkTime_all * WALKING_TIME_CV2G
         )
+        
+        if study_area == "Aradas":
+            # Aradas choices3 and choices2
+            V3 += (
+                B_Battery_V2G_allUser * BATTERY_CSV2G +
+                B_EV_OWNERSHIP_CSV2G * EV_OWNERSHIP +
+                B_HAVING_KIDS_CSV2G * HAVING_KIDS +
+                B_AGE_CSV2G * AGE +
+                B_GENDER_CSV2G*(GENDER==1)+
+                B_EDUCATION_HIGHER_CSV2G*(EDUCATION>=4)+
+                B_INCOME_LOW_CSV2G * 1 if INCOME == "Working" else 0 +
+                B_INCOME_HIGH_CSV2G * 1 if INCOME == "Salariat" else 0
+            )
+        elif study_area == "Annelinn":
+            # Annelinn choices3 and choices2
+            V3 += (
+                B_CAR_OWNERSHIP_V2G * CAR_OWNERSHIP +
+                B_HAVING_KIDS_V2G * HAVING_KIDS +
+                B_AGE_V2G * (AGE) +
+                B_INCOME_HIGH_V2G * 1 if INCOME == "Salariat" else 0
+            )
+        elif study_area == "Kanaleneiland":
+            # Kanaleneiland choices3 and choices2
+            V3 += (
+                B_EV_OWNERSHIP_CSV2G * EV_OWNERSHIP +
+                B_HAVING_KIDS_V2G * HAVING_KIDS +
+                B_INCOME_LOW_CSV2G * 1 if INCOME == "Working" else 0
+            )
 
         #print(f"Utility for choosing the current mode: {V1:.3f}")
         #print(f"Utility for choosing private EV with V2G: {V2:.3f}")
@@ -620,38 +690,49 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
     def Plug_in_choices(LOCATION_WORK: bool, LOCATION_SHOPPING: bool, EV_OWNERSHIP: bool, 
                         PARK_TIME: float, COST_SAVING: float,
-                        INCOME: float,
+                        INCOME: str, AGE: int,
                         WALK_TIME: float=0,
-                        CYCLE: int=1, SOC_state: float=50, BATTERY_GUARANTEE: float=50, 
-                        DISTANCE_NEXT: float=0):
+                        CYCLE: int=1, SOC: float=70, BATTERY_GUARANTEE: float=50, 
+                        DISTANCE_NEXT: float=0, WAIT_TIME: float=0):
         
-        ASC_PLUGIN          = 0.845600726
-        B_LOCATION_WORK     = -0.214813432
-        B_LOCATION_SHOPPING = -0.349427058
-        B_PARK_TIME         = 0.072730788
-        B_DISTANCE_NEXT     = 0.005024964
-        B_COST_SAVING       = 0.129340844
-        B_WALK_TIME         = -0.082726453
-        B_INCOME_LOW        = 0.182566091
-        B_INCOME_HIGH       = 0.265787361
-        B_CYCLE             = -0.052004313
-        B_SOC_EVowner       = -0.004559245
-        B_SOC_nonEVowner    = -0.009348043
-        B_BATTERY_GUARANTEE_nonEVowner  = 0.004927057
+        # Leemos el excel
+        ruta = f"{paths['archetypes']}/v2g_behaviour.xlsx"
+        sheet = "Plug-in choices"
+
+        df = pd.read_excel(ruta, sheet_name=sheet)
+
+        ASC_PLUGIN = df.loc[df["Parameter"] == "ASC_PLUGIN", "Value"].squeeze() if "ASC_PLUGIN" in df["Parameter"].values else 0
+        B_AGE = df.loc[df["Parameter"] == "B_AGE", "Value"].squeeze() if "B_AGE" in df["Parameter"].values else 0
+        B_BATTERY_GUARANTEE = df.loc[df["Parameter"] == "B_BATTERY_GUARANTEE", "Value"].squeeze() if "B_BATTERY_GUARANTEE" in df["Parameter"].values else 0
+        B_COST_SAVING = df.loc[df["Parameter"] == "B_COST_SAVING", "Value"].squeeze() if "B_COST_SAVING" in df["Parameter"].values else 0
+        B_CYCLE = df.loc[df["Parameter"] == "B_CYCLE", "Value"].squeeze() if "B_CYCLE" in df["Parameter"].values else 0
+        B_DISTANCE_NEXT = df.loc[df["Parameter"] == "B_DISTANCE_NEXT", "Value"].squeeze() if "B_DISTANCE_NEXT" in df["Parameter"].values else 0
+        B_INCOME_HIGH = df.loc[df["Parameter"] == "B_INCOME_HIGH", "Value"].squeeze() if "B_INCOME_HIGH" in df["Parameter"].values else 0
+        B_INCOME_LOW = df.loc[df["Parameter"] == "B_INCOME_LOW", "Value"].squeeze() if "B_INCOME_LOW" in df["Parameter"].values else 0
+        B_LOCATION_SHOPPING = df.loc[df["Parameter"] == "B_LOCATION_SHOPPING", "Value"].squeeze() if "B_LOCATION_SHOPPING" in df["Parameter"].values else 0
+        B_LOCATION_WORK = df.loc[df["Parameter"] == "B_LOCATION_WORK", "Value"].squeeze() if "B_LOCATION_WORK" in df["Parameter"].values else 0
+        B_PARK_TIME = df.loc[df["Parameter"] == "B_PARK_TIME", "Value"].squeeze() if "B_PARK_TIME" in df["Parameter"].values else 0
+        B_SOC = df.loc[df["Parameter"] == "B_SOC", "Value"].squeeze() if "B_SOC" in df["Parameter"].values else 0
+        B_WAIT_TIME = df.loc[df["Parameter"] == "B_WAIT_TIME", "Value"].squeeze() if "B_WAIT_TIME" in df["Parameter"].values else 0
+        B_WALK_TIME = df.loc[df["Parameter"] == "B_WALK_TIME", "Value"].squeeze() if "B_WALK_TIME" in df["Parameter"].values else 0
 
         V_plugin  = (
-            ASC_PLUGIN+
-            B_LOCATION_WORK * LOCATION_WORK + B_LOCATION_SHOPPING * LOCATION_SHOPPING +
+            ASC_PLUGIN +
+            B_LOCATION_WORK * LOCATION_WORK + 
+            B_LOCATION_SHOPPING * LOCATION_SHOPPING +
             B_PARK_TIME * PARK_TIME +
             B_DISTANCE_NEXT * DISTANCE_NEXT +
             B_COST_SAVING* COST_SAVING +
+            B_BATTERY_GUARANTEE *BATTERY_GUARANTEE +
             B_WALK_TIME * WALK_TIME +
-            B_INCOME_LOW * (INCOME<=3000)+ 
-            B_INCOME_HIGH * (INCOME>6000) + 
-            B_CYCLE *CYCLE +
-            B_SOC_EVowner * (EV_OWNERSHIP==1) * SOC_state +
-            B_SOC_nonEVowner * (EV_OWNERSHIP==0) * SOC_state + B_BATTERY_GUARANTEE_nonEVowner * (EV_OWNERSHIP==0) * BATTERY_GUARANTEE 
+            B_WAIT_TIME * WAIT_TIME +
+            B_CYCLE * CYCLE +
+            B_AGE * AGE  +
+            B_SOC * SOC +
+            B_INCOME_LOW * 1 if INCOME == "Working" else 0 + 
+            B_INCOME_HIGH * 1 if INCOME == "Salariat" else 0
         )
+
         V_notplugin = 0
 
         P_plugin = math.exp(V_plugin)/(math.exp(V_plugin) + math.exp(V_notplugin))
@@ -784,6 +865,12 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         else:
             data['EV_OWNERSHIP'] = False
 
+        if len(avail_vehicles) > 0:
+            data['CAR_OWNERSHIP'] = any(v['archetype'].startswith("PC_") and v['archetype'] != "PC_electric"
+                                        for v in avail_vehicles)
+        else:
+            data['CAR_OWNERSHIP'] = False
+
         # 3) citizen_schedule
         data["HAVING_KIDS"] = (citizen_schedule[0]['family_archetype'] in ["f_arch_1", "f_arch_2", "f_arch_3", "f_arch_6"])
         
@@ -792,19 +879,24 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
         
         data['PARK_TIME']           = (citizen_schedule[1]['out'] - citizen_schedule[1]['in'])/60
         
-        if citizen_schedule[0]['archetype'] in ["c_arch_0", "c_arch_1", "c_arch_3"]:
-            data['AGE'] = 50
+        if citizen_schedule[0]['archetype'] in ["c_arch_2", "c_arch_4"]:
+            data['AGE'] = 0 # AGE <= 35
         else:
-            data['AGE'] = 12
+            data['AGE'] = 1
+
+        if citizen_schedule[0]['archetype'] in ["c_arch_1"]:
+            data['GENDER'] = 1 # Female
+        elif citizen_schedule[0]['archetype'] in ["c_arch_0"]:
+            data['GENDER'] = 0 # Male
+        else:
+            data['GENDER'] = random.randint(0, 1)
         
         s_class = citizen_schedule[0]['s_class']
-        if s_class == 'Salariat':
-            data['INCOME'] = 7000
-        elif s_class == 'Intermediate':
-            data['INCOME'] = 4500
-        else:
-            data['INCOME'] = 2000
-        
+        data['INCOME'] = s_class
+
+        # We do not have nor work with data related to this so:
+        data['EDUCATION'] = 0 
+
         # 4) trip
         trip = current_transport[0]['trip']
         
@@ -831,10 +923,11 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
     
     data, transport, distime_matrix = data_gathering(paths, pop_archetypes, agent_populations, avail_vehicles, current_transport, citizen_schedule, vehicle_schedule, choices3)
 
-    chosen_mode = Mode_choice(choices3,
+    chosen_mode = Mode_choice(choices3, study_area,
                               data['IS_Gaso'], data['IS_EV'], data['IS_PT'], data['IS_Bike'],
-                              data['EV_OWNERSHIP'], data['HAVING_KIDS'],
-                              data['AGE'], data['INCOME'], 
+                              data['EV_OWNERSHIP'], data['CAR_OWNERSHIP'],
+                              data['HAVING_KIDS'],
+                              data['AGE'], data['INCOME'], data['GENDER'], data['EDUCATION'], 
                               data['COST'], data['COST_EV2G'], data['COST_CSV2G'], 
                               data['WALK_TIME'], data['WALK_TIME_EV2G'], data['WALKING_TIME_CV2G'], 
                               data['TRAVEL_TIME'], data['TRAVEL_TIME_EV2G'], data['TRAVEL_TIME_CSV2G'])
@@ -851,7 +944,7 @@ def WP3_parameters_simplified(paths: list, pop_archetypes: dict, agent_populatio
 
     plugin = Plug_in_choices(data['LOCATION_WORK'], data['LOCATION_SHOPPING'], data['EV_OWNERSHIP'], 
                              data['PARK_TIME'], COST_P,
-                             data['INCOME'])
+                             data['INCOME'], data['AGE'])
 
     #print(f"plugin: {plugin}")
 
