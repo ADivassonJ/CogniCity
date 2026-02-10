@@ -30,12 +30,12 @@ def main():
     population = 260
     study_area = 'Kanaleneiland'
     '''    
+
     
-          
     population = 200
     study_area = 'Aradas'
 
-     
+ 
     '''      
     population = 280
     study_area = 'Annelinn'
