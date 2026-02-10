@@ -30,16 +30,16 @@ def main():
     population = 260
     study_area = 'Kanaleneiland'
     '''    
+
     
-    '''      
     population = 200
     study_area = 'Aradas'
 
-    ''' 
-          
+ 
+    '''      
     population = 280
     study_area = 'Annelinn'
-           
+    '''       
     
     paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
     
