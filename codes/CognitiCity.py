@@ -59,8 +59,8 @@ from subcodes.Daily_schedule_definition import Daily_schedule_definition
 from subcodes.results_clean import build_quantified_outputs_per_excel
 from subcodes.results_scenario import build_daily_total_stats_from_constructed_outputs
 
-def CogniCity(population: int, study_area: str, WP3_active: bool):
-    paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
+def CogniCity(population: int, study_area: str, WP3_active: bool, scenario: str = None):
+    paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area, scenario)
     
     already_done = Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active)
 
@@ -93,9 +93,12 @@ def main():
     '''
 
 
-    WP3_active = False
+    WP3_active = True
+    scenario = "s1"
     
     CogniCity(population, study_area, WP3_active)
+
+    #CogniCity(population, study_area, WP3_active, scenario)
 
 
 

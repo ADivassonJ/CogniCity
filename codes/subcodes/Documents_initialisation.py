@@ -2227,43 +2227,42 @@ def voronoi_from_nodes(electric_system: pd.DataFrame, boundary_polygon: Polygon)
     
     return nodes_gdf_proj, vor_gdf, boundary_proj
 
-def paths_initialization(study_area):
+
+def paths_initialization(study_area, scenario):
     # Paths initialization
     paths = {}
-    
+
     paths['main'] = Path(__file__).resolve().parent.parent.parent
     paths['system'] = paths['main'] / 'system'
     paths['desktop'] = Path.home() / "Desktop"
-    
+    paths['codes'] = paths['main'] / 'codes'
+
+    # Carpetas base
+    paths['data'] = paths['main'] / 'data'
+    paths['results'] = paths['main'] / 'results'
+    paths['base_scenario'] =  paths['data'] / 'base_scenario'
+
+    # Si scenario existe, actualizamos data y results
+    if scenario != None:
+        paths['data'] =     paths['data'] / scenario
+        paths['results'] =  paths['results'] / scenario
+
+    os.makedirs(paths['results'], exist_ok=True)
+
+    paths[study_area] =   paths['data'] / study_area
+
+    paths["archetypes"] = paths[study_area] / "archetypes"
+    paths["population"] = paths[study_area] / "population"
+    paths["maps"] =       paths[study_area] / "maps"
+
+    paths["new_POIs"] =   paths['maps'] / "new_POIs"
+
+    paths["subcodes"] =   paths["codes"] / "subcodes"
+
     system_management = pd.read_excel(paths['system'] / 'system_management.xlsx')
-    
-    file_management = system_management[['file_1', 'file_2', 'pre']]
-    # Paso 2: Bucle sobre filas del mini DF
-    for index, row in file_management.iterrows():
-        file_1 = paths[study_area] if row['file_1'] == 'study_area' else paths[row['file_1']]
-        file_2 = study_area if row['file_2'] == 'study_area' else row['file_2']
-        paths[file_2] = file_1 / file_2
-        if not paths[file_2].exists():
-            if row['pre'] == 'y':
-                print(f"[Error] Critical file not detected:")
-                print(f"{paths[file_2]}")
-                print(f"Please solve the mentioned issue and reestart the model.")
-                sys.exit()
-            elif row['pre'] == 'p':
-                user_is_stupid = True
-                while user_is_stupid:    
-                    response = input(f"Data for the case study '{study_area}' was not found.\nDo you want to copy data from standar scenario or do you want to create your own? [Y/N]\n")
-                    if response == 'Y':
-                        user_is_stupid = False
-                        shutil.copytree(paths['base_scenario'], paths[file_2])
-                    elif response == 'N':
-                        user_is_stupid = False
-                        os.makedirs(paths[file_2], exist_ok=True)
-                    else:
-                        print(f"Your response was not valid, please respond Y (yes) or N (no).")
-            else:
-                os.makedirs(paths[file_2], exist_ok=True)
     return paths, system_management
+
+
 
 def Documents_initialisation(population, study_area, scenario):
     print('#'*20, ' System initialization ','#'*20)
@@ -2549,7 +2548,7 @@ def Documents_initialisation(population, study_area, scenario):
     }
     
     # Paths initialization
-    paths, system_management = paths_initialization(study_area)
+    paths, system_management = paths_initialization(study_area, scenario)
     
     # Archetype documentation initialization
     pop_archetypes, stats = Archetype_documentation_initialization(paths)
