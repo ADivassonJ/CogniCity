@@ -109,7 +109,7 @@ valores = np.array([
     [1.141327725, 1.24, 1.01, 0.89, 0.19]
 ])
 
-crear_grafico(valores, colores_aradas, "ara_cost.pdf")
+crear_grafico(valores, colores_aradas, "ara_costs.pdf")
 
 
 # ----- kan_walk -----
@@ -135,7 +135,7 @@ valores = np.array([
 crear_grafico(valores, colores_kanaleneiland, "kan_mot_tra.pdf")
 
 
-# ----- kan_cost -----
+# ----- kan_costs -----
 valores = np.array([
     [16.90821, 18.85, 12.38, 9.71, 0.50],
     [13.39092, 16.51, 10.58, 8.31, 0.74],
@@ -143,4 +143,4 @@ valores = np.array([
     [8.964833, 9.80, 6.54, 5.08, 0.21],
     [16.81137, 18.22, 12.79, 10.00, 0.17]
 ])
-crear_grafico(valores, colores_kanaleneiland, "kan_cost.pdf")
+crear_grafico(valores, colores_kanaleneiland, "kan_costs.pdf")

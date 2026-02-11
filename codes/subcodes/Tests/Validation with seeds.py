@@ -20,8 +20,8 @@ from scipy.stats import norm
 SIM_FILE = os.path.expanduser("~/Desktop/Kanaleneiland_schedule_citizen.xlsx")
 
 # Si tienes réplicas reales (recomendado), descomenta y ajusta:
-# SIM_REPLICATE_GLOB = os.path.expanduser("~/Desktop/sim_outputs/seed_*/Kanaleneiland_schedule_citizen.xlsx")
-SIM_REPLICATE_GLOB = None
+SIM_REPLICATE_GLOB = os.path.expanduser("~/Desktop/sim_outputs/seed_*/Kanaleneiland_schedule_citizen.xlsx")
+
 
 SEED = 42
 R_SIM_BOOT = 50            # bootstrap sobre agentes si no hay réplicas reales

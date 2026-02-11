@@ -38,7 +38,7 @@ def docs_convining(final_doc_done, file_type, study_area, paths):
     
     final_doc = []
        
-    if not final_doc_done:
+    if final_doc_done:
         print(f"All weekdays modelated: Generating {study_area}_{file_type}.xlsx ...")
         for file in paths['results'].glob(f'{study_area}_*_{file_type}.xlsx'):
             current = pd.read_excel(file)
@@ -74,7 +74,6 @@ def check_current_data(study_area, days, paths):
 
     if all(todolist_done_days.values()):
         files_done['todolist'] = True
-        return files_done, {}, False
     
     schedule_citizen_done_days = {}
     schedule_vehicle_done_days = {}
@@ -108,10 +107,6 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
     days = {'Mo'}
     
     files_done, days_missing, already_done = check_current_data(study_area, days, paths)
-
-    print(f"files_done:\n{files_done}")
-    print(f"days_missing:\n{days_missing}")
-    input(f"already_done:\n{already_done}")
 
     if not already_done:
         #################### TODOLIST ################
@@ -148,10 +143,12 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
         docs_convining(files_done['schedule_citizen'], 'schedule_citizen', study_area, paths)
         # Delete used files
         delete_used_files('schedule_citizen', paths)
+        return False
     else:
-        print(f"Data related to {study_area} was already created. Please, if you want to generate new data, delete the current one from:")
-        print(f"{paths['results']}")
+        print(f"    [NOTE] Data related to {study_area} was already created. Please, if you want to generate new data, delete the current one from:")
+        print(f"    {paths['results']}")
         print('#'*20, ' Simulation Completed ','#'*20)
+        return True
 
 
         
@@ -161,7 +158,7 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
 if __name__ == '__main__':
     # Input
     population = 450
-    study_area = 'Annelinn'
+    study_area = 'Kanaleneiland'
     
     ## Code initialization
     # Paths initialization
@@ -214,6 +211,6 @@ if __name__ == '__main__':
     ##############################################################################################################
     print(f'docs readed')
 
-    WP3_active = True
+    WP3_active = False
     
     Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active)

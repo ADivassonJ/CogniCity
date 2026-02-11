@@ -2265,7 +2265,7 @@ def paths_initialization(study_area):
                 os.makedirs(paths[file_2], exist_ok=True)
     return paths, system_management
 
-def Documents_initialisation(population, study_area):
+def Documents_initialisation(population, study_area, scenario):
     print('#'*20, ' System initialization ','#'*20)
     
     # Diccionario con coordenadas de los territorios especiales

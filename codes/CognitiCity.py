@@ -62,38 +62,38 @@ from subcodes.results_scenario import build_daily_total_stats_from_constructed_o
 def CogniCity(population: int, study_area: str, WP3_active: bool):
     paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
     
-    Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active)
+    already_done = Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active)
 
-    build_quantified_outputs_per_excel(paths=paths, study_area=study_area)
+    if not already_done:
+        build_quantified_outputs_per_excel(paths=paths, study_area=study_area)
 
-    build_daily_total_stats_from_constructed_outputs(
-        paths=paths,
-        study_area=study_area,
-    )
+        build_daily_total_stats_from_constructed_outputs(
+            paths=paths,
+            study_area=study_area,
+        )
 
 
 ### Main
 def main():
     # Input
 
-    '''    
-    population = 260
+       
+    population = 60
     study_area = 'Kanaleneiland'
-    '''    
+        
     
 
-
-    population = 200
+    population = 60
     study_area = 'Aradas'
-
+   
           
-
+    '''
     population = 280
     study_area = 'Annelinn'
-           
+    '''
 
 
-    WP3_active = True
+    WP3_active = False
     
     CogniCity(population, study_area, WP3_active)
 

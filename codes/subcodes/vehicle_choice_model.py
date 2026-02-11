@@ -95,7 +95,7 @@ def _process_family(
         if not WP3_active or citizen_data['independent_type'] == 0:
             all_citizen_schedule.extend(citizen_schedule)
             for d in vehicle_schedule:
-                d["plugged"] = False
+                d["plugged"] = True
 
             all_vehicle_schedule.extend(vehicle_schedule)
 
@@ -246,9 +246,6 @@ def vehicle_choice_model(
             citizen_schedules.extend(fam_schedule)
         if fam_actions is not None and fam_actions != []:
             vehicle_schedules.extend(fam_actions)'''
-
-
-
         
     worker = partial(
         _process_family,
