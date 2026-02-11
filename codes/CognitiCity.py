@@ -1,4 +1,41 @@
 # === Importaciones estándar ===================================================
+import importlib
+import subprocess
+import sys
+
+def ensure_package(package_name, import_name=None):
+    """
+    package_name → nombre para pip
+    import_name → nombre real del módulo (si difiere)
+    """
+    if import_name is None:
+        import_name = package_name
+
+    try:
+        importlib.import_module(import_name)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+
+# Lista de paquetes
+packages = [
+    ("geopandas", None),
+    ("osmnx", None),
+    ("folium", None),
+    ("pyproj", None),
+    ("shapely", None),
+    ("scipy", None),
+    ("scikit-learn", "sklearn"),  # pip vs import
+    ("tqdm", None),
+    ("haversine", None),
+    ("pyarrow", None),
+    ("fastparquet", None),
+    ("openpyxl", None),
+    ("matplotlib", None),
+]
+
+for package_name, import_name in packages:
+    ensure_package(package_name, import_name)
+
 import os
 import sys
 import pandas as pd
@@ -43,16 +80,18 @@ def main():
     population = 260
     study_area = 'Kanaleneiland'
     '''    
-
     
+
+
     population = 200
     study_area = 'Aradas'
 
- 
           
+
     population = 280
     study_area = 'Annelinn'
            
+
 
     WP3_active = True
     
