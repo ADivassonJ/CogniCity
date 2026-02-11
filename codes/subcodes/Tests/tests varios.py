@@ -333,3 +333,53 @@ with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
     df_means.to_excel(writer, sheet_name="means_ci_errors")
     df_sim_dist.to_excel(writer, sheet_name="sim_quantiles_disp")
 print("\nGuardado:", out_xlsx)
+
+# ============================================================
+# TABLA 3: Variabilidad esperada del modelo (para una corrida)
+# ============================================================
+rows = []
+for arch in ARCH_ORDER:
+    mu_sim, lo_sim, hi_sim, se_sim = sim_mu_ci.get(arch, (np.nan, np.nan, np.nan, np.nan))
+    if not np.isfinite(mu_sim) or not np.isfinite(se_sim) or mu_sim == 0:
+        var_pct = np.nan
+    else:
+        var_pct = (se_sim / mu_sim) * 100.0
+
+    rows.append({
+        "Archetype": arch,
+        "mu_sim": mu_sim,
+        "se_sim": se_sim,
+        "var_sim": se_sim**2,
+        "var_pct": var_pct,
+        "expected_ci_low": mu_sim - 1.96 * se_sim if np.isfinite(mu_sim) and np.isfinite(se_sim) else np.nan,
+        "expected_ci_high": mu_sim + 1.96 * se_sim if np.isfinite(mu_sim) and np.isfinite(se_sim) else np.nan,
+    })
+
+df_model_var = pd.DataFrame(rows).set_index("Archetype")
+
+# Formateo
+df_model_var_fmt = df_model_var.copy()
+for c in ["mu_sim","se_sim","var_sim","expected_ci_low","expected_ci_high"]:
+    df_model_var_fmt[c] = df_model_var_fmt[c].map(lambda v: fmt(v, 3))
+df_model_var_fmt["var_pct"] = df_model_var_fmt["var_pct"].map(lambda v: fmt_pct(v, 2))
+
+print("\n====================")
+print("TABLA 3: Variabilidad del modelo (una simulación)")
+print("====================")
+print(df_model_var_fmt)
+
+# Exportar a Excel
+with pd.ExcelWriter(out_xlsx, engine="openpyxl", mode="a") as writer:
+    df_model_var.to_excel(writer, sheet_name="model_variability")
+
+# ============================================================
+# RESUMEN GLOBAL DE VARIABILIDAD
+# ============================================================
+
+# Solo considerar arquetipos con datos válidos
+valid_var_pct = df_model_var["var_pct"].dropna()
+if len(valid_var_pct) > 0:
+    global_var_pct = valid_var_pct.mean()  # promedio simple
+    print(f"\nResumen global de variabilidad del modelo: ±{fmt_pct(global_var_pct,2)} sobre la media total")
+else:
+    print("\nNo hay datos válidos para calcular la variabilidad global del modelo.")

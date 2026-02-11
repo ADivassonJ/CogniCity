@@ -40,8 +40,7 @@ def docs_convining(final_doc_done, file_type, study_area, paths):
        
     if not final_doc_done:
         print(f"All weekdays modelated: Generating {study_area}_{file_type}.xlsx ...")
-        for file in paths['results'].glob(f'*_{file_type}.xlsx'):
-            #aqui los sumamos todos los acabados en _{file_type} (kind == '{file_type}') y creamos una nueva columna ('day') que especifique su valor de parts[-2]
+        for file in paths['results'].glob(f'{study_area}_*_{file_type}.xlsx'):
             current = pd.read_excel(file)
             parts = file.stem.split('_')
             current = current.copy()
@@ -56,51 +55,49 @@ def docs_convining(final_doc_done, file_type, study_area, paths):
         df = pd.concat(final_doc, ignore_index=True)        
         df.to_excel(final_file_type_path, index=False)
 
-def check_current_data(days, paths):
+def check_current_data(study_area, days, paths):
     
-    found_files = {'schedule_citizen': set(),
-                   'schedule_vehicle': set(),
-                   'todolist': set()
-                }
-    
-    files_done = {'schedule_citizen': False,
-                  'schedule_vehicle': False,
-                  'todolist': False
-                }
-    
-    days_missing = {}
-    
-    for file in paths['results'].glob('*.xlsx'):
-        name = file.stem  # sin extensión
-        parts = name.split('_')
-        if len(parts) == 2:
-            kind = parts[-1].lower()
-            files_done[kind] = True
-            continue
-        elif len(parts) == 4:
-            # Formato: studyarea_day_kind
-            day = parts[-3]
-            kind = f"{parts[-2]}_{parts[-1].lower()}"
-        elif len(parts) == 3:
-            # Formato: studyarea_day_kind
-            day = parts[-2]
-            kind = parts[-1].lower()
-        else:
-            continue
+    files_names = ['schedule_citizen', 'schedule_vehicle', 'todolist']
 
-        if day not in days:
-            continue
-        found_files[kind].add(day)
+    files_done = {}
 
-    # Faltantes por tipo
-    missing_schedule = days - found_files['schedule_citizen']
-    missing_vehicles = days - found_files['schedule_vehicle']
-
-    days_missing['todolist'] = days - found_files['todolist']
-    # Faltantes en general (en al menos uno)
-    days_missing['schedule'] = missing_schedule | missing_vehicles
+    for file in files_names:
+        files_done[file] = (Path(paths['results']) / f"{study_area}_{file}.xlsx").exists()
     
-    return files_done, days_missing
+    if all(files_done.values()):
+        return files_done, {}, True
+    
+    todolist_done_days = {}
+    
+    for day in days:
+        todolist_done_days[day] = (Path(paths['results']) / f"{study_area}_{day}_todolist.xlsx").exists()
+
+    if all(todolist_done_days.values()):
+        files_done['todolist'] = True
+        return files_done, {}, False
+    
+    schedule_citizen_done_days = {}
+    schedule_vehicle_done_days = {}
+    
+    for day in days:
+        schedule_citizen_done_days[day] = (Path(paths['results']) / f"{study_area}_{day}_schedule_citizen.xlsx").exists()
+        schedule_vehicle_done_days[day] = (Path(paths['results']) / f"{study_area}_{day}_schedule_vehicle.xlsx").exists()
+
+    # Combinar diccionarios: False tiene prioridad sobre True
+    combined_done_days = {day: schedule_citizen_done_days[day] and schedule_vehicle_done_days[day] 
+                        for day in days}
+
+    # Ahora, si todos son True, marcamos los archivos como completos
+    if all(combined_done_days.values()):
+        files_done['schedule_citizen'] = True
+        files_done['schedule_vehicle'] = True
+        return files_done, {}, False
+
+
+    # Lista de días que faltan (es decir, que son False)
+    days_missing = [day for day, done in combined_done_days.items() if not done]
+    
+    return files_done, days_missing, False
 
 def Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active):
     
@@ -110,45 +107,51 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
 
     days = {'Mo'}
     
-    files_done, days_missing = check_current_data(days, paths)
-    
-    #################### TODOLIST ################
-    
-    if days_missing['todolist'] and (not files_done['todolist']):
-        for day in days_missing['todolist']:
-            todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths, day, pop_archetypes['citizen'], pop_archetypes['building'])
-    
-    #################### SCHEDULES ################
-    # In case of having days to model
-    if days_missing['schedule'] and ((not files_done['schedule_citizen']) or (not files_done['schedule_vehicle'])):
-        # We act on each different day
-        for day in days_missing['schedule']:
+    files_done, days_missing, already_done = check_current_data(study_area, days, paths)
+
+    print(f"files_done:\n{files_done}")
+    print(f"days_missing:\n{days_missing}")
+    input(f"already_done:\n{already_done}")
+
+    if not already_done:
+        #################### TODOLIST ################
+        if not files_done['todolist']:
+            for day in days_missing:
+                todolist_family_creation(study_area, agent_populations['citizen'], agent_populations['building'], system_management, paths, day, pop_archetypes['citizen'], pop_archetypes['building'])
+            days_missing = days
+        #################### SCHEDULES ################
+        # In case of having days to model
+        for day in days_missing:
             # Input reading
             todolist = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
             vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day, WP3_active)
+            
+        files_done, days_missing, already_done = check_current_data(study_area, days, paths)
+
+        print('#'*20, ' Simulation Completed ','#'*20)
+
+        ## Todolist
+        # Convining docs
+        docs_convining(files_done['todolist'], 'todolist', study_area, paths)
+        # Delete used files
+        delete_used_files('todolist', paths)
         
-    files_done, days_missing = check_current_data(days, paths)
-
-    print('#'*20, ' Simulation Completed ','#'*20)
-
-    ## Todolist
-    # Convining docs
-    docs_convining(files_done['todolist'], 'todolist', study_area, paths)
-    # Delete used files
-    delete_used_files('todolist', paths)
-    
-    ## Vehicles
-    # Convining docs
-    docs_convining(files_done['schedule_vehicle'], 'schedule_vehicle', study_area, paths)
-    # Delete used files
-    delete_used_files('schedule_vehicle', paths)
-    
-    ## Schedule
-    # Convining docs
-    docs_convining(files_done['schedule_citizen'], 'schedule_citizen', study_area, paths)
-    # Delete used files
-    delete_used_files('schedule_citizen', paths)
+        ## Vehicles
+        # Convining docs
+        docs_convining(files_done['schedule_vehicle'], 'schedule_vehicle', study_area, paths)
+        # Delete used files
+        delete_used_files('schedule_vehicle', paths)
+        
+        ## Schedule
+        # Convining docs
+        docs_convining(files_done['schedule_citizen'], 'schedule_citizen', study_area, paths)
+        # Delete used files
+        delete_used_files('schedule_citizen', paths)
+    else:
+        print(f"Data related to {study_area} was already created. Please, if you want to generate new data, delete the current one from:")
+        print(f"{paths['results']}")
+        print('#'*20, ' Simulation Completed ','#'*20)
 
 
         
@@ -158,7 +161,7 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
 if __name__ == '__main__':
     # Input
     population = 450
-    study_area = 'Kanaleneiland'
+    study_area = 'Annelinn'
     
     ## Code initialization
     # Paths initialization
