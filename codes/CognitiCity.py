@@ -22,6 +22,19 @@ from subcodes.Daily_schedule_definition import Daily_schedule_definition
 from subcodes.results_clean import build_quantified_outputs_per_excel
 from subcodes.results_scenario import build_daily_total_stats_from_constructed_outputs
 
+def CogniCity(population: int, study_area: str, WP3_active: bool):
+    paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
+    
+    Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active)
+
+    build_quantified_outputs_per_excel(paths=paths, study_area=study_area)
+
+    build_daily_total_stats_from_constructed_outputs(
+        paths=paths,
+        study_area=study_area,
+    )
+
+
 ### Main
 def main():
     # Input
@@ -36,21 +49,14 @@ def main():
     study_area = 'Aradas'
 
  
-    '''      
+          
     population = 280
     study_area = 'Annelinn'
-    '''       
-    
-    paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area)
-    
-    Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations)
+           
 
-    build_quantified_outputs_per_excel(paths=paths, study_area=study_area)
-
-    build_daily_total_stats_from_constructed_outputs(
-        paths=paths,
-        study_area=study_area,
-    )
+    WP3_active = True
+    
+    CogniCity(population, study_area, WP3_active)
 
 
 

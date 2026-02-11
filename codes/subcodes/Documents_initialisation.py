@@ -866,9 +866,14 @@ def Geodata_initialization(study_area, paths, pop_archetypes, special_areas_coor
         print(f"    [NOTE] Document relating to “charging_station” detected [Data copied].")
     
     if not os.path.isfile(f"{paths['new_POIs']}/share_mob_hubs.xlsx"):
+        charging_station = pop_building[pop_building['archetype'] == 'charging_station'].reset_index(drop=True)
+        charging_station.to_excel(f"{paths['new_POIs']}/share_mob_hubs.xlsx", index=False)
+
         print(f"    [WARNING] No document relating to “share_mob_hubs” has been detected in the “new_POIs” folder.")
-        print(f"    Unless the user inserts this file, the system will not consider this service.")
-    
+        print(f"    Unless the user modifies this file, the system will only consider the current quantity and")
+        print(f"    distribution of “charging_station” as mobility hubs, with a total of {len(charging_station)}")
+        print(f"    for the current case.")
+       
     # Guardar resultados
     agent_populations['building'].to_parquet(f"{paths['population']}/pop_building.parquet", index=False)
     

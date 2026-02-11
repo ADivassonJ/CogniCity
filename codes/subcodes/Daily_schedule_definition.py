@@ -102,7 +102,7 @@ def check_current_data(days, paths):
     
     return files_done, days_missing
 
-def Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations):
+def Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active):
     
     print('#'*20, ' System running ','#'*20)
 
@@ -126,7 +126,7 @@ def Daily_schedule_definition(study_area, paths, system_management, pop_archetyp
             # Input reading
             todolist = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
-            vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day)
+            vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day, WP3_active)
         
     files_done, days_missing = check_current_data(days, paths)
 
@@ -210,5 +210,7 @@ if __name__ == '__main__':
     
     ##############################################################################################################
     print(f'docs readed')
+
+    WP3_active = True
     
-    Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations)
+    Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active)

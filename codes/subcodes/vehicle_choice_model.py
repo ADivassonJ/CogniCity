@@ -37,7 +37,7 @@ def _process_family(
     agent_populations,
     pop_archetypes,
     networks_map, 
-    WP2_active: bool = True,
+    WP3_active: bool = True,
 ):
     f_name, family = family_tuple
 
@@ -92,7 +92,7 @@ def _process_family(
         vehicle_schedule = create_vehicles_actions(schedule, best_transport_distime_matrix)
         #all_vehicle_schedule.extend(vehicle_schedule) Aun no sabemos si es esto o si cambiara de opinion
 
-        if not WP2_active or citizen_data['independent_type'] == 0:
+        if not WP3_active or citizen_data['independent_type'] == 0:
             all_citizen_schedule.extend(citizen_schedule)
             for d in vehicle_schedule:
                 d["plugged"] = False
@@ -210,6 +210,7 @@ def vehicle_choice_model(
     pop_archetypes,
     networks_map,
     day,
+    WP3_active,
     use_threads=False
 ):
     # --- Agrupar por familia una sola vez ---
@@ -257,6 +258,7 @@ def vehicle_choice_model(
         agent_populations=agent_populations,
         pop_archetypes=pop_archetypes,
         networks_map=networks_map,
+        WP3_active = WP3_active,
     )
     
     n_jobs = multiprocessing.cpu_count() - 1 
@@ -364,6 +366,8 @@ def main():
 
     # Faltantes en general (en al menos uno)
     days_missing_schedules = missing_schedule | missing_vehicles
+
+    WP3_active = True
     
     # In case of having days to model
     if days_missing_schedules:
@@ -372,7 +376,7 @@ def main():
             # Input reading
             todolist = pd.read_excel(f"{paths['results']}/{study_area}_{day}_todolist.xlsx")
             # Vehicle Choice Modeling
-            vehicle_schedules, citizen_schedules = vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day)
+            vehicle_schedules, citizen_schedules = vehicle_choice_model(todolist, agent_populations, paths, study_area, pop_archetypes, networks_map, day, WP3_active)
     else:
         print(f"All days' schedules already modeled.")
 
