@@ -1,0 +1,29 @@
+{
+  "study_area": "Kanaleneiland",
+  "iteration": 78,
+  "created_at": "2026-01-16T17:35:36.431695",
+  "archived_files": [
+    {
+      "src": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\Kanaleneiland_schedule_citizen.xlsx",
+      "dst": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\replicates\\Kanaleneiland\\iter_0078\\micro\\Kanaleneiland_schedule_citizen.xlsx"
+    },
+    {
+      "src": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\Kanaleneiland_schedule_vehicle.xlsx",
+      "dst": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\replicates\\Kanaleneiland\\iter_0078\\micro\\Kanaleneiland_schedule_vehicle.xlsx"
+    },
+    {
+      "src": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\Kanaleneiland_todolist.xlsx",
+      "dst": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\replicates\\Kanaleneiland\\iter_0078\\micro\\Kanaleneiland_todolist.xlsx"
+    },
+    {
+      "src": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\dist_wos_por_citizen.csv",
+      "dst": null,
+      "note": "missing"
+    },
+    {
+      "src": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\resumen_dist_wos_lognormal.csv",
+      "dst": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\replicates\\Kanaleneiland\\iter_0078\\micro\\resumen_dist_wos_lognormal.csv"
+    }
+  ],
+  "agg_file": "C:\\Users\\asier\\Documents\\GitHub\\CogniCity\\results\\replicates\\Kanaleneiland\\iter_0078\\agg\\agg_archetype_iter_0078.csv"
+}

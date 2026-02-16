@@ -2,29 +2,50 @@ import os
 import glob
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from scipy.stats import norm
 
 # ============================================================
-# VALIDACIÓN (OdIN: mean + CI95) vs SIMULACIÓN
+# VALIDACIÓN (OdIN: mean + CI95) vs SIMULACIÓN (archivada)
 # - Medias por arquetipo con incertidumbre comparable
 # - Errores: MAE, MAPE/MARE, Bias
 # - Cobertura: % arquetipos donde mu_sim cae dentro del IC95 obs
 # - Overlap de intervalos: IC_sim ∩ IC_obs
 # - z-score y p-value aproximados usando SE_obs inferido del IC95 obs
 # - (Descriptivo) Cuantiles/SD/IQR SOLO de simulación (sin comparar)
+#
+# AHORA:
+# - Lee replicas archivadas en: results/replicates/<study_area>/iter_*/micro/<study_area>_schedule_citizen.xlsx
 # ============================================================
+
+
+
+
+
+
 
 # -----------------------------
 # CONFIGURACIÓN
 # -----------------------------
-SIM_FILE = os.path.expanduser("~/Desktop/Kanaleneiland_schedule_citizen.xlsx")
+STUDY_AREA = "Kanaleneiland"
 
-# Si tienes réplicas reales (recomendado), descomenta y ajusta:
-SIM_REPLICATE_GLOB = os.path.expanduser("~/Desktop/sim_outputs/seed_*/Kanaleneiland_schedule_citizen.xlsx")
+# Raíz del repo (ajusta si lo ejecutas desde otro sitio):
+# - por defecto asume que el script vive dentro del repo y sube niveles si hace falta
+# - si lo prefieres fijo, pon: REPO_ROOT = Path("C:/.../tu_repo")
+REPO_ROOT = Path(__file__).resolve()
+for _ in range(6):
+    if (REPO_ROOT / "results").exists():
+        break
+    REPO_ROOT = REPO_ROOT.parent
 
+RESULTS_DIR = REPO_ROOT / "results"
+REPLICATES_ROOT = RESULTS_DIR / "replicates" / STUDY_AREA
+
+# Patrón a los excels archivados por iteración
+SIM_REPLICATE_GLOB = str(REPLICATES_ROOT / "iter_*" / "micro" / f"{STUDY_AREA}_schedule_citizen.xlsx")
 
 SEED = 42
-R_SIM_BOOT = 50            # bootstrap sobre agentes si no hay réplicas reales
+R_SIM_BOOT = 50            # bootstrap sobre agentes si no hay >=2 réplicas reales
 ALPHA = 0.05               # 95% CI
 QUANTILES = [0.10, 0.50, 0.90]
 
@@ -32,7 +53,6 @@ rng = np.random.default_rng(SEED)
 
 # -----------------------------
 # OdIN: SOLO (value, lower95, upper95)
-# (tal cual la tabla que has pegado)
 # -----------------------------
 ODIN_CI_TABLE = {
     "c_arch_0": {
@@ -65,39 +85,29 @@ ODIN_CI_TABLE = {
 ARCH_ORDER = list(ODIN_CI_TABLE.keys())
 
 # ------------------------------------------------------------
-# IMPORTANTE: Selecciona qué variable estás validando
-# - "time" es el caso de commuting time (min/día)
-# - "distance" si tienes km/día en la simulación
-# - "amount" si tienes nº de trips/día
+# Selecciona variable a validar
 # ------------------------------------------------------------
 TARGET = "time"
 
-# ------------------------------------------------------------
-# IMPORTANTE: Define cómo calcular en la simulación la variable TARGET
-# En tu Excel actual solo tenemos "in/out" y "archetype".
-# Aquí mantenemos tu definición previa:
-#   simulated_time = 1440 - sum(spended)
-# Si esto NO es commuting time, cambia la función compute_target_per_agent()
-# ------------------------------------------------------------
 
+# ------------------------------------------------------------
+# Cálculo del TARGET desde tu Excel de actividades
+# ------------------------------------------------------------
 def compute_target_per_agent(df_activities: pd.DataFrame, target: str) -> pd.DataFrame:
     """
     Recibe df de actividades (nivel fila) y devuelve df por agente con:
       agent, archetype, value
     """
-    # Asegurar numéricos si existen
     for c in ["in", "out"]:
         if c in df_activities.columns:
             df_activities[c] = pd.to_numeric(df_activities[c], errors="coerce")
 
-    # Calcular spended (min)
     if "in" in df_activities.columns and "out" in df_activities.columns:
         df_activities["spended"] = df_activities["out"] - df_activities["in"]
         df_activities.loc[(df_activities["spended"] < 0) | (df_activities["spended"] > 1440), "spended"] = np.nan
     else:
         raise ValueError("No existen columnas 'in' y 'out' necesarias para calcular spended.")
 
-    # Agregar por agente (un día)
     df_agent = (
         df_activities.groupby("agent", observed=True)
         .agg(
@@ -107,12 +117,9 @@ def compute_target_per_agent(df_activities: pd.DataFrame, target: str) -> pd.Dat
         .reset_index()
     )
 
-    # Definición actual (tu pipeline):
-    # "time" = 1440 - suma_spended
     if target == "time":
         df_agent["value"] = 1440 - df_agent["suma_spended"]
     else:
-        # Si más adelante quieres distance/amount necesitarás columnas específicas.
         raise ValueError(
             f"TARGET='{target}' no está implementado con este Excel. "
             "Necesitas columnas en el input para distance/amount o definir el cálculo."
@@ -123,25 +130,28 @@ def compute_target_per_agent(df_activities: pd.DataFrame, target: str) -> pd.Dat
 
     return df_agent[["agent", "archetype", "value"]].dropna()
 
+
 def load_sim_from_excel(path: str, target: str) -> pd.DataFrame:
-    df = pd.read_excel(path, decimal=",", engine="openpyxl")
+    df = pd.read_excel(path, engine="openpyxl")
     if "archetype" not in df.columns or "agent" not in df.columns:
-        raise ValueError("El Excel debe tener columnas 'agent' y 'archetype'.")
+        raise ValueError(f"El Excel {path} debe tener columnas 'agent' y 'archetype'.")
     return compute_target_per_agent(df, target=target)
 
-def get_sim_replicates():
-    if SIM_REPLICATE_GLOB:
-        paths = sorted(glob.glob(SIM_REPLICATE_GLOB))
-        if not paths:
-            raise FileNotFoundError(f"No se encontraron ficheros con el patrón: {SIM_REPLICATE_GLOB}")
-        reps = [load_sim_from_excel(p, target=TARGET) for p in paths]
-        return reps, paths
-    else:
-        df0 = load_sim_from_excel(SIM_FILE, target=TARGET)
-        return [df0], [SIM_FILE]
+
+def get_sim_replicates_from_archives(glob_pattern: str):
+    paths = sorted(glob.glob(glob_pattern))
+    if not paths:
+        raise FileNotFoundError(
+            "No se encontraron réplicas archivadas.\n"
+            f"Patrón buscado:\n  {glob_pattern}\n"
+            "Revisa STUDY_AREA, REPO_ROOT o si el pipeline archivó las iteraciones."
+        )
+    reps = [load_sim_from_excel(p, target=TARGET) for p in paths]
+    return reps, paths
+
 
 # -----------------------------
-# Estadísticos
+# Estadísticos auxiliares
 # -----------------------------
 def iqr(x):
     x = np.asarray(x)
@@ -150,13 +160,19 @@ def iqr(x):
         return np.nan
     return float(np.quantile(x, 0.75) - np.quantile(x, 0.25))
 
+
 def infer_se_from_ci95(low, high):
     # SE ≈ (high - low) / (2*1.96)
     if not np.isfinite(low) or not np.isfinite(high) or high <= low:
         return np.nan
     return float((high - low) / (2.0 * 1.96))
 
+
 def mu_ci_from_replicates(sim_reps):
+    """
+    Entre-réplicas: para cada réplica calculo mu_archetype (media de agentes)
+    y luego saco CI95 empírico sobre esas medias.
+    """
     out = {}
     for arch in ARCH_ORDER:
         mus = []
@@ -164,6 +180,7 @@ def mu_ci_from_replicates(sim_reps):
             x = rep.loc[rep["archetype"] == arch, "value"].to_numpy()
             x = x[np.isfinite(x)]
             mus.append(float(np.mean(x)) if len(x) else np.nan)
+
         mus = np.asarray(mus, dtype=float)
         mus = mus[np.isfinite(mus)]
         if len(mus) < 2:
@@ -176,7 +193,11 @@ def mu_ci_from_replicates(sim_reps):
             out[arch] = (mu, lo, hi, se)
     return out
 
+
 def mu_ci_from_bootstrap_agents(sim_df, R=50):
+    """
+    Fallback: bootstrap sobre agentes dentro de una única réplica.
+    """
     out = {}
     for arch in ARCH_ORDER:
         x = sim_df.loc[sim_df["archetype"] == arch, "value"].to_numpy()
@@ -196,26 +217,36 @@ def mu_ci_from_bootstrap_agents(sim_df, R=50):
         out[arch] = (mu, lo, hi, se)
     return out
 
+
 def fmt(x, nd=3):
     if x is None or (isinstance(x, float) and not np.isfinite(x)):
         return ""
     return f"{x:.{nd}f}".replace(".", ",")
+
 
 def fmt_pct(x, nd=2):
     if x is None or (isinstance(x, float) and not np.isfinite(x)):
         return ""
     return f"{x:.{nd}f}%".replace(".", ",")
 
+
 def fmt_bool(x):
     if x is None or (isinstance(x, float) and not np.isfinite(x)):
         return ""
     return "yes" if bool(x) else "no"
 
+
 # ============================================================
 # EJECUCIÓN
 # ============================================================
 
-sim_reps, sim_paths = get_sim_replicates()
+sim_reps, sim_paths = get_sim_replicates_from_archives(SIM_REPLICATE_GLOB)
+print(f"\nEncontradas {len(sim_paths)} réplicas archivadas.")
+print("Ejemplos:")
+for p in sim_paths[:5]:
+    print(" -", p)
+if len(sim_paths) > 5:
+    print(" - ...")
 
 if len(sim_reps) >= 2:
     sim_mu_ci = mu_ci_from_replicates(sim_reps)
@@ -225,7 +256,7 @@ else:
     sim_unc_method = "bootstrap-agents (fallback)"
 
 # -----------------------------
-# TABLA 1: Medias + IC + errores + coverage/overlap + z-test aproximado
+# TABLA 1: Medias + IC + errores + coverage/overlap + z-test aprox
 # -----------------------------
 rows = []
 for arch in ARCH_ORDER:
@@ -240,14 +271,11 @@ for arch in ARCH_ORDER:
     err_min = mu_sim - mu_obs
     err_rel = (err_min / mu_obs * 100.0) if np.isfinite(mu_obs) and mu_obs != 0 else np.nan
 
-    # Coverage: mu_sim dentro IC95 obs
     in_obs_ci = (mu_sim >= lo_obs) and (mu_sim <= hi_obs) if all(np.isfinite([mu_sim, lo_obs, hi_obs])) else np.nan
 
-    # Overlap de intervalos
     overlap = (min(hi_sim, hi_obs) - max(lo_sim, lo_obs)) if all(np.isfinite([lo_sim, hi_sim, lo_obs, hi_obs])) else np.nan
     overlap_yes = (overlap >= 0) if np.isfinite(overlap) else np.nan
 
-    # z-score aproximado usando SE_obs inferido del IC95 de la media
     z = (mu_sim - mu_obs) / se_obs if np.isfinite(se_obs) and se_obs > 0 else np.nan
     p2 = 2 * (1 - norm.cdf(abs(z))) if np.isfinite(z) else np.nan
 
@@ -269,7 +297,6 @@ BIAS = float(np.nanmean(df_means["error_min"]))
 COVERAGE = float(np.nanmean(df_means["in_obs_ci95"]))
 OVERLAP_RATE = float(np.nanmean(df_means["ci_overlap_yes"]))
 
-# Formateo
 df_means_fmt = df_means.copy()
 for c in ["mu_sim","ci95_sim_low","ci95_sim_high","se_sim","mu_obs","ci95_obs_low","ci95_obs_high","se_obs",
           "error_min","ci_overlap","z_using_se_obs","p_2sided_using_se_obs"]:
@@ -292,8 +319,7 @@ print("Coverage (mu_sim in IC95 obs):", fmt_pct(COVERAGE * 100, 1))
 print("IC overlap rate (IC_sim overlaps IC_obs):", fmt_pct(OVERLAP_RATE * 100, 1))
 
 # -----------------------------
-# TABLA 2: Distribución SOLO SIM (cuantiles + dispersión)
-# (No se compara con obs porque OdIN no da cuantiles/ECDF)
+# TABLA 2: Distribución SOLO SIM
 # -----------------------------
 concat = pd.concat(sim_reps, ignore_index=True)
 
@@ -326,60 +352,133 @@ print("====================")
 print(df_sim_dist_fmt)
 
 # -----------------------------
-# EXPORT
+# EXPORT (dentro de results/)
 # -----------------------------
-out_xlsx = os.path.expanduser(f"~/Desktop/validation_{TARGET}_odin_ci_only.xlsx")
+out_dir = RESULTS_DIR / "validation_outputs"
+out_dir.mkdir(parents=True, exist_ok=True)
+
+out_xlsx = out_dir / f"validation_{STUDY_AREA}_{TARGET}_odin_ci_only.xlsx"
+
 with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
     df_means.to_excel(writer, sheet_name="means_ci_errors")
     df_sim_dist.to_excel(writer, sheet_name="sim_quantiles_disp")
-print("\nGuardado:", out_xlsx)
 
-# ============================================================
-# TABLA 3: Variabilidad esperada del modelo (para una corrida)
-# ============================================================
-rows = []
+print("\nGuardado:", out_xlsx.resolve())
+
+# ... (mantener el inicio del código igual hasta compute_target_per_agent)
+
+def compute_extra_metrics_per_agent(df_activities: pd.DataFrame) -> pd.DataFrame:
+    """
+    Extrae para cada agente el valor de cost, emissions y mjkm 
+    correspondiente al momento del valor máximo de 'in'.
+    """
+    # Asegurar que las columnas son numéricas
+    cols = ["in", "cost", "emissions", "mjkm"]
+    for c in cols:
+        if c in df_activities.columns:
+            df_activities[c] = pd.to_numeric(df_activities[c], errors="coerce")
+    
+    # Encontrar el índice del valor máximo de 'in' por cada agente
+    # idxmax devuelve el índice de la primera aparición del máximo
+    idx_max_in = df_activities.groupby("agent")["in"].idxmax()
+    
+    # Filtrar el dataframe original con esos índices
+    df_agent_extra = df_activities.loc[idx_max_in, ["agent", "archetype", "cost", "emissions", "mjkm"]]
+    
+    df_agent_extra["archetype"] = df_agent_extra["archetype"].astype(str).str.strip()
+    return df_agent_extra.dropna(subset=["agent", "archetype"])
+
+def load_sim_all_data(path: str, target: str):
+    df = pd.read_excel(path, engine="openpyxl")
+    # Datos para Tabla 1 y 2
+    df_target = compute_target_per_agent(df, target=target)
+    # Datos para Tabla 3
+    df_extra = compute_extra_metrics_per_agent(df)
+    return df_target, df_extra
+
+# Modificamos la carga de réplicas
+def get_sim_replicates_extended(glob_pattern: str):
+    paths = sorted(glob.glob(glob_pattern))
+    if not paths:
+        raise FileNotFoundError(f"No se encontraron réplicas en {glob_pattern}")
+    
+    reps_target = []
+    reps_extra = []
+    for p in paths:
+        t, e = load_sim_all_data(p, target=TARGET)
+        reps_target.append(t)
+        reps_extra.append(e)
+    return reps_target, reps_extra, paths
+
+# ------------------------------------------------------------
+# EJECUCIÓN ACTUALIZADA
+# ------------------------------------------------------------
+sim_reps, sim_reps_extra, sim_paths = get_sim_replicates_extended(SIM_REPLICATE_GLOB)
+
+# ... (Mantener el cálculo de sim_mu_ci para Tabla 1 y 2 igual) ...
+
+# -----------------------------
+# TABLA 3: SE de Cost, Emissions, MJKM
+# -----------------------------
+extra_metrics = ["cost", "emissions", "mjkm"]
+rows_extra = []
+
 for arch in ARCH_ORDER:
-    mu_sim, lo_sim, hi_sim, se_sim = sim_mu_ci.get(arch, (np.nan, np.nan, np.nan, np.nan))
-    if not np.isfinite(mu_sim) or not np.isfinite(se_sim) or mu_sim == 0:
-        var_pct = np.nan
-    else:
-        var_pct = (se_sim / mu_sim) * 100.0
+    arch_results = {"Archetype": arch}
+    
+    for metric in extra_metrics:
+        values_per_rep = []
+        for rep in sim_reps_extra:
+            # Media de la métrica para este arquetipo en esta réplica
+            m_val = rep.loc[rep["archetype"] == arch, metric].mean()
+            values_per_rep.append(m_val)
+        
+        values_per_rep = np.array(values_per_rep, dtype=float)
+        values_per_rep = values_per_rep[np.isfinite(values_per_rep)]
+        
+        if len(values_per_rep) >= 2:
+            # SE = Desviación estándar de las medias de las réplicas
+            se_val = np.std(values_per_rep, ddof=1)
+            mean_val = np.mean(values_per_rep)
+        elif len(sim_reps_extra) == 1:
+            # Fallback Bootstrap si solo hay 1 réplica
+            x_raw = sim_reps_extra[0].loc[sim_reps_extra[0]["archetype"] == arch, metric].dropna().values
+            if len(x_raw) > 2:
+                boots = [np.mean(rng.choice(x_raw, size=len(x_raw), replace=True)) for _ in range(R_SIM_BOOT)]
+                se_val = np.std(boots, ddof=1)
+                mean_val = np.mean(x_raw)
+            else:
+                se_val, mean_val = np.nan, np.nan
+        else:
+            se_val, mean_val = np.nan, np.nan
+            
+        arch_results[f"{metric}_mean"] = mean_val
+        arch_results[f"{metric}_SE"] = se_val
+        
+    rows_extra.append(arch_results)
 
-    rows.append({
-        "Archetype": arch,
-        "mu_sim": mu_sim,
-        "se_sim": se_sim,
-        "var_sim": se_sim**2,
-        "var_pct": var_pct,
-        "expected_ci_low": mu_sim - 1.96 * se_sim if np.isfinite(mu_sim) and np.isfinite(se_sim) else np.nan,
-        "expected_ci_high": mu_sim + 1.96 * se_sim if np.isfinite(mu_sim) and np.isfinite(se_sim) else np.nan,
-    })
+df_extra_se = pd.DataFrame(rows_extra).set_index("Archetype")
 
-df_model_var = pd.DataFrame(rows).set_index("Archetype")
-
-# Formateo
-df_model_var_fmt = df_model_var.copy()
-for c in ["mu_sim","se_sim","var_sim","expected_ci_low","expected_ci_high"]:
-    df_model_var_fmt[c] = df_model_var_fmt[c].map(lambda v: fmt(v, 3))
-df_model_var_fmt["var_pct"] = df_model_var_fmt["var_pct"].map(lambda v: fmt_pct(v, 2))
+# Formateo para impresión
+df_extra_fmt = df_extra_se.copy()
+for c in df_extra_fmt.columns:
+    df_extra_fmt[c] = df_extra_fmt[c].map(lambda v: fmt(v, 4))
 
 print("\n====================")
-print("TABLA 3: Variabilidad del modelo (una simulación)")
+print("TABLA 3: SE y Medias (Cost, Emissions, MJKM) - Basado en MAX(in)")
 print("====================")
-print(df_model_var_fmt)
+print(df_extra_fmt)
 
-# Exportar a Excel
-with pd.ExcelWriter(out_xlsx, engine="openpyxl", mode="a") as writer:
-    df_model_var.to_excel(writer, sheet_name="model_variability")
+# -----------------------------
+# EXPORT ACTUALIZADO
+# -----------------------------
+out_dir = RESULTS_DIR / "validation_outputs"
+out_dir.mkdir(parents=True, exist_ok=True)
+out_xlsx = out_dir / f"validation_{STUDY_AREA}_{TARGET}_with_extra_metrics.xlsx"
 
-# ============================================================
-# RESUMEN GLOBAL DE VARIABILIDAD
-# ============================================================
+with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
+    df_means.to_excel(writer, sheet_name="means_ci_errors")
+    df_sim_dist.to_excel(writer, sheet_name="sim_quantiles_disp")
+    df_extra_se.to_excel(writer, sheet_name="extra_metrics_SE")
 
-# Solo considerar arquetipos con datos válidos
-valid_var_pct = df_model_var["var_pct"].dropna()
-if len(valid_var_pct) > 0:
-    global_var_pct = valid_var_pct.mean()  # promedio simple
-    print(f"\nResumen global de variabilidad del modelo: ±{fmt_pct(global_var_pct,2)} sobre la media total")
-else:
-    print("\nNo hay datos válidos para calcular la variabilidad global del modelo.")
+print("\nGuardado:", out_xlsx.resolve())

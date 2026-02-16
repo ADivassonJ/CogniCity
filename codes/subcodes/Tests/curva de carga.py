@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt
 
 MJ_TO_KWH = 1.0 / 3.6  # 0.277777...
 
+# Convert size from mm to inches
+fig_width = 368 / 25.4
+fig_height = 78 / 25.4
+
 def parse_hour(timestr: str) -> int:
     # expects "HH:MM"
     return int(str(timestr).split(":")[0])
@@ -103,25 +107,37 @@ def plot_tuesday_curves_for_powers(
     powers_kw: list[float],
     title: str = "Aggregated charging load (Tuesday) with Monday spillover",
 ):
-    """
-    Computes and plots Tuesday curves (t=24..47) for multiple p_kw scenarios.
-    All plot text in English.
-    """
-    plt.figure()
+
+    # Convert size INSIDE the function (robusto)
+    fig_width = 368 / 25.4
+    fig_height = 78 / 25.4
+
+    plt.figure(figsize=(fig_width/3.1, fig_height))
 
     for p in powers_kw:
         fleet_48 = build_fleet_load_48h(agents_markers, p_kw=p)
         tuesday = fleet_48[(fleet_48["t"] >= 24) & (fleet_48["t"] < 48)].copy()
-        plt.plot(tuesday["hour"], tuesday["P_kW"], label=f"{p:g} kW/EV")
+
+        plt.plot(
+            tuesday["hour"],
+            tuesday["P_kW"],
+            label=f"{p:g} kW/EV"
+        )
 
     plt.xlabel("Time of day (Tuesday)")
     plt.ylabel("Aggregated power (kW)")
-    plt.title(title)
-    plt.xticks(range(0, 24, 1), [f"{h:02d}:00" for h in range(24)], rotation=45)
+
+    plt.xticks(
+        range(0, 24, 1),
+        [f"{h:02d}:00" for h in range(24)],
+        rotation=45
+    )
+
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
     plt.show()
+
 
 if __name__ == "__main__":
     xlsx = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results\Kanaleneiland_schedule_vehicle_quantified_24.xlsx"
@@ -153,7 +169,11 @@ if __name__ == "__main__":
     tue_3p7 = fleet_48_3p7[(fleet_48_3p7["t"] >= 24) & (fleet_48_3p7["t"] < 48)].copy()
     tue_50  = fleet_48_50[(fleet_48_50["t"] >= 24) & (fleet_48_50["t"] < 48)].copy()
 
-    plt.figure()
+
+
+    
+
+    plt.figure(figsize=(fig_width, fig_height*2))
 
     plt.plot(
         tue_3p7["hour"], tue_3p7["P_kW"],
@@ -166,14 +186,21 @@ if __name__ == "__main__":
         tue_50["hour"], tue_50["P_kW"],
         label="50 kW/EV",
         color=COLOR_50,
-        linewidth=LINE_W
+        linewidth=LINE_W,
+        linestyle="--"
     )
 
     plt.xlabel("Time of day")
     plt.ylabel("Aggregated power (kW)")
-    plt.xticks(range(0, 24, 1), [f"{h:02d}:00" for h in range(24)], rotation=45)
+
+    plt.xticks(
+        range(0, 24, 1),
+        [f"{h:02d}:00" for h in range(24)],
+        rotation=45
+    )
 
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
     plt.show()
+

@@ -1011,41 +1011,44 @@ def get_osm_elements(polygon, poss_ref):
     return out
 
 
+import random
+import numpy as np
+
 def get_vehicle_stats(archetype, transport_archetypes, variables):
     results = {}   
     
-    # Filtrar la fila correspondiente al arquetipo
     row = transport_archetypes[transport_archetypes['name'] == archetype]
     if row.empty:
-        print(f"Strange mistake happend")
-
+        print("Strange mistake happened")
         print(f"archetype: {archetype}")
-        input(transport_archetypes)
-
-        
         return {}
 
-    row = row.iloc[0]  # Extrae la primera (y única esperada) fila como Series
+    row = row.iloc[0]
 
     for variable in variables:
 
         mu = float(row[f'{variable}_mu'])
-        sigma = float(row[f'{variable}_sigma'])
 
-        if sigma == 0:
+        sigma_col = f'{variable}_sigma'
+
+        # ✅ Caso 1 → NO existe sigma → Bernoulli usando mu
+        if sigma_col not in row.index:
             var_result = 1 if random.random() < mu else 0
-        else:
-            try:
-                max_var = float(row[f'{variable}_max'])
-            except Exception as e:
-                max_var = float('inf')
-            try:
-                min_var = float(row[f'{variable}_min'])
-            except Exception as e:
-                min_var = float(0)
 
-            var_result = np.random.normal(mu, sigma)
-            var_result = max(min(var_result, max_var), min_var)
+        else:
+            sigma = float(row[sigma_col])
+
+            # ✅ Caso 2 → sigma = 0 → Bernoulli
+            if sigma == 0:
+                var_result = 1 if random.random() < mu else 0
+
+            # ✅ Caso 3 → Distribución normal
+            else:
+                max_var = float(row[f'{variable}_max']) if f'{variable}_max' in row.index else float('inf')
+                min_var = float(row[f'{variable}_min']) if f'{variable}_min' in row.index else 0.0
+
+                var_result = np.random.normal(mu, sigma)
+                var_result = max(min(var_result, max_var), min_var)
 
         results[variable] = var_result
 
