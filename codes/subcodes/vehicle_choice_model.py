@@ -241,7 +241,8 @@ def vehicle_choice_model(
                                                    transport_families_dict,
                                                    agent_populations,
                                                    pop_archetypes,
-                                                   networks_map)
+                                                   networks_map,
+                                                   WP3_active)
         if fam_schedule is not None and fam_schedule != []:
             citizen_schedules.extend(fam_schedule)
         if fam_actions is not None and fam_actions != []:
@@ -989,6 +990,8 @@ def vehicle_chosing(vehicle_score_matrix, archetype, study_area, simplified: boo
     if simplified:
         if study_area == "Aradas":
             D1, D2, D3 = 0.342, 0.501, 0.661
+        elif study_area == "Annelinn":
+            D1, D2, D3 = 3.920, 4.210, 4.485
         elif archetype == 'c_arch_0':
             D1, D2, D3 = 1.893, 6.323, 21.313
         elif archetype == 'c_arch_1':
@@ -1050,13 +1053,17 @@ def vehicle_chosing(vehicle_score_matrix, archetype, study_area, simplified: boo
 def VSM_calculation(citizen_route, avail_vehicles, citizen_data, pop_archetypes_transport, pop_building, networks_map):
     # Inicializamos la full_distime_matrix
     full_distime_matrix = []
-    if citizen_data['independent_type'] == 0:
-        vehicles = [v for v in avail_vehicles if v['name'] in ["walk", "Public_transport"]]
-    else:
-        vehicles = avail_vehicles
 
-    # Añadimos a la matriz de vehiculos disponibles el publico y andar
-    avail_transport = add_public_walk(vehicles, citizen_data, pop_archetypes_transport)
+    if not any(v['name'] == "walk" for v in avail_vehicles):
+        # Añadimos a la matriz de vehiculos disponibles el andar (lo del publico ya no se hace lo gestionamos por otro lado)
+        avail_vehicles = add_public_walk(avail_vehicles, citizen_data, pop_archetypes_transport)
+
+    # En caso de ser dependientes (no poder utilizar privado) se les quita la opcion
+    if citizen_data['independent_type'] == 0:
+        avail_transport = [v for v in avail_vehicles if v['name'] in ["walk", "Public_transport"]]
+    else:
+        avail_transport = avail_vehicles
+
     # Iteramos los distintos transportes disponibles
     for transport in avail_transport:
         # Inicializamos last_P (determina la posición donde se encontro por última vez el vehicle)
@@ -1221,11 +1228,11 @@ def distime_calculation(
         waiting_time = waiting_time_calculation(distance_km, step_1, transport)
         benefits     = benefits_calculation(citizen_data, step_1)
 
-
-        mjkm = transport['mjkm'] if transport['archetype'] != 'Public_transport' else 1
-        distance_cost = distance_km if transport['archetype'] != 'Public_transport' else 1
-
-        cost = (transport['price'] * mjkm * distance_cost) if (map_type == 'drive' and distance_km > 0) else 0
+        #En caso de que sea transporte publico, hacemos esto para que el coste por km no se contabilice en la multiplicacion de lo que es coste
+        if transport['name'] != 'Public_transport':
+            cost = (transport['price'] * (transport['mjkm'] * distance_km)) if map_type == 'drive' else 0
+        else:
+            cost = (transport['price']) if (map_type == 'drive' and distance_km > 0) else 0
 
         rows.append({
             'citizen':      citizen_data['name'],

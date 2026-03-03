@@ -80,22 +80,15 @@ df_match = df_merge[~mask_missing].copy()
 # Número de ciudadanos por WoS
 wos_counts = df_match.groupby("WoS_str").size().rename("n_citizens")
 
-# Tomamos una fila por WoS para obtener una geometría por edificio,
-# pero conservamos el conteo de ciudadanos
-df_match_counts = (
-    df_match.drop_duplicates("WoS_str")
-            .merge(wos_counts, on="WoS_str", how="left")
-)
-
 # -----------------------------
-# 4. GeoDataFrame de WoS (puntos) en WGS84 y reproyección
+# 4. GeoDataFrame SIN eliminar duplicados
 # -----------------------------
 gdf_wos = gpd.GeoDataFrame(
-    df_match_counts,
+    df_match,
     geometry=[
-        Point(xy) for xy in zip(df_match_counts[LON_COL], df_match_counts[LAT_COL])
+        Point(xy) for xy in zip(df_match[LON_COL], df_match[LAT_COL])
     ],
-    crs="EPSG:4326"  # lat/lon
+    crs="EPSG:4326"
 )
 
 gdf_wos_proj = gdf_wos.to_crs(target_crs)
@@ -111,23 +104,23 @@ else:
     gdf_utrecht = gdf_utrecht.to_crs(epsg=4326)
 
 # Polígono de Kanaleneiland (WGS84)
-coords_kanaleneiland_latlon = [
-    (52.07904398, 5.081736117),
-    (52.07624318, 5.08308264),
-    (52.06046958, 5.09756737),
-    (52.06021839, 5.097758556),
-    (52.06008988, 5.11164107),
-    (52.06328398, 5.113065093),
-    (52.06860149, 5.111588679),
-    (52.07642504, 5.109425399),
-    (52.07861645, 5.108711591),
-    (52.08034774, 5.107271173),
-    (52.08592257, 5.097037869),
-    (52.08498639, 5.096460351),
-    (52.08309467, 5.094751129),
-    (52.0803543,  5.087985518),
-    (52.07904398, 5.081736117),
-]
+coords_kanaleneiland_latlon = [(52.07904398,	5.081736117),
+                (52.07624318,	5.08308264),
+                (52.06046958,	5.09756737),
+                (52.06021839,	5.097758556),
+                (52.06008988,	5.11164107),
+                (52.06328398,	5.113065093),
+                (52.06860149,	5.111588679),
+                (52.07642504,	5.109425399),
+                (52.07861645,	5.108711591),
+                (52.08034774,	5.107271173),
+                (52.08592257,	5.097037869),
+                (52.08498639,	5.096460351),
+                (52.08309467,	5.094751129),
+                (52.0803543, 	5.087985518),
+                (52.07904398,	5.081736117),
+                ]
+ 
 
 coords_kanaleneiland = [(lon, lat) for (lat, lon) in coords_kanaleneiland_latlon]
 kanaleneiland_geom = Polygon(coords_kanaleneiland)
@@ -162,21 +155,13 @@ gdf_kanaleneiland_proj.boundary.plot(
     edgecolor="0.2"  # gris más oscuro
 )
 
-# Puntos de WoS: intensidad según número de ciudadanos (n_citizens)
-counts = gdf_wos_proj["n_citizens"]
-
-# Normalización para el mapa de color (min=blanco/gris claro, max=negro)
-norm = plt.Normalize(vmin=counts.min()-10, vmax=counts.max())
-
-# Scatter manual para controlar color en escala de grises
-sc = ax.scatter(
+# Puntos de WoS: todos negros con 25% de transparencia
+ax.scatter(
     gdf_wos_proj.geometry.x,
     gdf_wos_proj.geometry.y,
-    s=10,
-    c=counts,
-    cmap="Greys",   # escala de blancos a negros
-    norm=norm,
-    alpha=1,
+    s=50,
+    color="#134f5c",
+    alpha=0.35,   # ejemplo: 50%
     linewidths=0
 )
 
@@ -192,7 +177,6 @@ ax.set_ylim(miny - dy, maxy + dy)
 ax.set_axis_off()
 
 ax.set_aspect("equal", adjustable="box")
-ax.set_title("Utrecht (R1433619) + Kanaleneiland + intensidad WoS (nº de ciudadanos)")
 
 plt.tight_layout()
 plt.show()

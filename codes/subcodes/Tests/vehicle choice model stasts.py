@@ -4,7 +4,7 @@ import pandas as pd
 # RUTAS
 # -----------------------------
 results_path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
-data_path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Annelinn\population"
+data_path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\s0\Annelinn\population"
 
 excel_file = f"{results_path}\\Annelinn_schedule_vehicle.xlsx"
 parquet_file = f"{data_path}\\pop_citizen.parquet"

@@ -78,28 +78,21 @@ def main():
     # Input
 
        
-    population = 360
+    population = 16000
     study_area = 'Kanaleneiland'
-        
-    
-    '''
-    population = 10000
-    study_area = 'Aradas'
-    '''   
-          
-    '''
-    population = 27000
-    study_area = 'Annelinn'
-    '''
 
 
     WP3_active = False
-    scenario = "s0"
+    scenario = "s2"
 
+    scenarios = ["s0"]
+          
+    population = 160
+    study_area = 'Kanaleneiland'
+    
 
-    CogniCity(population, study_area, WP3_active, scenario)
-    #CogniCity(population, study_area, WP3_active, scenario)
-
+    for scenario in scenarios:
+        CogniCity(population, study_area, WP3_active, scenario)
 
 
 if __name__ == '__main__':

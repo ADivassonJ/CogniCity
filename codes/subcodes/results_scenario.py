@@ -212,6 +212,9 @@ def build_daily_total_stats_from_constructed_outputs(
     df_cit = read_quantified_excel(citizen_q)
     df_veh = read_quantified_excel(vehicle_q)
 
+    # NUEVO → excluir vehículos con "todo" nulo
+    df_veh = df_veh[df_veh["todo"].notna()]
+
     # Inferir resolución (informativo)
     resolution = infer_resolution_from_time_slot(df_cit, TIME_COL)
 

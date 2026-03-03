@@ -1715,21 +1715,31 @@ def Utilities_assignment(
 
     def visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id=None):
         """
-        Visualiza un anillo (ring_poly) y los edificios (cand_df) en escala de grises.
+        Visualiza un anillo (ring_poly) y los edificios (cand_df).
         - Gris claro: edificios fuera
         - Gris oscuro: edificios dentro
         - Blanco con borde negro: edificio elegido
         - Gris medio translúcido: anillo
+        - Marco visible y SIEMPRE cuadrado
         """
 
+        import geopandas as gpd
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        from matplotlib.lines import Line2D
+
+        # -----------------------------
         # Crear GeoDataFrame
+        # -----------------------------
         gdf = gpd.GeoDataFrame(
             cand_df.copy(),
             geometry=gpd.points_from_xy(cand_df['lon'], cand_df['lat']),
             crs="EPSG:4326"
         )
 
-        # Asegurar geometría del anillo
+        # -----------------------------
+        # Geometría del anillo
+        # -----------------------------
         if isinstance(ring_poly, (gpd.GeoSeries, gpd.GeoDataFrame)):
             ring_geom = ring_poly.unary_union
         else:
@@ -1737,14 +1747,20 @@ def Utilities_assignment(
 
         ring_gs = gpd.GeoSeries([ring_geom], crs="EPSG:4326")
 
-        # Pasar a CRS proyectado (metros)
+        # -----------------------------
+        # Proyección a CRS métrico
+        # -----------------------------
         gdf_proj = gdf.to_crs("EPSG:3857")
         ring_proj = ring_gs.to_crs("EPSG:3857")
 
-        # Determinar qué puntos están dentro
+        # -----------------------------
+        # Determinar puntos dentro
+        # -----------------------------
         mask_inside = gdf_proj.geometry.within(ring_proj.iloc[0])
 
-        # Crear figura
+        # -----------------------------
+        # Crear figura cuadrada
+        # -----------------------------
         fig, ax = plt.subplots(figsize=(8, 8))
 
         # --- ANILLO ---
@@ -1754,34 +1770,56 @@ def Utilities_assignment(
         # --- EDIFICIOS FUERA ---
         gdf_out = gdf_proj[~mask_inside]
         if not gdf_out.empty:
-            gdf_out.plot(ax=ax, color="#76a5af", markersize=25, label="Fuera")
+            gdf_out.plot(ax=ax, color="#76a5af", markersize=25)
 
         # --- EDIFICIOS DENTRO ---
         gdf_in = gdf_proj[mask_inside]
         if not gdf_in.empty:
-            gdf_in.plot(ax=ax, color="#0c343d", markersize=35, label="Dentro")
+            gdf_in.plot(ax=ax, color="#0c343d", markersize=35)
 
         # --- EDIFICIO ELEGIDO ---
         if chosen_id is not None and chosen_id in gdf_proj['osm_id'].values:
             elegido = gdf_proj.loc[gdf_proj['osm_id'] == chosen_id]
-            elegido.plot(ax=ax, facecolor="white", edgecolor="black",
-                        markersize=80, marker="o", zorder=3, label="Elegido")
-            
-        # --- HOME (CENTRO DEL ANILLO) ---
+            elegido.plot(
+                ax=ax,
+                facecolor="white",
+                edgecolor="black",
+                markersize=80,
+                marker="o",
+                zorder=3
+            )
+
+        # --- HOME (centro del anillo) ---
         if not ring_proj.is_empty.all():
             centroid = ring_proj.iloc[0].centroid
-
-            # Dibujar cuadrado
             ax.scatter(
                 centroid.x,
                 centroid.y,
-                marker='s',              # cuadrado
-                s=100,                   # tamaño
+                marker='s',
+                s=100,
                 facecolor='#0c343d',
                 zorder=4
             )
 
-        # --- LEYENDA MANUAL ---
+        # -----------------------------
+        # FORZAR VENTANA CUADRADA REAL
+        # -----------------------------
+        xmin, xmax = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
+
+        width = xmax - xmin
+        height = ymax - ymin
+        max_range = max(width, height)
+
+        x_center = (xmin + xmax) / 2
+        y_center = (ymin + ymax) / 2
+
+        ax.set_xlim(x_center - max_range/2, x_center + max_range/2)
+        ax.set_ylim(y_center - max_range/2, y_center + max_range/2)
+
+        # -----------------------------
+        # Leyenda
+        # -----------------------------
         legend_elements = [
             mpatches.Patch(facecolor='#a2c4c9', edgecolor='#45818e', alpha=0.3, label='Ring'),
             Line2D([0], [0], marker='s', color='w', markerfacecolor='#0c343d', markersize=8, label='Home'),
@@ -1791,9 +1829,12 @@ def Utilities_assignment(
         ]
         ax.legend(handles=legend_elements, loc='upper right')
 
-        # Estilo general
-        ax.set_aspect('equal')
+        # -----------------------------
+        # Estética final
+        # -----------------------------
+        ax.set_aspect('equal')  # mantiene escala métrica real
         ax.set_facecolor("white")
+
         plt.tight_layout()
         plt.show()
 

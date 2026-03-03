@@ -16,7 +16,7 @@ import osmnx as ox
 # ==========================
 # CONFIGURACIÓN GLOBAL
 # ==========================
-UTRECHT_CENTER = [52.0907, 5.1214]  # centro fijo de Utrecht
+UTRECHT_CENTER = [52.11288, 5.06611]  # centro fijo de Utrecht
 
 
 # ==========================
@@ -169,13 +169,13 @@ def build_maps_by_hour(df_veh: pd.DataFrame,
             if max_points_per_hour and len(dfh) > max_points_per_hour:
                 dfh = dfh.sample(max_points_per_hour, random_state=0)
 
-            m = folium.Map(location=UTRECHT_CENTER, zoom_start=zoom_start, tiles=tiles, control_scale=True)
+            m = folium.Map(location=[52.08697, 5.16190], zoom_start=15, tiles=tiles, control_scale=True)
 
             fg = folium.FeatureGroup(name=f"Hora {h:02d}")
             for _, r in dfh.iterrows():
                 folium.CircleMarker(
                     [float(r["lat"]), float(r["lon"])],
-                    radius=2, color="#134f5c", fill=True, fill_opacity=0.6
+                    radius=20, color="#134f5c", fill=True, fill_opacity=0.6
                 ).add_to(fg)
             fg.add_to(m)
             folium.LayerControl(collapsed=False).add_to(m)
@@ -264,8 +264,8 @@ def main():
             os.makedirs(paths[file_2], exist_ok=True)
 
     pop_building = pd.read_parquet(f"{paths['population']}/pop_building.parquet")
-    df_veh = pd.read_excel(paths['results'] / f"{study_area}_We_vehicles.xlsx")
-    df_lvl1 = pd.read_excel(paths['results'] / f"{study_area}_We_schedule.xlsx")
+    df_veh = pd.read_excel(paths['results'] / f"{study_area}_schedule_vehicle.xlsx")
+    df_lvl1 = pd.read_excel(paths['results'] / f"{study_area}_schedule_citizen.xlsx")
 
     out_folder = paths['results'] / f"{study_area}_hourly_maps"
     g = build_maps_by_hour(df_veh, df_lvl1, pop_building, out_folder=out_folder, max_points_per_hour=3000)

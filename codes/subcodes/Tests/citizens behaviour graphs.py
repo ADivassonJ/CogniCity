@@ -2,8 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Datos comunes
-arquetipos = ["c_arch_0", "c_arch_1", "c_arch_2", "c_arch_3", "c_arch_4"]
-escenarios = ["Base case-scenario", "EU Trinity", "NECP Essentials", "REPowerEU", "Go RES"]
+arquetipos = ["Adult male (c_arch_0)", "Adult female (c_arch_1)", "Children (c_arch_2)", "Elder (c_arch_3)", "Youth (c_arch_4)"]
+escenarios = ["Baseline Scenario", "EU Trinity", "NECP Essentials", "REPowerEU", "Go RES"]
 zonas = ["Annelinn", "Aradas", "Kanaleneiland"]
 
 n_escenarios = len(escenarios)
@@ -77,11 +77,17 @@ def crear_grafico_lineas_zonas(valores, colores, nombre_pdf, description, barras
     fig.savefig(f"{path}{nombre_pdf}", format='pdf', bbox_inches='tight')
     plt.show()
 
+
+
 colores_annelin =       ["#000000", "#741b47", "#a64d79", "#d5a6bd", "#ead1dc"]  
 colores_aradas =        ["#000000", "#bf9000", "#f1c232", "#ffe599", "#fff2cc"]  
 colores_kanaleneiland = ["#000000", "#134f5c", "#45818e", "#a2c4c9", "#d0e0e3"]   
 
+
+
 colores_zonas = ["#741b47", "#bf9000", "#134f5c"]
+
+
 
 # ----- Electricity consumption -----
 valores = np.array([
@@ -120,6 +126,10 @@ valores = np.array([
 barras_error = [0.0355799, 0.0375963, 0.0324568]  # 0.75%, 0.86%, 0.66%
 crear_grafico_lineas_zonas(valores, colores_zonas, "CO2 emission.pdf", "CO2 emission [tons/day]", barras_error)
 
+
+
+
+
 # ----- ann_walk -----
 valores = np.array([
     [0, 0.00000, 0.00000, 0.00000, 0.00000],
@@ -130,7 +140,7 @@ valores = np.array([
 ])
 
 # Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100  
+errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100
 
 crear_grafico(valores, colores_annelin, "ann_walk.pdf", "Walk time [min]", errores_pct)
 
@@ -144,7 +154,7 @@ valores = np.array([
 ])
 
 # Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100  
+errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100
 
 crear_grafico(valores, colores_annelin, "ann_mot_tra.pdf", "travel time [min]",errores_pct)
 
@@ -175,6 +185,10 @@ valores = np.array([
 errores_pct = np.array([32.7956/628.7314, 30.9171/627.9426, 6.1525/150.4788, 33.9092/285.6389, 28.8523/550.7885])
 
 crear_grafico(valores, colores_annelin, "ann_co2.pdf", "CO2 emission [kg/day]", errores_pct)
+
+
+
+
 
 # ----- ara_walk -----
 valores = np.array([
@@ -231,6 +245,12 @@ valores = np.array([
 errores_pct = np.array([32.7956/628.7314, 30.9171/627.9426, 6.1525/150.4788, 33.9092/285.6389, 28.8523/550.7885])
 
 crear_grafico(valores, colores_aradas, "ara_co2.pdf", "CO2 emission [kg/day]", errores_pct)
+
+
+
+
+
+
 
 # ----- kan_walk -----
 valores = np.array([

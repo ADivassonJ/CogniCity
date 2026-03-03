@@ -1,211 +1,146 @@
 import os
-import glob
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
+# -----------------------------
+# TAMAÑO PAPER (mm → pulgadas)
+# -----------------------------
+fig_width = 368 / 25.4
+fig_height = 78 / 25.4
+
+# -----------------------------
+# RUTAS
+# -----------------------------
 BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
+DATA_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data"
 
 S_FOLDERS = [f"s{i}" for i in range(5)]
 SCENARIOS = ["Annelinn", "Aradas", "Kanaleneiland"]
 
-results = []
-coverage = []
-modal_dist = []  # <-- NUEVO
+# -----------------------------
+# CONTENEDORES
+# -----------------------------
+modal_clean = []      # matriz condicional
+modal_total = []      # distribución global ← NUEVO
 
+# -----------------------------
+# LOOP PRINCIPAL
+# -----------------------------
 for s in S_FOLDERS:
     for scen in SCENARIOS:
-        folder = os.path.join(BASE_PATH, s, scen)
-        pattern = os.path.join(folder, f"*{scen}_schedule_vehicle*.xlsx")
-        files = glob.glob(pattern)
 
-        coverage.append({
-            "S": s,
-            "Scenario": scen,
-            "FilesFound": len(files),
-            "FolderExists": os.path.isdir(folder),
-        })
+        excel_file = os.path.join(BASE_PATH, s, scen, f"{scen}_schedule_vehicle.xlsx")
+        parquet_file = os.path.join(DATA_PATH, s, scen, "population", "pop_citizen.parquet")
 
-        if not files:
+        if not os.path.exists(excel_file) or not os.path.exists(parquet_file):
             continue
 
-        for fp in files:
-            try:
-                df = pd.read_excel(fp)
-            except Exception as e:
-                print(f"[ERROR] Could not read {fp}: {e}")
-                continue
+        df = pd.read_excel(excel_file)
+        pop = pd.read_parquet(parquet_file)
 
-            # =========================
-            # PARTE ORIGINAL (todo vacío)
-            # =========================
-            required_cols = {"agent", "archetype", "todo"}
-            if required_cols.issubset(df.columns):
-                d = df[["agent", "archetype", "todo"]].copy()
-                d = d.dropna(subset=["agent", "archetype"])
+        required_cols = {"user", "archetype", "in"}
+        if not required_cols.issubset(df.columns):
+            continue
 
-                d["todo_empty"] = d["todo"].isna() | (d["todo"].astype(str).str.strip() == "")
-                d = d.drop_duplicates(subset=["agent"], keep="first")
+        # -----------------------------
+        # SIMPLIFICACIÓN POR USUARIO
+        # -----------------------------
+        df_simplified = (
+            df.loc[df.groupby("user")["in"].idxmin()]
+            .reset_index(drop=True)
+        )
 
-                total_agents = d["agent"].nunique()
-                total_empty = int(d["todo_empty"].sum())
-                total_pct_empty = (total_empty / total_agents * 100) if total_agents else np.nan
+        # =====================================================
+        # ✅ 1️⃣ MATRIZ CONDICIONAL (como antes)
+        # =====================================================
+        pop_subset = pop[["name", "archetype"]].rename(
+            columns={"name": "user", "archetype": "citizen_archetype"}
+        )
 
-                results.append({
-                    "S": s,
-                    "Scenario": scen,
-                    "File": os.path.basename(fp),
-                    "Archetype": "TOTAL",
-                    "Vehicles": total_agents,
-                    "TodoEmpty": total_empty,
-                    "PctTodoEmpty": total_pct_empty
-                })
+        df_conditional = df_simplified.merge(pop_subset, on="user", how="left")
 
-                for arch, g in d.groupby("archetype"):
-                    n = g["agent"].nunique()
-                    ne = int(g["todo_empty"].sum())
-                    pct = (ne / n * 100) if n else np.nan
+        modal_matrix = pd.crosstab(
+            df_conditional["citizen_archetype"],
+            df_conditional["archetype"],
+            normalize="index"
+        ) * 100
 
-                    results.append({
-                        "S": s,
-                        "Scenario": scen,
-                        "File": os.path.basename(fp),
-                        "Archetype": str(arch),
-                        "Vehicles": n,
-                        "TodoEmpty": ne,
-                        "PctTodoEmpty": pct
-                    })
-            else:
-                print(f"[SKIP] Missing required columns (agent/archetype/todo) in {fp}")
+        modal_matrix["Scenario"] = scen
+        modal_matrix["S"] = s
 
-            # ==========================================
-            # NUEVO: DISTRIBUCIÓN MODAL POR USUARIO ÚNICO
-            # ==========================================
-            required_modal_cols = {"user", "archetype"}
-            if not required_modal_cols.issubset(df.columns):
-                print(f"[SKIP] Missing required columns (user/archetype) in {fp}")
-                continue
+        modal_clean.append(modal_matrix.reset_index())
 
-            m = df[["user", "archetype"]].copy()
+        # =====================================================
+        # ✅ 2️⃣ DISTRIBUCIÓN GLOBAL ← NUEVO
+        # =====================================================
+        modal_share = (
+            df_simplified["archetype"]
+            .value_counts(normalize=True) * 100
+        )
 
-            # limpiar user: eliminar NaN y strings vacíos/espacios
-            m["user"] = m["user"].astype(str)
-            m["user_clean"] = m["user"].str.strip()
-            m = m[(m["user_clean"].notna()) & (m["user_clean"] != "")]
+        modal_share["Scenario"] = scen
+        modal_share["S"] = s
 
-            # eliminar NaN de archetype también (si aplica)
-            m = m.dropna(subset=["archetype"])
+        modal_total.append(modal_share)
 
-            # usuarios únicos (primer registro)
-            m = m.drop_duplicates(subset=["user_clean"], keep="first")
+# -----------------------------
+# CONSOLIDACIÓN
+# -----------------------------
+modal_df = pd.concat(modal_clean, ignore_index=True)
+modal_total_df = pd.DataFrame(modal_total).fillna(0)
 
-            total_users = m["user_clean"].nunique()
+# -----------------------------
+# COLORES PAPER
+# -----------------------------
+colors = {
+    "walk": "#EAD8A6",
+    "UB_diesel": "#D4A017",
+    "PC_petrol": "#9C7A00",
+    "PC_electric": "#4F3B00",
+}
 
-            # fila TOTAL (opcional, útil para checks)
-            modal_dist.append({
-                "S": s,
-                "Scenario": scen,
-                "File": os.path.basename(fp),
-                "Archetype": "TOTAL",
-                "Users": total_users,
-                "PctUsers": 100.0 if total_users else np.nan
-            })
+scenario_order = ["Annelinn", "Aradas", "Kanaleneiland"]
 
-            # distribución por archetype
-            counts = (
-                m.groupby("archetype")["user_clean"]
-                 .nunique()
-                 .sort_values(ascending=False)
-            )
+# ============================================================
+# ✅ FIGURA → RESUMEN GLOBAL POR ESCENARIO
+# Barras = S
+# ============================================================
+for scen in scenario_order:
 
-            for arch, n_users in counts.items():
-                pct = (n_users / total_users * 100) if total_users else np.nan
-                modal_dist.append({
-                    "S": s,
-                    "Scenario": scen,
-                    "File": os.path.basename(fp),
-                    "Archetype": str(arch),
-                    "Users": int(n_users),
-                    "PctUsers": pct
-                })
+    scen_df = modal_total_df[modal_total_df["Scenario"] == scen]
 
-            # ==========================================
-            # NUEVO: DISTRIBUCIÓN MODAL POR USUARIO ÚNICO
-            # (EXCLUYE independent != 1)
-            # ==========================================
-            required_modal_cols = {"user", "archetype", "independent"}  # <-- añadimos independent
-            if not required_modal_cols.issubset(df.columns):
-                print(f"[SKIP] Missing required columns (user/archetype/independent) in {fp}")
-                continue
+    pivot = (
+        scen_df
+        .set_index("S")
+        .drop(columns=["Scenario"])
+        .sort_index()
+    )
 
-            # Filtrar SOLO independent == 1
-            df_modal = df[df["independent"] == 1].copy()
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
-            m = df_modal[["user", "archetype"]].copy()
+    bottom = np.zeros(len(pivot))
 
-            # limpiar user: eliminar NaN y strings vacíos/espacios
-            m["user"] = m["user"].astype(str)
-            m["user_clean"] = m["user"].str.strip()
-            m = m[(m["user_clean"].notna()) & (m["user_clean"] != "")]
+    for mode in pivot.columns:
+        values = pivot[mode].values
 
-            # eliminar NaN de archetype también (si aplica)
-            m = m.dropna(subset=["archetype"])
+        ax.bar(
+            pivot.index,
+            values,
+            bottom=bottom,
+            label=mode,
+            color=colors.get(mode, None)
+        )
 
-            # usuarios únicos (primer registro)
-            m = m.drop_duplicates(subset=["user_clean"], keep="first")
+        bottom += values
 
-            total_users = m["user_clean"].nunique()
+    ax.set_ylabel("Modal share [%]")
+    ax.set_xlabel("Simulation run (S)")
+    ax.set_ylim(0, 100)
 
-            # fila TOTAL
-            modal_dist.append({
-                "S": s,
-                "Scenario": scen,
-                "File": os.path.basename(fp),
-                "Archetype": "TOTAL",
-                "Users": total_users,
-                "PctUsers": 100.0 if total_users else np.nan
-            })
+    ax.set_title(f"{scen} — Global modal distribution")
 
-            # distribución por archetype
-            counts = (
-                m.groupby("archetype")["user_clean"]
-                 .nunique()
-                 .sort_values(ascending=False)
-            )
+    ax.legend(title="Mode", bbox_to_anchor=(1.02, 1), loc="upper left")
 
-            for arch, n_users in counts.items():
-                pct = (n_users / total_users * 100) if total_users else np.nan
-                modal_dist.append({
-                    "S": s,
-                    "Scenario": scen,
-                    "File": os.path.basename(fp),
-                    "Archetype": str(arch),
-                    "Users": int(n_users),
-                    "PctUsers": pct
-                })
-
-
-# DataFrames finales
-out = pd.DataFrame(results).sort_values(["S", "Scenario", "File", "Archetype"]).reset_index(drop=True)
-cov = pd.DataFrame(coverage).sort_values(["S", "Scenario"]).reset_index(drop=True)
-
-modal_out = (
-    pd.DataFrame(modal_dist)
-      .sort_values(["S", "Scenario", "File", "Archetype"])
-      .reset_index(drop=True)
-)
-
-# Guardado
-out.to_excel(os.path.join(BASE_PATH, "summary_vehicles_todo_by_S_scenario.xlsx"), index=False)
-out.to_csv(os.path.join(BASE_PATH, "summary_vehicles_todo_by_S_scenario.csv"), index=False)
-
-cov.to_excel(os.path.join(BASE_PATH, "coverage_files_found.xlsx"), index=False)
-cov.to_csv(os.path.join(BASE_PATH, "coverage_files_found.csv"), index=False)
-
-# NUEVO guardado distribución modal
-modal_out.to_excel(os.path.join(BASE_PATH, "modal_distribution_by_S_scenario.xlsx"), index=False)
-modal_out.to_csv(os.path.join(BASE_PATH, "modal_distribution_by_S_scenario.csv"), index=False)
-
-print("OK -> Generados:")
-print(" - summary_vehicles_todo_by_S_scenario.xlsx / .csv (solo donde hay datos)")
-print(" - coverage_files_found.xlsx / .csv (cobertura de ficheros por S/Scenario)")
-print(" - modal_distribution_by_S_scenario.xlsx / .csv (distribución modal por user único)")
+    plt.tight_layout()
+    plt.show()
