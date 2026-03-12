@@ -203,7 +203,7 @@ for zone in SCENARIOS:
 
 comparative_metrics = {
     "mjkm_sum": ("Total energy consumption [MWh/day]", False),
-    "electric_mjkm_sum": ("Electric vehicle consumption [MWh/day]", False),
+    "electric_mjkm_sum": ("EV consumption [MWh/day]", False),
     "co2_sum": ("CO2 emission [tons/day]", False),
 }
 

@@ -12,7 +12,7 @@ from matplotlib.patches import Patch
 # A) Cargar datos y FILTRAR solo PC_electric
 # --------------------------------------------------------
 study_case = "Annelinn"
-scenario = "s4"                 # ajusta a "S0" si tu carpeta está en mayúsculas
+scenario = "s3"                 # ajusta a "S0" si tu carpeta está en mayúsculas
 archetype_folder = "PC_electric"  # carpeta del arquetipo dentro del escenario
 
 if study_case == "Kanaleneiland":
@@ -570,13 +570,13 @@ cbar = plt.colorbar(sm, cax=cax, orientation='vertical')
 
 # Ticks solo hasta Q3 manual
 #ticks = [v_sample_min, q1_sample, q3_sample, v_sample_max, vmax_manual, vmax_manual*1.1]
-ticks = [v_sample_min, q1_sample, q3_sample, vmax_manual*1.1]
+ticks = [q1_sample, q3_sample, vmax_manual, vmax_manual*1.1]
 #ticks = [v_sample_min, q1_sample, q3_sample, vmax_manual, vmax_manual*1.1]
-ticklabels = [f'Min={v_sample_min:.1f} kWh',
+ticklabels = [#f'Min={v_sample_min:.1f} kWh',
               f'Q1={q1_sample:.1f} kWh',
               f'Q3={q3_sample:.1f} kWh',
               #f'Max={v_sample_max:.1f} kWh',
-              #f'Q3(REPowerEU)={vmax_manual:.1f} kWh',
+              f'Q3(Go RES)={vmax_manual:.1f} kWh',
               '>Q3']
 
 cbar.set_ticks(ticks)

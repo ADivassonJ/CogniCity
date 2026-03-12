@@ -142,6 +142,12 @@ colors_kanaleneiland = {
     "PC_electric": "#072329",
 }
 
+MOBILITY_LABELS = {
+    "UB_diesel": "Public Transportation",
+    "PC_petrol": "Combustion car",
+    "PC_electric": "Electric car",
+    "walk": "Walk"
+}
 
 scenario_order = ["Annelinn", "Aradas", "Kanaleneiland"]
 
@@ -190,9 +196,9 @@ for scen in scenario_order:
             pivot.index, 
             pivot[mode], 
             bottom=bottom, 
-            label=mode, 
+            label=MOBILITY_LABELS.get(mode, mode), 
             color=colors.get(mode),
-            zorder=3 # Asegura que las barras tapen el grid
+            zorder=3
         )
         bottom += pivot[mode].values
 
@@ -239,7 +245,7 @@ for scen in scenario_order:
             pivot.index, 
             pivot[mode], 
             bottom=bottom, 
-            label=mode, 
+            label=MOBILITY_LABELS.get(mode, mode), 
             color=colors.get(mode),
             zorder=3
         )

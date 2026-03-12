@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from scipy.stats import norm
+import matplotlib.pyplot as plt
 
 # ============================================================
 # VALIDACIÓN (OdIN: mean + CI95) vs SIMULACIÓN (archivada)
@@ -43,6 +44,7 @@ REPLICATES_ROOT = RESULTS_DIR / "replicates" / STUDY_AREA
 
 # Patrón a los excels archivados por iteración
 SIM_REPLICATE_GLOB = str(REPLICATES_ROOT / "iter_*" / "micro" / f"{STUDY_AREA}_schedule_citizen.xlsx")
+SIM_REPLICATE_GLOB_VEH = str(REPLICATES_ROOT / "iter_*" / "micro" / f"{STUDY_AREA}_schedule_vehicle.xlsx")
 
 SEED = 42
 R_SIM_BOOT = 50            # bootstrap sobre agentes si no hay >=2 réplicas reales
@@ -130,6 +132,49 @@ def compute_target_per_agent(df_activities: pd.DataFrame, target: str) -> pd.Dat
 
     return df_agent[["agent", "archetype", "value"]].dropna()
 
+def load_vehicle_data_with_citizen_archetype(vehicle_path: str, citizen_path: str):
+
+    df_vehicle = pd.read_excel(vehicle_path, engine="openpyxl")
+    df_citizen = pd.read_excel(citizen_path, engine="openpyxl")
+
+    # Tabla de correspondencia ciudadano → arquetipo
+    citizen_arch = (
+        df_citizen[["agent", "archetype"]]
+        .drop_duplicates()
+        .rename(columns={
+            "agent": "user",
+            "archetype": "citizen_archetype"
+        })
+    )
+
+    # Añadir arquetipo ciudadano a cada uso de vehículo
+    df_vehicle = df_vehicle.merge(
+        citizen_arch,
+        on="user",
+        how="left"
+    )
+
+    # limpieza básica
+    df_vehicle["citizen_archetype"] = df_vehicle["citizen_archetype"].astype(str).str.strip()
+    df_vehicle["archetype"] = df_vehicle["archetype"].astype(str).str.strip()
+
+    return df_vehicle
+
+def get_vehicle_replicates(vehicle_glob: str, citizen_glob: str):
+
+    veh_paths = sorted(glob.glob(vehicle_glob))
+    cit_paths = sorted(glob.glob(citizen_glob))
+
+    if len(veh_paths) != len(cit_paths):
+        raise ValueError("Número distinto de réplicas citizen y vehicle")
+
+    vehicle_reps = []
+
+    for v, c in zip(veh_paths, cit_paths):
+        df = load_vehicle_data_with_citizen_archetype(v, c)
+        vehicle_reps.append(df)
+
+    return vehicle_reps
 
 def load_sim_from_excel(path: str, target: str) -> pd.DataFrame:
     df = pd.read_excel(path, engine="openpyxl")
@@ -457,6 +502,75 @@ for arch in ARCH_ORDER:
         
     rows_extra.append(arch_results)
 
+def get_vehicle_replicates(vehicle_glob, citizen_glob):
+
+    veh_paths = sorted(glob.glob(vehicle_glob))
+    cit_paths = sorted(glob.glob(citizen_glob))
+
+    reps = []
+
+    for v, c in zip(veh_paths, cit_paths):
+
+        df = load_vehicle_rep(v, c)
+        reps.append(df)
+
+    return reps
+
+def load_vehicle_rep(vehicle_path: str, citizen_path: str):
+
+    df_vehicle = pd.read_excel(vehicle_path, engine="openpyxl")
+    df_citizen = pd.read_excel(citizen_path, engine="openpyxl")
+
+    # calcular distancia diaria por usuario
+    df_vehicle_user = compute_vehicle_distance_per_user(df_vehicle)
+
+    # añadir arquetipo ciudadano
+    df_vehicle_user = add_citizen_archetype(df_vehicle_user, df_citizen)
+
+    return df_vehicle_user
+
+def add_citizen_archetype(df_vehicle_user: pd.DataFrame, df_citizen: pd.DataFrame):
+
+    citizen_arch = (
+        df_citizen[["agent", "archetype"]]
+        .drop_duplicates()
+        .rename(columns={
+            "agent": "user",
+            "archetype": "citizen_archetype"
+        })
+    )
+
+    df_vehicle_user = df_vehicle_user.merge(
+        citizen_arch,
+        on="user",
+        how="left"
+    )
+
+    df_vehicle_user["citizen_archetype"] = (
+        df_vehicle_user["citizen_archetype"]
+        .astype(str)
+        .str.strip()
+    )
+
+    return df_vehicle_user
+
+def compute_vehicle_distance_per_user(df_vehicle: pd.DataFrame):
+
+    # asegurar numéricos
+    df_vehicle["dist_real"] = pd.to_numeric(df_vehicle["dist_real"], errors="coerce")
+
+    df_user = (
+        df_vehicle.groupby(["user", "archetype"], observed=True)
+        .agg(
+            total_distance=("dist_real", "sum")
+        )
+        .reset_index()
+    )
+
+    df_user["archetype"] = df_user["archetype"].astype(str).str.strip()
+
+    return df_user
+
 df_extra_se = pd.DataFrame(rows_extra).set_index("Archetype")
 
 # Formateo para impresión
@@ -482,3 +596,173 @@ with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
     df_extra_se.to_excel(writer, sheet_name="extra_metrics_SE")
 
 print("\nGuardado:", out_xlsx.resolve())
+
+# -----------------------------
+# HISTOGRAMAS: Distribución de valores simulados por arquetipo
+# -----------------------------
+hist_dir = out_dir / "histograms"
+hist_dir.mkdir(parents=True, exist_ok=True)
+
+print("\nGenerando histogramas por arquetipo...")
+
+for arch in ARCH_ORDER:
+
+    x = concat.loc[concat["archetype"] == arch, "value"].dropna().to_numpy()
+    x = x[np.isfinite(x)]
+
+    if len(x) == 0:
+        continue
+
+    plt.figure(figsize=(6,4))
+    plt.hist(x, bins=30)
+    
+    plt.title(f"{arch} - Distribución simulada ({TARGET})")
+    plt.xlabel("Valor")
+    plt.ylabel("Frecuencia")
+
+    # Línea vertical con media simulada
+    mu_sim = np.mean(x)
+    plt.axvline(mu_sim, linestyle="--", linewidth=2, label="Media simulada")
+
+    # Línea vertical con media observada
+    mu_obs = ODIN_CI_TABLE[arch][TARGET]["mu"]
+    plt.axvline(mu_obs, linestyle=":", linewidth=2, label="Media OdIN")
+
+    plt.legend()
+
+    out_path = hist_dir / f"hist_{arch}_{TARGET}.png"
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300)
+    plt.close()
+
+    print(" - Guardado:", out_path)
+
+#---------------------------------------------------------
+
+def compute_vehicle_time_per_user(df_vehicle: pd.DataFrame):
+
+    # asegurar numéricos
+    for c in ["in", "out"]:
+        df_vehicle[c] = pd.to_numeric(df_vehicle[c], errors="coerce")
+
+    # calcular tiempo por tramo
+    df_vehicle["spended"] = df_vehicle["out"] - df_vehicle["in"]
+
+    df_vehicle.loc[
+        (df_vehicle["spended"] < 0) | (df_vehicle["spended"] > 1440),
+        "spended"
+    ] = np.nan
+
+    # sumar por usuario y arquetipo de movilidad
+    df_user = (
+        df_vehicle.groupby(["user", "archetype"], observed=True)
+        .agg(
+            suma_spended=("spended", "sum")
+        )
+        .reset_index()
+    )
+
+    # mismo cálculo que ciudadanos
+    df_user["value"] = 1440 - df_user["suma_spended"]
+
+    df_user["archetype"] = df_user["archetype"].astype(str).str.strip()
+
+    df_user.loc[
+        (df_user["value"] < 0) | (df_user["value"] > 1440),
+        "value"
+    ] = np.nan
+
+    return df_user[["user", "archetype", "value"]].dropna()
+
+def load_vehicle_rep(vehicle_path: str, citizen_path: str):
+
+    df_vehicle = pd.read_excel(vehicle_path, engine="openpyxl")
+    df_citizen = pd.read_excel(citizen_path, engine="openpyxl")
+
+    # calcular tiempo por usuario
+    df_vehicle_user = compute_vehicle_time_per_user(df_vehicle)
+
+    # tabla ciudadano → arquetipo
+    citizen_arch = (
+        df_citizen[["agent", "archetype"]]
+        .drop_duplicates()
+        .rename(columns={
+            "agent": "user",
+            "archetype": "citizen_archetype"
+        })
+    )
+
+    # merge
+    df_vehicle_user = df_vehicle_user.merge(
+        citizen_arch,
+        on="user",
+        how="left"
+    )
+
+    df_vehicle_user["citizen_archetype"] = (
+        df_vehicle_user["citizen_archetype"]
+        .astype(str)
+        .str.strip()
+    )
+
+    return df_vehicle_user
+
+vehicle_reps = get_vehicle_replicates(
+    SIM_REPLICATE_GLOB_VEH,
+    SIM_REPLICATE_GLOB
+)
+
+vehicle_concat = pd.concat(vehicle_reps, ignore_index=True)
+
+import matplotlib.pyplot as plt
+
+MOBILITY_ARCHETYPES = [
+    "UB_diesel",
+    "PC_petrol",
+    "PC_electric",
+    "walk"
+]
+
+vehicle_hist_dir = out_dir / "vehicle_histograms"
+vehicle_hist_dir.mkdir(parents=True, exist_ok=True)
+
+for arch in ARCH_ORDER:
+
+    plt.figure(figsize=(7,5))
+
+    df_arch = vehicle_concat[
+        vehicle_concat["citizen_archetype"] == arch
+    ]
+
+    for mob in MOBILITY_ARCHETYPES:
+
+        x = df_arch[
+            df_arch["archetype"] == mob
+        ]["value"].dropna().to_numpy()
+
+        x = x[np.isfinite(x)]
+
+        if len(x) == 0:
+            continue
+
+        plt.hist(
+            x,
+            bins=30,
+            alpha=0.5,
+            label=mob
+        )
+
+    plt.title(f"{arch} - Distancia diaria por movilidad")
+    plt.xlabel("Tiempo diario total de conmutación (min)")
+    plt.ylabel("Frecuencia")
+
+    plt.legend()
+
+    out_path = vehicle_hist_dir / f"vehicle_hist_time_{arch}.png"
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300)
+    plt.close()
+
+
+

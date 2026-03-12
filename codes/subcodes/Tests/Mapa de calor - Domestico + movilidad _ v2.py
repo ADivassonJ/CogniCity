@@ -53,7 +53,7 @@ DAY_NAMES_7 = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 DAY_TO_SHOW_INDEX = 2  # day 3 -> "We"
 
 MJ_TO_KWH = 1.0 / 3.6
-P_SLOW_KW = 3.7
+P_SLOW_KW = 150
 SOC_THRESHOLD = 0.50
 SOC_TARGET = 0.80
 

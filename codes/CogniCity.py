@@ -77,20 +77,11 @@ def CogniCity(population: int, study_area: str, WP3_active: bool, scenario: str 
 def main():
     # Input
 
-       
-    population = 16000
-    study_area = 'Kanaleneiland'
-
-
     WP3_active = False
-    scenario = "s2"
-
-    scenarios = ["s0"]
-          
-    population = 160
+    scenarios = ["s0", "s1", "s2", "s3", "s4"]
+    population = 100
     study_area = 'Kanaleneiland'
     
-
     for scenario in scenarios:
         CogniCity(population, study_area, WP3_active, scenario)
 
