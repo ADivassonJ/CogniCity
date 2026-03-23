@@ -79,11 +79,11 @@ out = pd.DataFrame(results).sort_values(["S", "Scenario", "File", "Archetype"]).
 cov = pd.DataFrame(coverage).sort_values(["S", "Scenario"]).reset_index(drop=True)
 
 # Guardado
-out.to_excel("summary_vehicles_todo_by_S_scenario.xlsx", index=False)
-out.to_csv("summary_vehicles_todo_by_S_scenario.csv", index=False)
+out.to_excel(os.path.join(BASE_PATH, "summary_vehicles_todo_by_S_scenario.xlsx"), index=False)
 
-cov.to_excel("coverage_files_found.xlsx", index=False)
-cov.to_csv("coverage_files_found.csv", index=False)
+
+cov.to_excel(os.path.join(BASE_PATH, "coverage_files_found.xlsx"), index=False)
+
 
 print("OK -> Generados:")
 print(" - summary_vehicles_todo_by_S_scenario.xlsx / .csv (solo donde hay datos)")

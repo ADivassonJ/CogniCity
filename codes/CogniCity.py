@@ -59,14 +59,31 @@ from subcodes.Daily_schedule_definition import Daily_schedule_definition
 from subcodes.results_clean import build_quantified_outputs_per_excel
 from subcodes.results_scenario import build_daily_total_stats_from_constructed_outputs
 
-def CogniCity(population: int, study_area: str, WP3_active: bool, scenario: str = None):
+def CogniCity(population: int, study_area: str, WP3_active: bool, scenario: str = None, days: dict = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}):
+    """
+    Orchestrates the CogniCity simulation workflow, from environment initialization 
+    to data quantification and statistical analysis.
+    
+    Args:
+        population (int): Total number of agents in the simulation.
+        study_area (str): Geographic or administrative boundary for the study.
+        WP3_active (bool): Flag to enable/disable Work Package 3 modules.
+        scenario (str, optional): Specific simulation setup or climate scenario.
+    """
+
+    # Initialize core components: file paths, management systems, and agent networks
     paths, system_management, pop_archetypes, agent_populations, networks_map = Documents_initialisation(population, study_area, scenario)
     
-    already_done = Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active)
+    # Define and execute the daily activity schedules for the agent population
+    # Returns a boolean indicating if the simulation results are already quantified and basic stats calculated
+    already_done = Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active, days)
 
+    # If quantification and basic stats need to be calculated, the following functions are called
     if not already_done:
+        # Generate quantified Excel reports from raw simulation data
         build_quantified_outputs_per_excel(paths=paths, study_area=study_area)
 
+        # Calculate all basic stats from the simulation
         build_daily_total_stats_from_constructed_outputs(
             paths=paths,
             study_area=study_area,
@@ -77,13 +94,31 @@ def CogniCity(population: int, study_area: str, WP3_active: bool, scenario: str 
 def main():
     # Input
 
-    WP3_active = False
+    WP3_active = True
     scenarios = ["s0", "s1", "s2", "s3", "s4"]
-    population = 100
-    study_area = 'Kanaleneiland'
+    study_areas = ['Annelinn', 'Aradas', 'Kanaleneiland']
+    days = {'Mo'}
+    population = 350
+
+    
+    population = 27000
+    study_area = 'Annelinn'
     
     for scenario in scenarios:
-        CogniCity(population, study_area, WP3_active, scenario)
+        CogniCity(population, study_area, WP3_active, scenario, days)
+
+    population = 10000
+    study_area = 'Aradas'
+
+    for scenario in scenarios:
+        CogniCity(population, study_area, WP3_active, scenario, days)
+
+    population = 16000
+    study_area = 'Kanaleneiland'
+
+    for scenario in scenarios:
+        CogniCity(population, study_area, WP3_active, scenario, days)
+    
 
 
 if __name__ == '__main__':

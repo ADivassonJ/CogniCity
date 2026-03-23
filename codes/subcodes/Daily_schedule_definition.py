@@ -98,13 +98,9 @@ def check_current_data(study_area, days, paths):
     
     return files_done, days_missing, False
 
-def Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active):
+def Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active, days):
     
     print('#'*20, ' System running ','#'*20)
-
-    days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
-
-    days = {'Mo'}
     
     files_done, days_missing, already_done = check_current_data(study_area, days, paths)
 
@@ -213,4 +209,4 @@ if __name__ == '__main__':
 
     WP3_active = False
     
-    Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active)
+    Daily_schedule_definition(study_area, paths, system_management, pop_archetypes, networks_map, agent_populations, WP3_active, {'Mo'})

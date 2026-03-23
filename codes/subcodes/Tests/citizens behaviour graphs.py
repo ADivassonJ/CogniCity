@@ -88,226 +88,147 @@ colores_kanaleneiland = ["#000000", "#134f5c", "#45818e", "#a2c4c9", "#d0e0e3"]
 colores_zonas = ["#741b47", "#bf9000", "#134f5c"]
 
 
+import os
+import pandas as pd
 
-# ----- Electricity consumption -----
-valores = np.array([
-    [2.470,  .554,  4.187],
-    [2.011,  .654,  3.080],
-    [12.035, 4.492, 21.182],
-    [12.469, 4.850, 18.604],
-    [9.901,  4.185, 14.355]
-])
+BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
 
-barras_error = [0.0074716, 0.0085729, 0.0066398]  # 0.75%, 0.86%, 0.66%
-crear_grafico_lineas_zonas(valores, colores_zonas, "Comparison of electricity consumption.pdf", "Consumption [MWh/day]", barras_error)
+S_FOLDERS = [f"s{i}" for i in range(5)]
+SCENARIOS = ["Annelinn", "Aradas", "Kanaleneiland"]
 
-# ----- Comparison of energy consumption -----
-valores = np.array([
-    [81.842, 2187.576, 6722.996],
-    [80.989, 2162.827, 6776.578],
-    [51.419, 1034.812, 3250.047],
-    [25.523, 512.043, 1803.410],
-    [9.500, 231.487, 620.112]
-])
+citizen_metrics = {}
+vehicle_metrics = {}
 
-barras_error = [0.0355799, 0.0375963, 0.0324568]  # 0.75%, 0.86%, 0.66%
-crear_grafico_lineas_zonas(valores, colores_zonas, "Comparison of energy consumption.pdf", "Consumption [MWh/day]", barras_error, True)
+for s in S_FOLDERS:
+    for scen in SCENARIOS:
 
+        excel_file = os.path.join(
+            BASE_PATH,
+            s,
+            scen,
+            f"{scen}_daily_total_stats_inferred_24.xlsx"
+        )
 
-# ----- CO2 emission -----
-valores = np.array([
-    [19.573716, 7.874719, 24.198599],
-    [19.486697, 7.785523, 24.392602],
-    [8.711785, 3.720833, 11.678988],
-    [4.196039, 1.838503, 6.473673],
-    [2.872845, .829166, 2.218048]
-])
+        if not os.path.exists(excel_file):
+            continue
 
-barras_error = [0.0355799, 0.0375963, 0.0324568]  # 0.75%, 0.86%, 0.66%
-crear_grafico_lineas_zonas(valores, colores_zonas, "CO2 emission.pdf", "CO2 emission [tons/day]", barras_error)
+        # -------- CITIZENS --------
+        df_cit = pd.read_excel(excel_file, sheet_name="cit_by_archetype", decimal=",")
 
+        df_cit = df_cit[df_cit["archetype"].str.startswith("c_arch")]
+        df_cit = df_cit.sort_values("archetype")
 
+        citizen_metrics[(s, scen)] = {
+            "walk": df_cit["walk_time__mean"].values,
+            "travel": df_cit["travel_time__mean"].values,
+            "cost": df_cit["cost__mean"].values,
+            "co2": df_cit["emissions__mean"].values,
+        }
 
+        # -------- VEHICLES --------
+        df_veh = pd.read_excel(excel_file, sheet_name="veh_by_archetype", decimal=",")
 
+        df_veh = df_veh[df_veh["archetype"].str.startswith("PC")]
+        df_veh = df_veh.sort_values("archetype")
 
-# ----- ann_walk -----
-valores = np.array([
-    [0, 0.00000, 0.00000, 0.00000, 0.00000],
-    [0.045104, 0.08949, 0.32661, 1.02491, 6.68060],
-    [37.04237, 38.11252, 37.59464, 43.58866, 48.49672],
-    [18.12158, 17.75333, 28.89758, 35.39679, 40.97440],
-    [0.014625, 0.00000, 0.02217, 0.23955, 1.48025]
-])
+        df_veh = pd.read_excel(excel_file, sheet_name="veh_by_archetype", decimal=",")
 
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100
+        df_veh = df_veh[df_veh["archetype"].str.startswith("PC")]
+        df_veh = df_veh.sort_values("archetype")
 
-crear_grafico(valores, colores_annelin, "ann_walk.pdf", "Walk time [min]", errores_pct)
+        total_mjkm = df_veh["mjkm__sum"].sum()
+        total_co2 = df_veh["emissions__sum"].sum()
 
-# ----- ann_mot_tra -----
-valores = np.array([
-    [77.96014, 78.06, 76.07, 72.71, 68.04],
-    [75.51887, 75.86, 73.67, 70.96, 66.60],
-    [34.29097, 33.93, 33.48, 31.38, 29.32],
-    [39.3689, 39.46, 38.12, 37.36, 35.54],
-    [73.10321, 73.41, 71.46, 69.89, 63.09]
-])
+        electric_mjkm = df_veh.loc[
+            df_veh["archetype"] == "PC_electric",
+            "mjkm__sum"
+        ].sum()
 
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100
+        vehicle_metrics[(s, scen)] = {
+            "mjkm_sum": total_mjkm,
+            "co2_sum": total_co2,
+            "electric_mjkm_sum": electric_mjkm
+        }
 
-crear_grafico(valores, colores_annelin, "ann_mot_tra.pdf", "travel time [min]",errores_pct)
+print("✔ Data loaded automatically")
 
-# ----- ann_costs -----
-valores = np.array([
-    [16.90821, 18.85, 12.38, 9.71, 0.50],
-    [13.39092, 16.51, 10.58, 8.31, 0.74],
-    [9.185368, 9.14, 6.50, 5.02, 0.00],
-    [8.964833, 9.80, 6.54, 5.08, 0.21],
-    [16.81137, 18.22, 12.79, 10.00, 0.17]
-])
+# ==========================================
+# AUTO-GENERADOR DE TODOS LOS GRÁFICOS
+# ==========================================
 
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.3591/14.6398, 0.3462/9.3833, 0.3195/8.0798, 0.4210/6.6147, 0.2966/14.7502])
+metric_map = {
+    "walk": ("walk_time__mean", "Walk time [min]"),
+    "travel": ("travel_time__mean", "Travel time [min]"),
+    "cost": ("cost__mean", "Cost [€]"),
+    "co2": ("emissions__mean", "CO2 emission [kg/day]"),
+}
 
-crear_grafico(valores, colores_annelin, "ann_costs.pdf", "cost [€]", errores_pct)
+zone_colors = {
+    "Annelinn": colores_annelin,
+    "Aradas": colores_aradas,
+    "Kanaleneiland": colores_kanaleneiland,
+}
 
-# ----- ann_CO2 -----
-valores = np.array([
-    [2.702056, 2.716919, 1.508877, .921628, .55018],
-    [3.560383, 3.564637, 1.790105, 1.025214, .5673612],
-    [.5545351, .5497063, .3825624, .2963819, .2210887],
-    [1.251956, 1.264421, .610722, .430941, .278881],
-    [2.090307, 2.015528, 1.106727, .8244485, .5012588]
-])
+# -----------------------------
+# 1️⃣ GRÁFICOS POR ZONA (barras)
+# -----------------------------
 
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([32.7956/628.7314, 30.9171/627.9426, 6.1525/150.4788, 33.9092/285.6389, 28.8523/550.7885])
+for zone in SCENARIOS:
 
-crear_grafico(valores, colores_annelin, "ann_co2.pdf", "CO2 emission [kg/day]", errores_pct)
+    for metric_key, (metric_col, ylabel) in metric_map.items():
 
+        valores = np.array([
+            citizen_metrics[(s, zone)][metric_key]
+            for s in S_FOLDERS
+        ]).T
 
+        errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100
 
+        nombre_pdf = f"{zone.lower()}_{metric_key}.pdf"
 
+        crear_grafico(
+            valores,
+            zone_colors[zone],
+            nombre_pdf,
+            ylabel,
+            errores_pct
+        )
 
-# ----- ara_walk -----
-valores = np.array([
-    [29.21234328, 28.65, 44.75, 51.36, 58.74],
-    [37.10882631, 38.05, 58.00, 68.41, 77.35],
-    [22.23559607, 21.59, 21.26, 21.18, 20.62],
-    [21.53454413, 20.75, 35.12, 42.51, 48.80],
-    [24.32974087, 23.60, 35.78, 42.67, 49.82]
-])
-
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100  
-
-crear_grafico(valores, colores_aradas, "ara_walk.pdf", "Walk time [min]", errores_pct)
-
-# ----- ara_mot_tra -----
-valores = np.array([
-    [10.50748818, 10.13, 10.00, 8.92, 8.16],
-    [13.14897464, 13.39, 12.56, 11.60, 10.51],
-    [20.29476374, 20.47, 19.58, 18.52, 17.63],
-    [7.980279056, 7.95, 7.41, 7.05, 6.54],
-    [11.05150289, 11.22, 9.96, 10.21, 8.75]
-])
-
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100  
-
-crear_grafico(valores, colores_aradas, "ara_mot_tra.pdf", "travel time [min]", errores_pct)
-
-# ----- ara_costs -----
-valores = np.array([
-    [0.719665383, 0.72, 0.79, 0.59, 0.22],
-    [0.877984406, 0.97, 0.90, 0.77, 0.25],
-    [5.505995704, 5.48, 3.81, 2.91, 0.00],
-    [0.596547572, 0.55, 0.59, 0.47, 0.16],
-    [1.141327725, 1.24, 1.01, 0.89, 0.19]
-])
-
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.3591/14.6398, 0.3462/9.3833, 0.3195/8.0798, 0.4210/6.6147, 0.2966/14.7502])
-
-crear_grafico(valores, colores_aradas, "ara_costs.pdf", "cost [€]", errores_pct)
-
-# ----- ara_CO2 -----
-valores = np.array([
-    [0.893645077, 0.8590180637, 0.4434137054, 0.2073958369, 0.09469305483],
-    [1.148427751, 1.149562875, 0.5472967791, 0.2741389721, 0.1315315162],
-    [0.3260568771, 0.3278727702, 0.22641328, 0.1797884082, 0.1271973555],
-    [0.700836151, 0.6955659075, 0.3247988226, 0.1681129778, 0.07645254694],
-    [0.7983543778, 0.812821233, 0.3425290476, 0.209480296, 0.08780061338]
-])
-
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([32.7956/628.7314, 30.9171/627.9426, 6.1525/150.4788, 33.9092/285.6389, 28.8523/550.7885])
-
-crear_grafico(valores, colores_aradas, "ara_co2.pdf", "CO2 emission [kg/day]", errores_pct)
+        print(f"✔ Generated {nombre_pdf}")
 
 
+# -----------------------------
+# 2️⃣ GRÁFICOS COMPARATIVOS POR ZONA (líneas)
+# -----------------------------
 
+comparative_metrics = {
+    "mjkm_sum": ("Total energy consumption [MWh/day]", False),
+    "electric_mjkm_sum": ("EV consumption [MWh/day]", False),
+    "co2_sum": ("CO2 emission [tons/day]", False),
+}
 
+for metric_key, (ylabel, log_scale) in comparative_metrics.items():
 
+    valores = np.array([
+        [
+            vehicle_metrics[(s, "Annelinn")][metric_key],
+            vehicle_metrics[(s, "Aradas")][metric_key],
+            vehicle_metrics[(s, "Kanaleneiland")][metric_key],
+        ]
+        for s in S_FOLDERS
+    ])
 
+    barras_error = [0.0075, 0.0086, 0.0066]  # puedes parametrizar si quieres
 
-# ----- kan_walk -----
-valores = np.array([
-    [0.007936, 0.03, 0.00, 0.01, 2.91],
-    [15.24873, 14.23, 18.12, 21.65, 62.59],
-    [50.68499, 52.18, 52.15, 49.58, 64.99],
-    [51.04167, 48.74, 52.09, 55.55, 46.74],
-    [2.014273, 1.42, 1.94, 1.69, 10.14]
-])
+    nombre_pdf = f"comparison_{metric_key}.pdf"
 
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100  
+    crear_grafico_lineas_zonas(
+        valores,
+        colores_zonas,
+        nombre_pdf,
+        ylabel,
+        barras_error,
+        logaritmic=log_scale
+    )
 
-crear_grafico(valores, colores_kanaleneiland, "kan_walk.pdf", "Walk time [min]", errores_pct)
-
-# ----- kan_mot_tra -----
-valores = np.array([
-    [77.96014, 78.06, 76.07, 72.71, 68.04],
-    [75.51887, 75.86, 73.67, 70.96, 66.60],
-    [34.29097, 33.93, 33.48, 31.38, 29.32],
-    [39.3689, 39.46, 38.12, 37.36, 35.54],
-    [73.10321, 73.41, 71.46, 69.89, 63.09]
-])
-
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100  
-
-crear_grafico(valores, colores_kanaleneiland, "kan_mot_tra.pdf", "travel time [min]", errores_pct)
-
-# ----- kan_costs -----
-valores = np.array([
-    [16.90821, 18.85, 12.38, 9.71, 0.50],
-    [13.39092, 16.51, 10.58, 8.31, 0.74],
-    [9.185368, 9.14, 6.50, 5.02, 0.00],
-    [8.964833, 9.80, 6.54, 5.08, 0.21],
-    [16.81137, 18.22, 12.79, 10.00, 0.17]
-])
-
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([0.3591/14.6398, 0.3462/9.3833, 0.3195/8.0798, 0.4210/6.6147, 0.2966/14.7502])
-
-crear_grafico(valores, colores_kanaleneiland, "kan_costs.pdf", "cost [€]", errores_pct)
-
-# ----- kan_CO2 -----
-valores = np.array([
-    [2.592864, 2.597628, 1.472764, 0.9879613, 0.564957773],
-    [3.526475, 3.555813, 1.931369, 1.155861, 0.5898487978],
-    [0.490608, 0.478368, 0.3645678, 0.2822337, 0.1848069646],
-    [1.072849, 1.090605, 0.6373819, 0.4398749, 0.2794700617],
-    [2.088417, 2.057353, 1.19371, 0.910399, 0.4908111899]
-])
-
-# Error porcentual por arquetipo (convertido a decimal)
-errores_pct = np.array([32.7956/628.7314, 30.9171/627.9426, 6.1525/150.4788, 33.9092/285.6389, 28.8523/550.7885])
-
-crear_grafico(valores, colores_kanaleneiland, "kan_co2.pdf", "CO2 emission [kg/day]", errores_pct)
-
-
-
-
+    print(f"✔ Generated {nombre_pdf}")

@@ -2308,10 +2308,15 @@ def paths_initialization(study_area, scenario):
 
 
 
-def Documents_initialisation(population, study_area, scenario):
-    print('#'*20, ' System initialization ','#'*20)
+def Documents_initialisation(population: int, study_area: str, scenario: str):
+    """
+    Coordinates the initialization of all required data structures, 
+    geodata, and synthetic populations for the simulation.
+    """
+
+    print(f"{'#'*20} System Initialization {'#'*20}")
     
-    # Diccionario con coordenadas de los territorios especiales
+    # Define spatial coordinates for specific study regions
     special_areas_coords = {
         "Aradas": [ (40.6260277,-8.6691095),
                     (40.6242125,-8.666836),
@@ -2585,22 +2590,27 @@ def Documents_initialisation(population, study_area, scenario):
                      ],
     }
     
+    # Mapping of districts to their respective cities/regions
     city_district = {
         "Aradas": "Aveiro",
         "Kanaleneiland": "Utrecht",
         "Annelinn": "Tartu",
     }
     
-    # Paths initialization
+    # 1. Path & System Management Setup
+    # Initializes directory structures and configuration handlers
     paths, system_management = paths_initialization(study_area, scenario)
     
-    # Archetype documentation initialization
+    # 2. Archetype Documentation
+    # Loads and structures demographic and behavioral archetypes
     pop_archetypes, stats = Archetype_documentation_initialization(paths)
     
-    # Geodata initialization
+    # 3. Geodata & Network Infrastructure
+    # Processes spatial data and builds the physical network maps
     agent_populations, networks_map = Geodata_initialization(study_area, paths, pop_archetypes, special_areas_coords, city_district)
     
-    # Synthetic population initialization
+    # 4. Synthetic Population Generation
+    # Generates the virtual agents based on statistical distributions and geodata
     agent_populations = Synthetic_population_initialization(agent_populations, pop_archetypes, population, stats, paths, study_area, special_areas_coords, city_district)
     
     print('#'*20, ' Initialization finalized ','#'*20)
