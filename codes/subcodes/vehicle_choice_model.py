@@ -106,14 +106,13 @@ def _process_family(
             continue #ISSUE 
 
         ####################################################
-        # Aqui es donde debemos meter el modelo de Qiaochu #
+        #    This is where we need to insert WP3’s model   #
         ####################################################
         '''
-        Basicamente, su modelo, mira el transporte actual y evalua la probabilidad de que cambie del que tenia a 
-        uno más V2G-related. Por lo tanto, y a menos de que me exprese alguna modificacion. Habría que añadir su
-        modulo aqui y considerar el current_transport como el actual y evaluar si cambia o no.
-        
-        Parece que no se concibe la opcion de que el current sea V2G, por lo que
+        Basically, their model looks at the current transport and assesses the likelihood of it changing from 
+        the existing one to a more V2G-related one. Therefore, unless I specify any changes, we would need to 
+        add their module here and treat `current_transport` as the current one, then assess whether or not it 
+        changes.
         
         '''  
 
