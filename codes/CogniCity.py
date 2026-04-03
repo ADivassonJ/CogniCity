@@ -97,28 +97,27 @@ def main():
     WP3_active = True
     scenarios = ["s0", "s1", "s2", "s3", "s4"]
     study_areas = ['Annelinn', 'Aradas', 'Kanaleneiland']
-    days = {'Mo'}
-    population = 350
+    days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
+    reduction = 20
 
-    
-    population = 27000
+    population = 27000//reduction
     study_area = 'Annelinn'
-    
+
     for scenario in scenarios:
         CogniCity(population, study_area, WP3_active, scenario, days)
 
-    population = 10000
+    population = 10000//reduction
     study_area = 'Aradas'
 
     for scenario in scenarios:
         CogniCity(population, study_area, WP3_active, scenario, days)
 
-    population = 16000
+    population = 16000//reduction
     study_area = 'Kanaleneiland'
 
     for scenario in scenarios:
         CogniCity(population, study_area, WP3_active, scenario, days)
-    
+
 
 
 if __name__ == '__main__':

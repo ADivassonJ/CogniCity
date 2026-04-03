@@ -2099,11 +2099,14 @@ def Utilities_assignment(
             # Caso fijo por familia
             if citizens_arr.at[idx, 'WoS_fixed'] == 1:
                 fam = citizens_arr.at[idx, 'family']
-                fam_fixed = citizens_arr[
-                    (citizens_arr['family'] == fam) &
-                    (citizens_arr['WoS_fixed'] == 1) &
-                    (citizens_arr['WoS'].notna())
-                ]
+                try:
+                    fam_fixed = citizens_arr[
+                        (citizens_arr['family'] == fam) &
+                        (citizens_arr['WoS_fixed'] == 1) &
+                        (citizens_arr['WoS'].notna())
+                    ]
+                except Exception:
+                    fam_fixed = pd.DataFrame()
                 if not fam_fixed.empty:
                     WoS_id = fam_fixed['WoS'].iloc[0]
             
@@ -2182,7 +2185,7 @@ def Utilities_assignment(
                                     only_inside_district)
 
     df_citizens = assign_family_attributes(df_citizens, df_families)
-   
+
     centroid = calculate_centroid(special_areas_coords[study_area])
     
     work_df = SG_relationship.loc[SG_relationship['archetype'].isin(['Salariat', 'Intermediate', 'Working']), ['archetype', 'osm_id', 'lat', 'lon']].copy()

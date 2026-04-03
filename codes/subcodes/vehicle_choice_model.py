@@ -116,14 +116,8 @@ def _process_family(
         
         '''  
 
-        file_path = os.path.join(paths['new_POIs'], 'share_mob_hubs.xlsx')
-        if os.path.exists(file_path):
-            df = pd.read_excel(file_path)
-            choices3 = not df.empty
-        else:
-            choices3 = False
         
-        decision, plug_in, transport, _ = WP3_parameters_simplified(paths, study_area, pop_archetypes, agent_populations, avail_vehicles, best_transport_distime_matrix, citizen_schedule, vehicle_schedule, choices3)
+        decision, plug_in, transport, _ = WP3_parameters_simplified(paths, study_area, pop_archetypes, agent_populations, avail_vehicles, best_transport_distime_matrix, citizen_schedule, vehicle_schedule)
 
         #este distime_matrix tiene un fallo en trip, solo sale un osmid y deberia ser (x, y)
 
@@ -192,7 +186,8 @@ def _process_family(
             'in': 0,
             'out': 24*60,
             'user': None,
-            'ETC [kWh]': 0,
+            'TEA [MJ]': 0,
+            'TEA [kWh]': 0,
             'dist_real': None,
             'plugged': False,
         }     
@@ -233,6 +228,8 @@ def vehicle_choice_model(
     citizen_schedules = []
     vehicle_schedules = []      
     
+
+
     '''for fam_tuple in tqdm(families, desc=f"/secuential/ Transport Choice Modelling ({day})"):
         fam_schedule, fam_actions= _process_family(fam_tuple,
                                                    paths,
@@ -246,7 +243,11 @@ def vehicle_choice_model(
             citizen_schedules.extend(fam_schedule)
         if fam_actions is not None and fam_actions != []:
             vehicle_schedules.extend(fam_actions)'''
-        
+
+
+
+
+
     worker = partial(
         _process_family,
         paths=paths,
@@ -273,6 +274,7 @@ def vehicle_choice_model(
                     vehicle_schedules.extend(fam_actions)
             except Exception as e:
                 print(f"[ERROR] familia '{fam_name}': {e}")
+    
 
     # --- Agregación en el proceso principal ---
     df_citizen_schedules = pd.DataFrame(citizen_schedules)
@@ -476,9 +478,23 @@ def create_vehicles_actions(citizen_schedule_old, best_transport_distime_matrix)
 
     for idx, row in enumerate(simple_schedule):
         if idx == 0:
-            row['ETC [kWh]'] = 0
+            row['TEA [MJ]'] = 0
+            row['TEA [kWh]'] = 0
+        else:
+            row['TEA [MJ]'] = best_transport_distime_matrix[idx-1]['mjkm'] + simple_schedule[idx-1]['TEA [MJ]']
+            row['TEA [kWh]'] = best_transport_distime_matrix[idx-1]['mjkm']/3.6 + simple_schedule[idx-1]['TEA [kWh]']
+
+        if "virtual" in best_transport_distime_matrix[0]['trip'][1]:
             continue
-        row['ETC [kWh]'] = best_transport_distime_matrix[idx-1]['mjkm'] + simple_schedule[idx-1]['ETC [kWh]']
+
+        if best_transport_distime_matrix[0]['archetype'] != 'walk': # ISSUE 71 esto deberia ser P1 y P2 0
+            if idx == len(simple_schedule) - 1:
+                try:
+                    row['osm_id'] = best_transport_distime_matrix[idx-1]['complete_trip'][2][0]
+                except Exception:
+                    row['osm_id'] = best_transport_distime_matrix[0]['complete_trip'][0][1]
+            else:
+                row['osm_id'] = best_transport_distime_matrix[idx]['complete_trip'][0][1]
 
     return simple_schedule
     
@@ -530,7 +546,7 @@ def schedule_simplification(citizen_schedule):
     return sorted(simple_schedule, key=lambda x: x['trip'])
 
 def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict, agent_populations: dict, avail_vehicles: list, current_transport: list, 
-                              citizen_schedule: list, vehicle_schedule: list, choices3: bool=True):
+                              citizen_schedule: list, vehicle_schedule: list):
     def Mode_choice(choices3: bool, study_area: str,
                     IS_Gaso: bool, IS_EV: bool, IS_PT: bool, IS_Bike: bool,
                     EV_OWNERSHIP: bool, CAR_OWNERSHIP: bool,
@@ -539,7 +555,7 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
                     COST: float, COST_EV2G: float, COST_CSV2G: float, 
                     WALK_TIME: float, WALK_TIME_EV2G: float, WALKING_TIME_CV2G: float, 
                     TRAVEL_TIME: float, TRAVEL_TIME_EV2G: float, TRAVEL_TIME_CSV2G: float,
-                    WAIT_TIME: float=20.5, PARK_COST: float=0, SOC_PEV: float=0,
+                    WAIT_TIME: float=0, PARK_COST: float=0, SOC_PEV: float=0,
                     PARK_SEARCH_TIME_EV2G: float=0, BATTERY_CSV2G: float=70, BATTERY_EV2G: float=70):
 
         # Leemos el excel
@@ -552,8 +568,8 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
         ASC_CSV2G_EVUser = df.loc[df["Parameter"] == "ASC_CSV2G_EVUser", "Value"].squeeze() if "ASC_CSV2G_EVUser" in df["Parameter"].values else 0
         ASC_CSV2G_GasoUser = df.loc[df["Parameter"] == "ASC_CSV2G_GasoUser", "Value"].squeeze() if "ASC_CSV2G_GasoUser" in df["Parameter"].values else 0
         ASC_CSV2G_PTUser = df.loc[df["Parameter"] == "ASC_CSV2G_PTUser", "Value"].squeeze() if "ASC_CSV2G_PTUser" in df["Parameter"].values else 0
-        ASC_EV2G_BikeUser = df.loc[df["Parameter"] == "ASC_EV2G_BikeUser", "Value"].squeeze() if "ASC_EV2G_BikeUser" in df["Parameter"].values else 0
         ASC_EV2G_EVUser = df.loc[df["Parameter"] == "ASC_EV2G_EVUser", "Value"].squeeze() if "ASC_EV2G_EVUser" in df["Parameter"].values else 0
+        ASC_EV2G_BikeUser = df.loc[df["Parameter"] == "ASC_EV2G_BikeUser", "Value"].squeeze() if "ASC_EV2G_BikeUser" in df["Parameter"].values else 0
         ASC_EV2G_GasoUser = df.loc[df["Parameter"] == "ASC_EV2G_GasoUser", "Value"].squeeze() if "ASC_EV2G_GasoUser" in df["Parameter"].values else 0
         ASC_EV2G_PTUser = df.loc[df["Parameter"] == "ASC_EV2G_PTUser", "Value"].squeeze() if "ASC_EV2G_PTUser" in df["Parameter"].values else 0
         B_AGE_CSV2G = df.loc[df["Parameter"] == "B_AGE_CSV2G", "Value"].squeeze() if "B_AGE_CSV2G" in df["Parameter"].values else 0
@@ -586,6 +602,8 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
         B_HAVING_KIDS_V2G = df.loc[df["Parameter"] == "B_HAVING_KIDS_V2G", "Value"].squeeze() if "B_HAVING_KIDS_V2G" in df["Parameter"].values else 0
         B_AGE_V2G = df.loc[df["Parameter"] == "B_AGE_V2G", "Value"].squeeze() if "B_AGE_V2G" in df["Parameter"].values else 0
 
+
+
         V1 = (
             B_Cost_all * COST +
             B_Parkcost_GasoEV * PARK_COST * IS_Gaso +
@@ -596,13 +614,24 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
             B_WaitTime_PT * WAIT_TIME * IS_PT +
             B_SOC_PEV * SOC_PEV * IS_EV
         )
-
+        
+        '''print(f"V1 = (")
+        print(f"{B_Cost_all} * {COST} +")
+        print(f"{B_Parkcost_GasoEV} * {PARK_COST} * {IS_Gaso} +")
+        print(f"{B_Parkcost_GasoEV} * {PARK_COST} * {IS_EV} +")
+        print(f"{B_TravelTime_PTBike} * {TRAVEL_TIME} * {IS_PT} +")
+        print(f"{B_TravelTime_PTBike} * {TRAVEL_TIME} * {IS_Bike} +")
+        print(f"{B_WalkTime_all} * {WALK_TIME} +")
+        print(f"{B_WaitTime_PT} * {WAIT_TIME} * {IS_PT} +")
+        print(f"{B_SOC_PEV} * {SOC_PEV} * {IS_EV}")
+        print(f")")'''
+        
         if choices3:
             V2 = (
                 # Todos igual
                 ASC_EV2G_PTUser * IS_PT +
-                ASC_EV2G_GasoEVUser * IS_EV +
-                ASC_EV2G_GasoEVUser * IS_Gaso +
+                ASC_EV2G_EVUser * IS_EV +
+                ASC_EV2G_GasoUser * IS_Gaso +
                 ASC_EV2G_BikeUser * IS_Bike +
                 B_Cost_all * COST_EV2G +
                 B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_EV2G * IS_PT +
@@ -612,6 +641,31 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
                 B_AGE_EV2G * AGE
             )
 
+            V2 += (
+                    B_EV_OWNERSHIP_EV2G * EV_OWNERSHIP +
+                    B_HAVING_KIDS_V2G * HAVING_KIDS
+                )
+            
+            '''print(f"V2 = (")
+            print(f"# Todos igual")
+            print(f"{ASC_EV2G_PTUser} * {IS_PT} +")
+            print(f"{ASC_EV2G_EVUser} * {IS_EV} +")
+            print(f"{ASC_EV2G_GasoUser} * {IS_Gaso} +")
+            print(f"{ASC_EV2G_BikeUser} * {IS_Bike} +")
+            print(f"{B_Cost_all} * {COST_EV2G} +")
+            print(f"{B_TravelTime_V2G_PTBikeUser} * {TRAVEL_TIME_EV2G} * {IS_PT} +")
+            print(f"{B_TravelTime_V2G_PTBikeUser} * {TRAVEL_TIME_EV2G} * {IS_Bike} +")
+            print(f"{B_WalkTime_all} * {WALK_TIME_EV2G} + ")
+            print(f"{B_ParkSearchTime_EV2G_all} * {PARK_SEARCH_TIME_EV2G} +")
+            print(f"{B_AGE_EV2G} * {AGE}")
+            print(f")")
+
+            print(f"{V2} += (")
+            print(f"{B_EV_OWNERSHIP_EV2G} * {EV_OWNERSHIP} +")
+            print(f"{B_HAVING_KIDS_V2G} * {HAVING_KIDS}")
+            print(f")")'''
+
+            '''
             if study_area == "Aradas":
                 V2 += B_Battery_V2G_allUser * BATTERY_EV2G
 
@@ -628,20 +682,46 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
                     B_EV_OWNERSHIP_EV2G * EV_OWNERSHIP +
                     B_HAVING_KIDS_V2G * HAVING_KIDS
                 )
+            '''
         else:
             V2 = 0
+            '''print(f"V2 = 0")'''
 
         V3 = (
             ASC_CSV2G_PTUser*IS_PT +
-            ASC_CSV2G_GasoEVUser*IS_Gaso +
-            ASC_CSV2G_GasoEVUser*IS_EV +
+            ASC_CSV2G_GasoUser*IS_Gaso +
+            ASC_CSV2G_EVUser*IS_EV +
             ASC_CSV2G_BikeUser*IS_Bike +
             B_Cost_all * COST_CSV2G  +
             B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_CSV2G * IS_PT +
             B_TravelTime_V2G_PTBikeUser * TRAVEL_TIME_CSV2G * IS_Bike +
             B_WalkTime_all * WALKING_TIME_CV2G
         )
+
+        V3 += (
+                B_EV_OWNERSHIP_CSV2G * EV_OWNERSHIP +
+                B_HAVING_KIDS_V2G * HAVING_KIDS +
+                B_INCOME_LOW_CSV2G * 1 if INCOME == "Working" else 0
+            )
         
+        '''print(f"V3 = (")
+        print(f"{ASC_CSV2G_PTUser}*{IS_PT} +")
+        print(f"{ASC_CSV2G_GasoUser}*{IS_Gaso} +")
+        print(f"{ASC_CSV2G_EVUser}*{IS_EV} +")
+        print(f"{ASC_CSV2G_BikeUser}*{IS_Bike} +")
+        print(f"{B_Cost_all} * {COST_CSV2G}  +")
+        print(f"{B_TravelTime_V2G_PTBikeUser} * {TRAVEL_TIME_CSV2G} * {IS_PT} +")
+        print(f"{B_TravelTime_V2G_PTBikeUser} * {TRAVEL_TIME_CSV2G} * {IS_Bike} +")
+        print(f"{B_WalkTime_all} * {WALKING_TIME_CV2G}")
+        print(f")")
+
+        print(f"{V3} += (")
+        print(f"{B_EV_OWNERSHIP_CSV2G} * {EV_OWNERSHIP} +")
+        print(f"{B_HAVING_KIDS_V2G} * {HAVING_KIDS} +")
+        print(f"{B_INCOME_LOW_CSV2G} * 1 if {INCOME} == 'Working' else 0")
+        print(f")")'''
+        
+        '''
         if study_area == "Aradas":
             # Aradas choices3 and choices2
             V3 += (
@@ -669,6 +749,7 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
                 B_HAVING_KIDS_V2G * HAVING_KIDS +
                 B_INCOME_LOW_CSV2G * 1 if INCOME == "Working" else 0
             )
+        '''
 
         #print(f"Utility for choosing the current mode: {V1:.3f}")
         #print(f"Utility for choosing private EV with V2G: {V2:.3f}")
@@ -686,6 +767,39 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
         modes = ["P_1", "P_2", "P_3"]
 
         chosen_mode = random.choices(modes, weights=[P_1, P_2, P_3], k=1)[0]
+
+        '''print(f"V1 = (")
+        print(f"{B_SOC_PEV} * {SOC_PEV} * {IS_EV}")
+        print(f")")
+
+        print(f"V2 = (")
+        print(f"# Todos igual")
+        print(f"{ASC_EV2G_PTUser} * {IS_PT} +")
+        print(f"{ASC_EV2G_EVUser} * {IS_EV} +")
+        print(f"{ASC_EV2G_GasoUser} * {IS_Gaso} +")
+        print(f"{ASC_EV2G_BikeUser} * {IS_Bike} +")
+        print(f"{B_AGE_EV2G} * {AGE}")
+        print(f"{B_EV_OWNERSHIP_EV2G} * {EV_OWNERSHIP} +")
+        print(f"{B_HAVING_KIDS_V2G} * {HAVING_KIDS}")
+        print(f")")
+        
+        print(f"V3 = (")
+        print(f"{ASC_CSV2G_PTUser}*{IS_PT} +")
+        print(f"{ASC_CSV2G_GasoUser}*{IS_Gaso} +")
+        print(f"{ASC_CSV2G_EVUser}*{IS_EV} +")
+        print(f"{ASC_CSV2G_BikeUser}*{IS_Bike} +")
+
+        print(f"{B_EV_OWNERSHIP_CSV2G} * {EV_OWNERSHIP} +")
+        print(f"{B_HAVING_KIDS_V2G} * {HAVING_KIDS} +")
+        print(f"{B_INCOME_LOW_CSV2G} * 1 if {INCOME} == 'Working' else 0")
+        print(f")")
+
+        print(f"B_Cost_all:\t\t\t{B_Cost_all}:\t\t{COST},\t\t{COST_EV2G},\t\t{COST_CSV2G}")
+        print(f"B_TravelTime_PTBike:\t\t{B_TravelTime_PTBike}:\t\t{TRAVEL_TIME},\t\t-,\t\t-")
+        print(f"B_TravelTime_V2G_PTBikeUser:\t{B_TravelTime_V2G_PTBikeUser}:\t\t-,\t\t\t\t{TRAVEL_TIME_EV2G},\t\t{TRAVEL_TIME_CSV2G}")
+        print(f"B_WalkTime_all:\t\t\t{B_WalkTime_all}:\t\t{WALK_TIME},\t\t{WALK_TIME_EV2G},\t\t{WALKING_TIME_CV2G}")
+
+        input(f"V1: {V1}, V2: {V2}, V3: {V3}\nP_1: {P_1}, P_2: {P_2}, P_3: {P_3}\nchosen_mode: {chosen_mode}")'''
         
         return chosen_mode
 
@@ -806,7 +920,7 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
         ubication = closest_share_mob_hubs(home_lat, home_lon, hubs)
 
         virtual_EV = {
-            'name':         f'virtual_vehicle_{citizen_data['name']}',
+            'name':         f'virtual_vehicle_({'CSEV' if CSEV else 'EV2G'})_{citizen_data['name']}',
             'archetype':    archetype,
             'family':       '-',
             'ubication':    ubication
@@ -842,6 +956,12 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
         TRAVEL_TIME = distime_matrix['travel_time']
         WALK_TIME = distime_matrix['walk_time']
         COST = distime_matrix['cost']
+
+        # To work out the rental hours, we convert the minutes into hours and then round up
+        hours = math.ceil(TRAVEL_TIME / 60)
+
+        if CSEV:
+            COST = COST + hours*2.41 #Aqui habría que hacerlo bien, metiendo un multiplicador por escenario, pero bue
 
         return transport, TRAVEL_TIME, WALK_TIME, COST, distime_matrix    
     
@@ -921,37 +1041,61 @@ def WP3_parameters_simplified(paths: list, study_area:str, pop_archetypes: dict,
 
         networks_map = None
         
-        # 6) EV2G data
-        transport, data['TRAVEL_TIME_EV2G'], data['WALK_TIME_EV2G'], data['COST_EV2G'], distime_matrix = generate_ev_data(trip, pop_building, citizen_data, networks_map, False)
+        # 6) CSEV data
+        CSEV_transport, data['TRAVEL_TIME_CSV2G'], data['WALKING_TIME_CV2G'], data['COST_CSV2G'], distime_matrix  = generate_ev_data(trip, pop_building, citizen_data, networks_map, True)
         
         if choices3:
-            transport, data['TRAVEL_TIME_CSV2G'], data['WALKING_TIME_CV2G'], data['COST_CSV2G'], distime_matrix  = generate_ev_data(trip, pop_building, citizen_data, networks_map, True)
+            # 6) EV2G data
+            EV2G_transport, data['TRAVEL_TIME_EV2G'], data['WALK_TIME_EV2G'], data['COST_EV2G'], distime_matrix = generate_ev_data(trip, pop_building, citizen_data, networks_map, False)
         else:
             # In this case this data will not be considered, but the tags must exists so '0' will do
-            data['TRAVEL_TIME_CSV2G'] = data['WALKING_TIME_CV2G'] = data['COST_CSV2G'] = 0
+            data['TRAVEL_TIME_EV2G'] = data['WALK_TIME_EV2G'] = data['COST_EV2G'] = 0
+            EV2G_transport = None
 
-        return data, transport, distime_matrix
-    
-    data, transport, distime_matrix = data_gathering(paths, pop_archetypes, agent_populations, avail_vehicles, current_transport, citizen_schedule, vehicle_schedule, choices3)
+        return data, CSEV_transport, EV2G_transport, distime_matrix
+
+    first_trip = current_transport[0]
+    current_archetype = first_trip.get('archetype')
+
+    # This part responds to, if there is an option other than the one currently 
+    # elected that is EV, you should be able to switch to V2G
+
+    # If your current vehicle is NOT an EV
+    if current_archetype != 'PC_electric':
+        # Checks to see if he has any EV available
+        if any(v['archetype'] == 'PC_electric' for v in avail_vehicles):
+            choices3 = True
+        else:
+            choices3 = False
+    else:
+        # Checks to see if he has another EV available (the current one plus another)
+        if sum(1 for v in avail_vehicles if v['archetype'] == 'PC_electric') >= 2:
+            choices3 = True
+        else:
+            choices3 = False
+
+    data, CSEV_transport, EV2G_transport, distime_matrix = data_gathering(paths, pop_archetypes, agent_populations, avail_vehicles, current_transport, citizen_schedule, vehicle_schedule, choices3)
 
     chosen_mode = Mode_choice(choices3, study_area,
                               data['IS_Gaso'], data['IS_EV'], data['IS_PT'], data['IS_Bike'],
                               data['EV_OWNERSHIP'], data['CAR_OWNERSHIP'],
                               data['HAVING_KIDS'],
-                              data['AGE'], data['INCOME'], data['GENDER'], data['EDUCATION'], 
-                              data['COST'], data['COST_EV2G'], data['COST_CSV2G'], 
-                              data['WALK_TIME'], data['WALK_TIME_EV2G'], data['WALKING_TIME_CV2G'], 
+                              data['AGE'], data['INCOME'], data['GENDER'], data['EDUCATION'],
+                              data['COST'], data['COST_EV2G'], data['COST_CSV2G'],
+                              data['WALK_TIME'], data['WALK_TIME_EV2G'], data['WALKING_TIME_CV2G'],
                               data['TRAVEL_TIME'], data['TRAVEL_TIME_EV2G'], data['TRAVEL_TIME_CSV2G'])
 
-    #print(f"chosen_mode: {chosen_mode}")
-
-    if (chosen_mode == 'P_1') & (not data['IS_EV']):
+    if   chosen_mode == 'P_1':
         return chosen_mode, False, None, None
-
-    if chosen_mode == 'P_2':
+    elif chosen_mode == 'P_2':
         COST_P = data['COST_EV2G']
+        transport = EV2G_transport
     else:
+        transport = CSEV_transport
         COST_P = data['COST_CSV2G']
+
+    '''print(f"chosen_mode:{chosen_mode}")
+    input(f"transport:\n{transport}")'''
 
     plugin = Plug_in_choices(data['LOCATION_WORK'], data['LOCATION_SHOPPING'], data['EV_OWNERSHIP'], 
                              data['PARK_TIME'], COST_P,
@@ -1214,10 +1358,8 @@ def distime_calculation(
                             except (nx.NetworkXNoPath, nx.NodeNotFound):
                                 distance_km = float('inf')
                 else:
-                    distance_km = haversine(
-                        (c0['lon'], c0['lat']),
-                        (c1['lon'], c1['lat']),
-                        unit=Unit.METERS
+                    distance_km = haversine_vectorized(
+                        c0['lon'], c0['lat'], c1['lon'], c1['lat']
                     ) / 1000.0 * 1.293
 
             cache[cache_key] = distance_km
@@ -1234,18 +1376,18 @@ def distime_calculation(
             cost = (transport['price']) if (map_type == 'drive' and distance_km > 0) else 0
 
         rows.append({
-            'citizen':      citizen_data['name'],
-            'vehicle':      transport['name'],
-            'archetype':    transport['archetype'],
-            'trip':         trip,
-            'distance':     distance_km,
-            'walk_time':    (distance_km / citizen_data['walk_speed']) if (map_type == 'walk'  and distance_km > 0) else 0,
-            'travel_time':  (distance_km / transport['v'])            if (map_type == 'drive' and distance_km > 0) else 0,
-            'wait_time':    waiting_time,
-            'cost':         cost,
-            'mjkm':         (transport['mjkm']  * distance_km)                     if (map_type == 'drive' and distance_km > 0) else 0,
-            'benefits':     benefits,
-            'emissions':    (transport['CO2km'] * distance_km)                     if (map_type == 'drive' and distance_km > 0) else 0,
+            'citizen':          citizen_data['name'],
+            'vehicle':          transport['name'],
+            'archetype':        transport['archetype'],
+            'trip':             trip,
+            'distance':         distance_km,
+            'walk_time':        (distance_km / citizen_data['walk_speed'])  if (map_type == 'walk'  and distance_km > 0) else 0,
+            'travel_time':      (distance_km / transport['v'])              if (map_type == 'drive' and distance_km > 0) else 0,
+            'wait_time':        waiting_time,
+            'cost':             cost,
+            'mjkm':             (transport['mjkm']  * distance_km)          if (map_type == 'drive' and distance_km > 0) else 0,
+            'benefits':         benefits,
+            'emissions':        (transport['CO2km'] * distance_km)          if (map_type == 'drive' and distance_km > 0) else 0,
         })
 
     # --- 5) Agregación final ---
@@ -1259,10 +1401,11 @@ def distime_calculation(
 
     result = {
         **acc,
-        "citizen":   first["citizen"],
-        "vehicle":   first["vehicle"],
-        "archetype": first["archetype"],
-        "trip":      first["trip"],
+        "citizen":          first["citizen"],
+        "vehicle":          first["vehicle"],
+        "archetype":        first["archetype"],
+        "trip":             first["trip"],
+        'complete_trip':    complete_trip,
     }
 
     return result
@@ -1309,11 +1452,14 @@ def trip_completation(
     steps = [poi_A]
 
     if p1 != 0:
-        steps.append(last_P)
+        p1_osm_id, p1_poib_dist = find_p2(
+            poi_A, p1s, pop_building
+        )
+        steps.append(p1_osm_id)
 
     if p2 != 0:
         p2_osm_id, p2_poib_dist = find_p2(
-            poi_B, transport, p2s, pop_building, networks_map
+            poi_B, p2s, pop_building
         )
         steps.append(p2_osm_id)
     else:
@@ -1327,43 +1473,78 @@ def trip_completation(
 
     return complete_trip, p2_osm_id
 
-def find_p2(poi_B, transport, p2s, pop_building, networks_map):
-    # Sacamos los datos de los posibles P
-    available_P = pop_building[pop_building['archetype'] == p2s].copy()
-    # En caso de que no se detecte ningun POI available para actuar como P, se notifica al usuario #ISSUE 32
+def haversine_vectorized(lat1, lon1, lat2, lon2):
+    """
+    Compute great-circle distance between a fixed point (lat1, lon1)
+    and arrays of points (lat2, lon2) using the Haversine formula.
+
+    Parameters:
+    - lat1, lon1: scalar coordinates (reference point)
+    - lat2, lon2: numpy arrays of coordinates
+
+    Returns:
+    - distances in meters (numpy array)
+    """
+    R = 6371000  # Earth radius in meters
+
+    # Convert degrees to radians
+    phi1 = np.radians(lat1)
+    phi2 = np.radians(lat2)
+    dphi = np.radians(lat2 - lat1)
+    dlambda = np.radians(lon2 - lon1)
+
+    # Haversine formula
+    a = np.sin(dphi / 2.0)**2 + np.cos(phi1) * np.cos(phi2) * np.sin(dlambda / 2.0)**2
+    return 2 * R * np.arcsin(np.sqrt(a))
+
+
+def find_p2(poi_B, p2s, pop_building):
+    """
+    Find the closest POI (p2) of a given type (p2s) to a reference POI (poi_B).
+
+    Optimizations:
+    - Fully vectorized distance computation (NumPy)
+    - Avoids DataFrame.apply (major speed bottleneck)
+    - Uses argmin instead of full sort (O(n) instead of O(n log n))
+    """
+
+    # --- Step 1: Filter candidate POIs by archetype ---
+    available_P = pop_building[pop_building['archetype'] == p2s]
+
+    # Fail fast if no candidates are found
     if available_P.empty:
-        print(f"Ha ocurrido un error. No se ha detectado el servicio '{p2s}' entre los disponibles en pop_building.")
-        print(f"Esto puede deberse a dos razones:")
-        print(f"    1. No hay ningun POI con esta etiqueta en el territorio de analisis.")
-        print(f"    2. Al generar la poblacion 'pop_archetypes_building' tenia la opción del servicio '{p2s}' deshabilitado.")
-        input(f"Revisa ambas opciones y vuelve a correr el codigo. Gracias.")
-    
-    # Sacamos los datos del POI B
-    poi_B_data = pop_building[pop_building['osm_id'] == poi_B].copy()
+        raise ValueError(f"No POIs of type '{p2s}' found in dataset")
 
-    # Cálculo vectorizado de distancia entre un punto fijo (poi_B_data) y todos los puntos en available_P
-    available_P['distance'] = available_P.apply(
-        lambda row: haversine(
-            (poi_B_data['lat'].iloc[0], poi_B_data['lon'].iloc[0]),
-            (row['lat'], row['lon']),
-            unit=Unit.METERS
-        ),
-        axis=1
-    ) * 1.293
+    # --- Step 2: Extract reference POI (poi_B) ---
+    poi_B_data = pop_building[pop_building['osm_id'] == poi_B]
 
-    # Ordenamos de mas cerca a mas lejos
-    best = available_P.sort_values(by='distance', ascending=True).iloc[0] # ISSUE 30
+    # Validate that poi_B exists
+    if poi_B_data.empty:
+        raise ValueError(f"POI_B with osm_id={poi_B} not found")
 
-    p2 = best['osm_id']
-    p2_poib_dist = best['distance']
-    
-    '''
-    # Calculamos de distancia real y sacamos el mejor osm_id
-    p2, p2_poib_dist = find_closest_service(poi_B_data, available_P, networks_map)
-    '''
-    
-    # Devolvemos el osm_id y la distancia del menor valor
-    return p2, p2_poib_dist
+    # Extract coordinates of reference POI
+    poi_lat = poi_B_data['lat'].iloc[0]
+    poi_lon = poi_B_data['lon'].iloc[0]
+
+    # --- Step 3: Compute distances (vectorized) ---
+    distances = haversine_vectorized(
+        poi_lat,
+        poi_lon,
+        available_P['lat'].values,
+        available_P['lon'].values
+    )
+
+    # Optional correction factor to approximate network distance
+    distances *= 1.293
+
+    # --- Step 4: Find closest POI (no sorting needed) ---
+    idx_min = np.argmin(distances)
+
+    # Retrieve best candidate
+    best = available_P.iloc[idx_min]
+
+    # --- Step 5: Return result ---
+    return best['osm_id'], distances[idx_min]
 
 def find_closest_service(poi_data, feasible_services, networks_map):
     # Encontrar el nodo más cercano al POI

@@ -12,7 +12,7 @@ from matplotlib.patches import Patch
 # A) Cargar datos y FILTRAR solo PC_electric
 # --------------------------------------------------------
 study_case = "Annelinn"
-scenario = "s3"                 # ajusta a "S0" si tu carpeta está en mayúsculas
+scenario = "s4"                 # ajusta a "S0" si tu carpeta está en mayúsculas
 archetype_folder = "PC_electric"  # carpeta del arquetipo dentro del escenario
 
 if study_case == "Kanaleneiland":
@@ -426,8 +426,8 @@ vmax_sample = float(np.percentile(vals_pos, 75))  # Q3 de la muestra
 
 # ------------------------------
 # Valores manuales que metiste
-vmin_manual = 33.4
-vmax_manual = 314.3
+vmin_manual = vmin_sample
+vmax_manual = vmax_sample
 
 def hex_to_rgb01(hex_color):
     """Convierte #RRGGBB a tupla RGB en [0,1]."""
