@@ -94,11 +94,12 @@ def CogniCity(population: int, study_area: str, WP3_active: bool, scenario: str 
 def main():
     # Input
 
-    WP3_active = True
+    WP3_active = False
     scenarios = ["s0", "s1", "s2", "s3", "s4"]
     study_areas = ['Annelinn', 'Aradas', 'Kanaleneiland']
     days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
-    reduction = 20
+    days = {'Mo'}
+    reduction = 100
 
     population = 27000//reduction
     study_area = 'Annelinn'

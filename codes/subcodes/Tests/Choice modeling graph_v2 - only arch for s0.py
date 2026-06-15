@@ -15,8 +15,9 @@ fig_height = 78 / 25.4
 BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
 DATA_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data"
 
-S_FOLDERS = [f"s{i}" for i in range(5)]
+S_FOLDERS = [f"s{i}" for i in range(1)]
 SCENARIOS = ["Annelinn", "Aradas", "Kanaleneiland"]
+SCENARIOS = ["Annelinn"]
 
 # -----------------------------
 # DICCIONARIOS DE RENOMBRADO
@@ -48,7 +49,7 @@ modal_total = []      # distribución global
 # -----------------------------
 for s in S_FOLDERS:
     for scen in SCENARIOS:
-        excel_file = os.path.join(BASE_PATH, s, scen, f"{scen}_schedule_vehicle.xlsx")
+        excel_file = os.path.join(BASE_PATH, s, f"{scen}_schedule_vehicle.xlsx")
         parquet_file = os.path.join(DATA_PATH, s, scen, "population", "pop_citizen.parquet")
 
         if not os.path.exists(excel_file):
@@ -122,27 +123,15 @@ modal_total_df = pd.DataFrame(modal_total).fillna(0)
 # COLORES FIJOS PAPER-STYLE
 # -----------------------------
 colors_aradas = {
-    "walk": "#ffe599",
-    "UB_diesel": "#f1c232",
-    "PC_petrol": "#bf9000",
-    "PC_electric": "#574100",
-    "CS_electric": "#000000"
+    
 }
 
 colors_annelinn = {
-    "walk": "#d5a6bd",
-    "UB_diesel": "#a64d79",
-    "PC_petrol": "#741b47",
-    "PC_electric": "#49102e",
-    "CS_electric": "#000000"
+    
 }
 
 colors_kanaleneiland = {
-    "walk": "#a2c4c9",
-    "UB_diesel": "#45818e",
-    "PC_petrol": "#134f5c",
-    "PC_electric": "#072329",
-    "CS_electric": "#000000"
+    
 }
 
 MOBILITY_LABELS = {
@@ -167,74 +156,6 @@ plt.rcParams.update({
     'axes.spines.top': False,
     'axes.spines.right': False,
 })
-
-# ============================================================
-# ✅ FIGURA 1 → SOLO s0 + ALL AGENTS
-# ============================================================
-
-# 1. FILTRAR SOLO BASELINE
-modal_s0 = modal_df[modal_df["S"] == "s0"].copy()
-
-# 2. RENOMBRAR ARCHETYPES
-modal_s0["citizen_archetype"] = modal_s0["citizen_archetype"].map(rename_archetypes).fillna(modal_s0["citizen_archetype"])
-
-# 3. DISTRIBUCIÓN GLOBAL (ALL AGENTS)
-modal_total_df_s0 = modal_total_df[modal_total_df["S"] == "s0"].copy()
-
-for scen in scenario_order:
-
-    colors = colors_annelinn if scen == "Annelinn" else colors_aradas if scen == "Aradas" else colors_kanaleneiland
-    
-    # -----------------------------
-    # DATOS POR ARCHETYPE
-    # -----------------------------
-    scen_df = modal_s0[modal_s0["Scenario"] == scen]
-
-    pivot = (
-        scen_df
-        .set_index("citizen_archetype")
-        .drop(columns=["Scenario", "S"])
-        .sort_index(axis=1)
-    )
-
-    # -----------------------------
-    # ALL AGENTS (GLOBAL)
-    # -----------------------------
-    global_row = (
-        modal_total_df_s0[modal_total_df_s0["Scenario"] == scen]
-        .drop(columns=["Scenario", "S"])
-    )
-
-    if not global_row.empty:
-        global_row.index = ["All agents"]
-        pivot = pd.concat([pivot, global_row], axis=0)
-
-    # -----------------------------
-    # PLOT
-    # -----------------------------
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    bottom = np.zeros(len(pivot))
-
-    for mode in pivot.columns:
-        ax.bar(
-            pivot.index,
-            pivot[mode],
-            bottom=bottom,
-            label=MOBILITY_LABELS.get(mode, mode),
-            color=colors.get(mode),
-            zorder=3
-        )
-        bottom += pivot[mode].values
-
-    ax.set_ylabel("Modal share [%]")
-    ax.set_xlabel("Archetypes")
-    ax.set_ylim(0, 100)
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-
-    ax.legend(title="Mode", bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True)
-
-    plt.tight_layout()
-    plt.show()
 
 # ============================================================
 # ✅ FIGURA 2 → RESUMEN GLOBAL (CORREGIDA)
@@ -274,6 +195,7 @@ for scen in scenario_order:
         bottom += pivot[mode].values
 
     # Estética estilo tu función
+    ax.set_title(f"Modal Share por {scen}")  # ← aquí añades el título
     ax.set_ylabel("Modal share [%]")
     ax.set_xlabel("Simulation Scenarios")
     ax.set_ylim(0, 100)

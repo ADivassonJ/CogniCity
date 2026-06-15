@@ -1,126 +1,219 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+# NUEVO: Importamos la herramienta para crear PDFs multi-página
+from matplotlib.backends.backend_pdf import PdfPages
 
 # --------------------------------------------------------
-# 1. Cargar datos
+# 1. Cargar datos y configurar ruta de guardado
 # --------------------------------------------------------
 
-file_path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results\Kanaleneiland_schedule_vehicle.xlsx"
-df = pd.read_excel(file_path)
+download_dir = r"C:\Users\asier.divasson\Downloads"
+file_path = os.path.join(download_dir, "s0_Kanaleneiland_schedule_vehicle.csv")
+
+df = pd.read_csv(file_path)
 df.columns = df.columns.str.strip()
 
 df["in"] = pd.to_numeric(df["in"], errors="coerce")
 df["out"] = pd.to_numeric(df["out"], errors="coerce")
 
+# Agente único por día
+df["agent"] = df["agent"] + "_" + df["day"].astype(str)
+
 # --------------------------------------------------------
-# 2. Clasificación de actividad (Vehicles)
+# 2. Clasificación de actividad
 # --------------------------------------------------------
 
 def map_activity_vehicle(todo):
-    # Normalizar: NaN -> "", strip espacios
-    if pd.isna(todo):
-        todo = ""
-    todo = str(todo).strip()
-
-    # Regla: vacío -> Home (always)
-    if todo == "":
+    if pd.isna(todo) or str(todo).strip() == "":
         return "Home_always"
 
-    # Home_in -> Home(before leaving)
-    if "Home_in" in todo:
-        return "Home_before_leaving"
+    todo = str(todo).strip()
 
-    # Home_out -> Home(after arriving)
     if "Home_out" in todo:
+        return "Home_before_leaving"
+    if "Home_in" in todo:
         return "Home_after_arriving"
-
-    # WoS y Dutties -> Outside
     if ("WoS" in todo) or ("Dutties" in todo):
         return "Outside"
 
-    # Si aparece algo distinto, lo descartamos luego
     return "Other"
 
 df["activity"] = df["todo"].apply(map_activity_vehicle)
 
-# Nos quedamos solo con las 3 clases principales (y la opción "always" si quieres incluirla)
-# Si "Home_always" equivale conceptualmente a Home, puedes integrarlo como Home_always o sumarlo a "Home_before/after".
+# Rellenar in/out para Home_always
+df.loc[df["activity"] == "Home_always", "in"]  = df.loc[df["activity"] == "Home_always", "in"].fillna(0)
+df.loc[df["activity"] == "Home_always", "out"] = df.loc[df["activity"] == "Home_always", "out"].fillna(1440)
+
 keep_acts = ["Home_before_leaving", "Home_after_arriving", "Outside", "Home_always"]
 df = df[df["activity"].isin(keep_acts)].copy()
 
-# Si prefieres que "Home_always" cuente como Home (always) separado, lo dejamos como está.
-# Si prefieres sumarlo a "Home_after_arriving" o a un "Home" genérico, dímelo y lo ajusto.
+# DIAGNÓSTICO
+print("Actividades detectadas:")
+print(df["activity"].value_counts(dropna=False))
 
 # --------------------------------------------------------
-# 3. Probabilidades por hora y arquetipo
+# CONFIGURACIÓN DEL PDF ÚNICO
 # --------------------------------------------------------
+pdf_path = os.path.join(download_dir, "reporte_graficos_vehiculos.pdf")
 
-archetypes = sorted(df["archetype"].unique())
+# Abrimos el contexto del PDF. Todo lo que guardemos aquí dentro se convertirá en una página nueva.
+with PdfPages(pdf_path) as pdf:
 
-print(f"archetypes: {archetypes}")
+    # --------------------------------------------------------
+    # 3. Probabilidades por hora y arquetipo
+    # --------------------------------------------------------
+    archetypes = sorted(df["archetype"].unique())
+    print(f"\narchetypes: {archetypes}")
 
-for arch in archetypes:
-    df_arch = df[df["archetype"] == arch].copy()
-    n_agents = df_arch["agent"].nunique()
-    if n_agents == 0:
-        continue
+    for arch in archetypes:
+        df_arch = df[df["archetype"] == arch].copy()
+        n_agents = df_arch["agent"].nunique()
+        if n_agents == 0:
+            continue
 
-    prob_list = []
+        prob_list = []
+
+        for h in range(24):
+            start = h * 60
+            end   = (h + 1) * 60
+
+            df_h = df_arch.copy()
+            df_h["overlap"] = (
+                np.minimum(df_h["out"], end) - np.maximum(df_h["in"], start)
+            ).clip(lower=0)
+
+            hourly = (
+                df_h.groupby(["agent", "activity"])["overlap"]
+                    .sum()
+                    .clip(upper=60)
+                    .reset_index()
+                    .groupby("activity")["overlap"]
+                    .sum()
+            )
+
+            total_possible = n_agents * 60.0
+            order = ["Home_before_leaving", "Home_after_arriving", "Outside", "Home_always"]
+            probs = hourly.reindex(order, fill_value=0) / total_possible
+            prob_list.append(probs)
+
+        prob_df = pd.DataFrame(prob_list, index=range(24))
+        prob_df *= 100.0
+
+        sums = prob_df.sum(axis=1)
+        print(f"\n{arch} — suma por hora: min={sums.min():.1f}%  mean={sums.mean():.1f}%  max={sums.max():.1f}%")
+
+        # 4. Graficar arquetipo
+        colors = ["#0c343d", "#134f5c", "#45818e", "#d0e0e3"]
+
+        fig, ax = plt.subplots()
+        ax.stackplot(
+            prob_df.index,
+            prob_df["Home_always"],
+            prob_df["Home_before_leaving"],
+            prob_df["Home_after_arriving"],
+            prob_df["Outside"],
+            labels=["Home (always)", "Home (before leaving)", "Home (after arriving)", "Outside"],
+            colors=colors
+        )
+
+        ax.set_title(" ")
+        ax.set_xlabel("Hour")
+        ax.set_ylabel("Probability (%)")
+        ax.set_xlim(0, 23)
+        ax.set_ylim(0, 100)
+        ax.set_xticks(range(0, 24, 1))
+
+        # MODIFICADO: Añadidos parámetros de tamaño a la leyenda
+        legend = ax.legend(
+            loc="lower right", 
+            frameon=True, 
+            fontsize=12,          # Tamaño del texto (puedes usar números como 12, 14 o strings como 'large', 'x-large')
+            handlelength=2.0,     # Ancho de los rectángulos de color (por defecto suele ser 2.0, súbelo si quieres más)
+            handleheight=1.5      # Alto de los rectángulos de color (súbelo para hacerlos más gruesos)
+        )
+        legend.get_frame().set_facecolor("white")
+        legend.get_frame().set_edgecolor("black")
+
+        plt.tight_layout()
+        
+        # NUEVO: Guarda el gráfico actual como una página del PDF antes de mostrarlo
+        pdf.savefig(fig) 
+        
+        plt.show()
+        plt.close(fig) # Cierra la figura para liberar memoria diaria
+
+    # --------------------------------------------------------
+    # 5. Análisis de solapamiento para CS_electric
+    # --------------------------------------------------------
+    arch_target = "CS_electric"
+    df_cs = df[df["archetype"] == arch_target].copy()
+
+    after_arriving = df_cs[df_cs["activity"] == "Home_after_arriving"].copy()
+    before_leaving = df_cs[df_cs["activity"] == "Home_before_leaving"].copy()
+
+    overlap_counts = []
 
     for h in range(24):
         start = h * 60
-        end = (h + 1) * 60
+        end   = (h + 1) * 60
 
-        overlap = np.minimum(df_arch["out"], end) - np.maximum(df_arch["in"], start)
-        overlap = overlap.clip(lower=0)
-        df_arch["overlap"] = overlap
+        def count_active(df_group):
+            ov = np.minimum(df_group["out"], end) - np.maximum(df_group["in"], start)
+            return (ov.clip(lower=0) > 0).sum()
 
-        hourly = df_arch.groupby("activity")["overlap"].sum()
+        n_after  = count_active(after_arriving)
+        n_before = count_active(before_leaving)
+        n_shared = min(n_after, n_before)
 
-        total_possible = n_agents * 60.0
-        # Orden fijo de categorías
-        order = ["Home_before_leaving", "Home_after_arriving", "Outside", "Home_always"]
-        probs = hourly.reindex(order, fill_value=0) / total_possible
-        prob_list.append(probs)
+        overlap_counts.append({
+            "hour": h,
+            "Home_after_arriving": n_after,
+            "Home_before_leaving": n_before,
+            "Potential_reuse": n_shared
+        })
 
-    prob_df = pd.DataFrame(prob_list, index=range(24))
-    prob_df *= 100.0
+    overlap_df = pd.DataFrame(overlap_counts)
 
     # --------------------------------------------------------
-    # 4. Graficar (escala de grises)
+    # 6. Graficar solapamiento
     # --------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.bar(overlap_df["hour"] - 0.2, overlap_df["Home_after_arriving"],
+           width=0.4, label="Home (after arriving)", color="#45818e")
+    ax.bar(overlap_df["hour"] + 0.2, overlap_df["Home_before_leaving"],
+           width=0.4, label="Home (before leaving)", color="#134f5c")
+    ax.step(overlap_df["hour"], overlap_df["Potential_reuse"],
+            where="mid", color="red", linewidth=2, linestyle="--",
+            label="Potential reuse (overlap)")
 
-    # 4 tonos por si incluyes Home_always
-    colors = ["#0c343d", "#134f5c", "#45818e", "#d0e0e3"]
-
-    fig, ax = plt.subplots()
-
-    ax.stackplot(
-        prob_df.index,
-        prob_df["Home_always"],
-        prob_df["Home_before_leaving"],
-        prob_df["Home_after_arriving"],
-        prob_df["Outside"],
-        
-        labels=[
-            "Home (always)",
-            "Home (before leaving)",
-            "Home (after arriving)",
-            "Outside"
-        ],
-        colors=colors
-    )
-
+    ax.set_title(f"{arch_target} — Overlaping")
     ax.set_xlabel("Hour")
-    ax.set_ylabel("Probability (%)")
-    ax.set_xlim(0, 23)
-    ax.set_ylim(0, 100)
-    ax.set_xticks(range(0, 24, 1))
-
-    legend = ax.legend(loc="lower right", frameon=True)
-    legend.get_frame().set_facecolor("white")
-    legend.get_frame().set_edgecolor("black")
-
+    ax.set_ylabel("Number of agents")
+    ax.set_xticks(range(24))
+    ax.legend(frameon=True)
     plt.tight_layout()
+
+    # NUEVO: Guarda este último gráfico como la página final del PDF
+    pdf.savefig(fig)
+
     plt.show()
+    plt.close(fig)
+
+# El archivo PDF se cierra automáticamente aquí al salir del bloque "with"
+print(f"\n¡Proceso completado! Todos los gráficos se han guardado en un único PDF en:\n--> {pdf_path}")
+
+# --------------------------------------------------------
+# 7. Resumen en consola
+# --------------------------------------------------------
+max_reuse    = overlap_df["Potential_reuse"].max()
+total_agents = df_cs["agent"].nunique()
+
+print(f"\n{'='*50}")
+print(f"Archetype: {arch_target}")
+print(f"Total CS_electric agents:       {total_agents}")
+print(f"Max simultaneous reuse (hour):  {overlap_df.loc[overlap_df['Potential_reuse'].idxmax(), 'hour']}h")
+print(f"Max potential reduction:        {max_reuse} vehicles")
+print(f"Reduced fleet estimate:         {total_agents - max_reuse} vehicles")
+print(f"{'='*50}")
