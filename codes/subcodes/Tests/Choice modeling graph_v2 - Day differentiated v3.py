@@ -12,7 +12,7 @@ fig_height = 78 / 25.4
 # -----------------------------
 # RUTAS
 # -----------------------------
-BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
+BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results (wp3 true)"
 DATA_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data"
 
 S_FOLDERS = [f"s{i}" for i in range(1)]
@@ -86,7 +86,7 @@ modal_clean = []
 for s in S_FOLDERS:
     for scen in SCENARIOS:
         # ← ÚNICA LÍNEA MODIFICADA: ahora el archivo está en BASE_PATH directamente
-        csv_file = os.path.join(BASE_PATH, f"{s}_{scen}_schedule_vehicle.csv")
+        csv_file = os.path.join(BASE_PATH, s, f"{scen}_schedule_vehicle.xlsx")
         parquet_file = os.path.join(DATA_PATH, s, scen, "population", "pop_citizen.parquet")
 
         if not os.path.exists(csv_file) or not os.path.exists(parquet_file):
@@ -95,7 +95,7 @@ for s in S_FOLDERS:
 
         print(f"[OK] Processing -> {s} / {scen}")
 
-        df = pd.read_csv(csv_file)
+        df = pd.read_excel(csv_file)
         pop = pd.read_parquet(parquet_file)
 
         required_cols = {"user", "archetype", "in", "day"}

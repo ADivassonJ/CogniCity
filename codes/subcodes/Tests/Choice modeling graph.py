@@ -12,7 +12,7 @@ fig_height = 78 / 25.4
 # -----------------------------
 # RUTAS
 # -----------------------------
-BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
+BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results (wp3 false)"
 DATA_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data"
 
 S_FOLDERS = [f"s{i}" for i in range(5)]
@@ -48,7 +48,7 @@ modal_total = []      # distribución global
 # -----------------------------
 for s in S_FOLDERS:
     for scen in SCENARIOS:
-        excel_file = os.path.join(BASE_PATH, s, scen, f"{scen}_schedule_vehicle.xlsx")
+        excel_file = os.path.join(BASE_PATH, s, f"{scen}_schedule_vehicle.xlsx")
         parquet_file = os.path.join(DATA_PATH, s, scen, "population", "pop_citizen.parquet")
 
         if not os.path.exists(excel_file):
@@ -126,6 +126,7 @@ colors_aradas = {
     "UB_diesel": "#f1c232",
     "PC_petrol": "#bf9000",
     "PC_electric": "#574100",
+    "CS_electric": "#000000"
 }
 
 colors_annelinn = {
@@ -133,6 +134,7 @@ colors_annelinn = {
     "UB_diesel": "#a64d79",
     "PC_petrol": "#741b47",
     "PC_electric": "#49102e",
+    "CS_electric": "#000000"
 }
 
 colors_kanaleneiland = {
@@ -140,13 +142,15 @@ colors_kanaleneiland = {
     "UB_diesel": "#45818e",
     "PC_petrol": "#134f5c",
     "PC_electric": "#072329",
+    "CS_electric": "#000000"
 }
 
 MOBILITY_LABELS = {
     "UB_diesel": "Public Transportation",
     "PC_petrol": "Combustion car",
     "PC_electric": "Electric car",
-    "walk": "Walk"
+    "walk": "Walk",
+    "CS_electric": "Carsharing"
 }
 
 scenario_order = ["Annelinn", "Aradas", "Kanaleneiland"]

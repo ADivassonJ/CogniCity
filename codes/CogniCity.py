@@ -99,7 +99,7 @@ def main():
     study_areas = ['Annelinn', 'Aradas', 'Kanaleneiland']
     days = {'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'}
     days = {'Mo'}
-    reduction = 100
+    reduction = 10
 
     population = 27000//reduction
     study_area = 'Annelinn'
