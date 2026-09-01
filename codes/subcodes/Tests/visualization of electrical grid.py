@@ -9,10 +9,10 @@ from shapely.ops import voronoi_diagram
 # --------------------------------------------------------
 # 1. Leer datos
 # --------------------------------------------------------
-path = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Aradas\population"
+path = r"C:\Users\asier.divasson\Downloads\V2G_Area_datapaper"
 
-nodes = pd.read_csv(f"{path}\\node_data_Aradas.csv")     # columnas: lat, lon, i
-edges = pd.read_csv(f"{path}\\Aradas_line_data.csv")          # columnas: i, j
+nodes = pd.read_csv(f"{path}\\node_data_Kanaleneiland.csv")     # columnas: lat, lon, i
+edges = pd.read_csv(f"{path}\\Kanaleneiland_line_data.csv")          # columnas: i, j
 
 # --------------------------------------------------------
 # 2. Definir polígono de Kanaleneiland (lat, lon -> lon, lat)
@@ -36,7 +36,7 @@ boundary_latlon = [
     (52.07904398, 5.081736117),
 ]
 # Aradas
-boundary_latlon = [ (40.6260277,-8.6691095),
+'''boundary_latlon = [ (40.6260277,-8.6691095),
                     (40.6242125,-8.666836),
                     (40.6236329,-8.6659728),
                     (40.6234128,-8.6657849),
@@ -244,7 +244,7 @@ boundary_latlon = [ (40.6260277,-8.6691095),
                     (40.6265183,-8.6674498),
                     (40.6260277,-8.6691095),
                 ]
-
+'''
 # Annelinn
 '''boundary_latlon =   [(58.37779995285961, 26.737546920776367),
                     (58.38207378048632,  26.74806118011475),
@@ -315,11 +315,11 @@ for poly in voronoi_multi.geoms:
     clipped = poly.intersection(boundary_poly)
     if not clipped.is_empty:
         x, y = clipped.exterior.xy
-        plt.plot(x, y, linestyle="-", color="#a2c4c9", linewidth=1.2, dashes=(4, 7))
+        plt.plot(x, y, linestyle="--", color="#B4B4B4", linewidth=1.2, dashes=(4, 7))
 
 # 4.2 Dibujar el perímetro de Kanaleneiland
 bx, by = boundary_poly.exterior.xy
-plt.plot(bx, by, color="#134f5c", linewidth=1.2)
+plt.plot(bx, by, color="#000000", linewidth=1.2)
 
 # 4.3 Dibujar líneas eléctricas en gris oscuro
 node_dict = {row["i"]: (row["lon"], row["lat"]) for _, row in nodes.iterrows()}
@@ -328,10 +328,10 @@ for _, row in edges.iterrows():
     if n1 in node_dict and n2 in node_dict:
         x1, y1 = node_dict[n1]
         x2, y2 = node_dict[n2]
-        plt.plot([x1, x2], [y1, y2], color="#45818e", linewidth=1.0)
+        plt.plot([x1, x2], [y1, y2], color="#9e9e9e", linewidth=1.0)
 
 # 4.4 Dibujar nodos en negro
-plt.scatter(nodes["lon"], nodes["lat"], s=25, color="#0c343d")
+plt.scatter(nodes["lon"], nodes["lat"], s=25, color="#000000")
 
 plt.xlabel("Longitude")
 plt.ylabel("Latitude")

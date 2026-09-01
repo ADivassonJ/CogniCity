@@ -12,6 +12,8 @@ from scipy.stats import norm
 from scipy.stats import truncnorm
 
 # terceros
+from matplotlib.ticker import FuncFormatter
+from pyproj import Transformer
 import folium
 import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
@@ -1713,23 +1715,32 @@ def Utilities_assignment(
         
         return sorted['osm_id'].iloc[0] if not sorted.empty else None
 
-    def visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id=None):
+    def visualizar_anillo_y_edificios(
+        cand_df, 
+        ring_poly, 
+        chosen_id=None,
+        pbf_path=None,
+        streets_geojson_path=None,
+        buildings_geojson_path=None
+    ):
         """
-        Visualiza un anillo (ring_poly) y los edificios (cand_df).
-        - Gris claro: edificios fuera
-        - Gris oscuro: edificios dentro
+        Visualiza un anillo (ring_poly) y los edificios (cand_df) junto con el mapa base:
+        - Edificios de fondo y calles
+        - Periferia administrativa de Utrecht y distrito de Kanaleneiland
+        - Gris claro: edificios fuera del anillo
+        - Gris oscuro: edificios dentro del anillo
         - Blanco con borde negro: edificio elegido
         - Gris medio translúcido: anillo
-        - Marco visible y SIEMPRE cuadrado
+        - Marco visible y SIEMPRE cuadrado con ejes en Longitude / Latitude
         """
 
-        import geopandas as gpd
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as mpatches
-        from matplotlib.lines import Line2D
+        downloads_dir = r"C:\Users\asier.divasson\Downloads\V2G_Area_datapaper"
+        pbf_path=os.path.join(downloads_dir, "planet_4.999_52.046_704da521.osm.pbf")
+        streets_geojson_path=os.path.join(downloads_dir, "Utrecht_pedestrian_edges.geojson")
+        buildings_geojson_path=os.path.join(downloads_dir, "Utrecht_buildings.geojson")
 
         # -----------------------------
-        # Crear GeoDataFrame
+        # 1. Crear GeoDataFrame del candidato
         # -----------------------------
         gdf = gpd.GeoDataFrame(
             cand_df.copy(),
@@ -1738,7 +1749,7 @@ def Utilities_assignment(
         )
 
         # -----------------------------
-        # Geometría del anillo
+        # 2. Geometría del anillo
         # -----------------------------
         if isinstance(ring_poly, (gpd.GeoSeries, gpd.GeoDataFrame)):
             ring_geom = ring_poly.unary_union
@@ -1748,34 +1759,96 @@ def Utilities_assignment(
         ring_gs = gpd.GeoSeries([ring_geom], crs="EPSG:4326")
 
         # -----------------------------
-        # Proyección a CRS métrico
+        # 3. Carga de Capas Contextuales (Fondo/Periferias)
         # -----------------------------
-        gdf_proj = gdf.to_crs("EPSG:3857")
-        ring_proj = ring_gs.to_crs("EPSG:3857")
+        gdf_utrecht = None
+        gdf_kanaleneiland = None
+        gdf_streets = None
+        gdf_buildings = None
+
+        # A) Límite administrativo de Utrecht
+        if pbf_path and os.path.exists(pbf_path):
+            try:
+                gdf_poly_utrecht = gpd.read_file(pbf_path, layer="multipolygons")
+                gdf_utrecht = gdf_poly_utrecht[
+                    (gdf_poly_utrecht["boundary"] == "administrative") & 
+                    (gdf_poly_utrecht["name"] == "Utrecht")
+                ].copy()
+                
+                if gdf_utrecht.empty and streets_geojson_path and os.path.exists(streets_geojson_path):
+                    gdf_streets_tmp = gpd.read_file(streets_geojson_path)
+                    gdf_utrecht = gpd.GeoDataFrame(
+                        geometry=[gdf_streets_tmp.unary_union.convex_hull], crs="EPSG:4326"
+                    )
+                if not gdf_utrecht.empty:
+                    gdf_utrecht = gdf_utrecht.to_crs(epsg=4326)
+            except Exception as e:
+                print(f"Aviso: No se pudo cargar el perímetro de Utrecht ({e})")
+
+        # B) Polígono de Kanaleneiland
+        coords_kanaleneiland_latlon = [
+            (52.07904398, 5.081736117), (52.07624318, 5.08308264),
+            (52.06046958, 5.09756737),  (52.06021839, 5.097758556),
+            (52.06008988, 5.11164107),  (52.06328398, 5.113065093),
+            (52.06860149, 5.111588679), (52.07642504, 5.109425399),
+            (52.07861645, 5.108711591), (52.08034774, 5.107271173),
+            (52.08592257, 5.097037869), (52.08498639, 5.096460351),
+            (52.08309467, 5.094751129), (52.0803543,  5.087985518),
+            (52.07904398, 5.081736117)
+        ]
+        coords_kanaleneiland = [(lon, lat) for (lat, lon) in coords_kanaleneiland_latlon]
+        kanaleneiland_geom = Polygon(coords_kanaleneiland)
+        gdf_kanaleneiland = gpd.GeoDataFrame(
+            {"name": ["Kanaleneiland"]},
+            geometry=[kanaleneiland_geom],
+            crs="EPSG:4326"
+        )
+
+        # C) Calles y Edificios de fondo
+        if streets_geojson_path and os.path.exists(streets_geojson_path):
+            gdf_streets = gpd.read_file(streets_geojson_path)
+        if buildings_geojson_path and os.path.exists(buildings_geojson_path):
+            gdf_buildings = gpd.read_file(buildings_geojson_path)
 
         # -----------------------------
-        # Determinar puntos dentro
+        # 4. Proyección a CRS métrico (EPSG:3857)
         # -----------------------------
+        target_crs = "EPSG:3857"
+        gdf_proj = gdf.to_crs(target_crs)
+        ring_proj = ring_gs.to_crs(target_crs)
+
         mask_inside = gdf_proj.geometry.within(ring_proj.iloc[0])
 
         # -----------------------------
-        # Crear figura cuadrada
+        # 5. Renderizado del Gráfico
         # -----------------------------
         fig, ax = plt.subplots(figsize=(8, 8))
 
+        # --- EDIFICIOS DE FONDO ---
+        if gdf_buildings is not None and not gdf_buildings.empty:
+            gdf_buildings.to_crs(target_crs).plot(
+                ax=ax, facecolor="#8B8B8B", edgecolor="none", alpha=0.1, zorder=1
+            )
+
+        # --- CALLES DE FONDO ---
+        if gdf_streets is not None and not gdf_streets.empty:
+            gdf_streets.to_crs(target_crs).plot(
+                ax=ax, color="#8B8B8B", linewidth=0.5, alpha=0.1, zorder=2
+            )
+
         # --- ANILLO ---
         if not ring_proj.is_empty.all():
-            ring_proj.plot(ax=ax, color="#a2c4c9", edgecolor="#45818e", alpha=0.3)
+            ring_proj.plot(ax=ax, color="#c9caca", edgecolor="#919191", alpha=0.3, zorder=5)
 
-        # --- EDIFICIOS FUERA ---
+        # --- EDIFICIOS FUERA DEL ANILLO ---
         gdf_out = gdf_proj[~mask_inside]
         if not gdf_out.empty:
-            gdf_out.plot(ax=ax, color="#76a5af", markersize=25)
+            gdf_out.plot(ax=ax, color="#adadad", markersize=25, zorder=6)
 
-        # --- EDIFICIOS DENTRO ---
+        # --- EDIFICIOS DENTRO DEL ANILLO ---
         gdf_in = gdf_proj[mask_inside]
         if not gdf_in.empty:
-            gdf_in.plot(ax=ax, color="#0c343d", markersize=35)
+            gdf_in.plot(ax=ax, color="#3b3b3b", markersize=35, zorder=7)
 
         # --- EDIFICIO ELEGIDO ---
         if chosen_id is not None and chosen_id in gdf_proj['osm_id'].values:
@@ -1786,7 +1859,7 @@ def Utilities_assignment(
                 edgecolor="black",
                 markersize=80,
                 marker="o",
-                zorder=3
+                zorder=8
             )
 
         # --- HOME (centro del anillo) ---
@@ -1797,12 +1870,25 @@ def Utilities_assignment(
                 centroid.y,
                 marker='s',
                 s=100,
-                facecolor='#0c343d',
-                zorder=4
+                facecolor="white",
+                edgecolor="black",
+                zorder=9
             )
 
+        # --- PERÍMETRO DE UTRECHT ---
+        if gdf_utrecht is not None and not gdf_utrecht.empty:
+            gdf_utrecht.to_crs(target_crs).boundary.plot(
+                ax=ax, linewidth=1.2, edgecolor="0.2", zorder=1000
+            )
+
+        # --- PERÍMETRO DE KANALENEILAND ---
+        if gdf_kanaleneiland is not None and not gdf_kanaleneiland.empty:
+            gdf_kanaleneiland.to_crs(target_crs).boundary.plot(
+                ax=ax, linewidth=1.8, linestyle="--", edgecolor="black", zorder=1000
+            )        
+
         # -----------------------------
-        # FORZAR VENTANA CUADRADA REAL
+        # 6. Forzar Ventana Cuadrada Real
         # -----------------------------
         xmin, xmax = ax.get_xlim()
         ymin, ymax = ax.get_ylim()
@@ -1818,26 +1904,49 @@ def Utilities_assignment(
         ax.set_ylim(y_center - max_range/2, y_center + max_range/2)
 
         # -----------------------------
-        # Leyenda
+        # 7. Formatear Ejes (Longitude / Latitude)
         # -----------------------------
-        legend_elements = [
-            mpatches.Patch(facecolor='#a2c4c9', edgecolor='#45818e', alpha=0.3, label='Ring'),
-            Line2D([0], [0], marker='s', color='w', markerfacecolor='#0c343d', markersize=8, label='Home'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='#0c343d', markersize=8, label='Inside'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='#76a5af', markersize=8, label='Outside'),
-            Line2D([0], [0], marker='o', color='black', markerfacecolor='white', markersize=8, label='Choosen ID')
-        ]
-        ax.legend(handles=legend_elements, loc='upper right')
+        transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+
+        ax.xaxis.set_major_formatter(
+            FuncFormatter(lambda x, pos: f"{transformer.transform(x, y_center)[0]:.4f}°")
+        )
+        ax.yaxis.set_major_formatter(
+            FuncFormatter(lambda y, pos: f"{transformer.transform(x_center, y)[1]:.4f}°")
+        )
+
+        ax.set_xlabel("Longitude", fontsize=12)
+        ax.set_ylabel("Latitude", fontsize=12)
 
         # -----------------------------
-        # Estética final
+        # 8. Leyenda
         # -----------------------------
-        ax.set_aspect('equal')  # mantiene escala métrica real
+        legend_elements = [
+            mpatches.Patch(facecolor="#c9c9c9", edgecolor="#898a8a", alpha=0.3, label='Ring'),
+            Line2D([0], [0], marker='s', color='black', markerfacecolor="white", markersize=16, label='Home'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor="#3d3d3d", markersize=16, label='Inside'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor="#afafaf", markersize=16, label='Outside'),
+            Line2D([0], [0], marker='o', color='black', markerfacecolor='white', markersize=16, label='Choosen ID')
+        ]
+
+        # Añadir elementos contextuales a la leyenda si existen
+        if gdf_utrecht is not None and not gdf_utrecht.empty:
+            legend_elements.append(Line2D([0], [0], color="0.2", linewidth=1.2, label='Utrecht Border'))
+        if gdf_kanaleneiland is not None and not gdf_kanaleneiland.empty:
+            legend_elements.append(Line2D([0], [0], color="black", linewidth=1.8, linestyle="--", label='Kanaleneiland'))
+
+        leg = ax.legend(handles=legend_elements, loc='upper right', fontsize=16, framealpha=1)
+        leg.set_zorder(10000)
+
+        # -----------------------------
+        # 9. Estética final
+        # -----------------------------
+        ax.set_aspect('equal')
         ax.set_facecolor("white")
 
         plt.tight_layout()
         plt.show()
-
+    
     def generate_private_vehicles(df_families, pop_archetypes, stats_trans,
                               SG_relationship, special_areas_coords, study_area,
                               computate_stats, get_vehicle_stats, pick_building_type,
@@ -2038,7 +2147,7 @@ def Utilities_assignment(
         # 7) Elegir el 'osm_id' más cercano
         chosen_id = gdf_in.sort_values("dist_to_sample").iloc[0]["osm_id"]
 
-        #visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id)
+        visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id)
 
         return chosen_id
 

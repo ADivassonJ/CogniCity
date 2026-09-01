@@ -84,7 +84,7 @@ def load_metrics(base_path):
 
             total_mjkm    = df_veh["mjkm__sum"].sum()
             total_co2     = df_veh["emissions__sum"].sum()
-            electric_mjkm = df_veh.loc[df_veh["archetype"] == "PC_electric", "mjkm__sum"].sum()
+            electric_mjkm = df_veh.loc[df_veh["archetype"].isin(["CS_electric", "PC_electric"]),"mjkm__sum"].sum()
 
             vehicle_metrics[(s, scen)] = {
                 "mjkm_sum":         total_mjkm,

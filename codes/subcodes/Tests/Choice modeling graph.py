@@ -12,7 +12,7 @@ fig_height = 78 / 25.4
 # -----------------------------
 # RUTAS
 # -----------------------------
-BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results (wp3 false)"
+BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results (wp3 true)"
 DATA_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data"
 
 S_FOLDERS = [f"s{i}" for i in range(5)]

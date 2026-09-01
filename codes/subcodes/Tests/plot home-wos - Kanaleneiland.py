@@ -8,7 +8,7 @@ import osmnx as ox
 # -----------------------------
 # 0. Configuración y rutas
 # -----------------------------
-base_dir = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\Kanaleneiland\population"
+base_dir = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\data\paper\Kanaleneiland\population"
 
 citizen_parquet_path = os.path.join(base_dir, "pop_citizen.parquet")
 building_parquet_path = os.path.join(base_dir, "pop_building.parquet")

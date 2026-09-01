@@ -91,7 +91,7 @@ colores_zonas = ["#741b47", "#bf9000", "#134f5c"]
 import os
 import pandas as pd
 
-BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
+BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results (wp3 false)"
 
 S_FOLDERS = [f"s{i}" for i in range(5)]
 SCENARIOS = ["Annelinn", "Aradas", "Kanaleneiland"]
@@ -159,7 +159,7 @@ metric_map = {
     "walk": ("walk_time__mean", "Walk time [min]"),
     "travel": ("travel_time__mean", "Travel time [min]"),
     "cost": ("cost__mean", "Cost [€]"),
-    "co2": ("emissions__mean", "CO2 emission [kg/day]"),
+    "co2": ("emissions__mean", "CO2 emission [g/day]"),
 }
 
 zone_colors = {
