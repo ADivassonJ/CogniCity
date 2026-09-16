@@ -11,8 +11,8 @@ from matplotlib.patches import Patch
 # --------------------------------------------------------
 # A) Cargar datos y FILTRAR solo PC_electric
 # --------------------------------------------------------
-study_case = "Annelinn"
-scenario = "s4"                 # ajusta a "S0" si tu carpeta está en mayúsculas
+study_case = "Kanaleneiland"  # Cambia a "Kanaleneiland" para el otro caso de estudio
+scenario = "s0"                 # ajusta a "S0" si tu carpeta está en mayúsculas
 archetype_folder = "PC_electric"  # carpeta del arquetipo dentro del escenario
 
 if study_case == "Kanaleneiland":
@@ -46,7 +46,7 @@ elif study_case == "Aradas":
 project_root = Path(r"C:/Users/asier.divasson/Documents/GitHub/CogniCity")
 
 # Estructura: data/results/<scenario>/<archetype>/<archivo>
-results_dir = project_root / "results" / scenario / study_case
+results_dir = project_root / "results" / scenario
 
 # Nombre del archivo: <study_case>_schedule_vehicle.xlsx
 excel_filename = f"{study_case}_schedule_vehicle_quantified_24.xlsx"

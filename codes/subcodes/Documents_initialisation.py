@@ -716,8 +716,10 @@ def download_pois(study_area, paths, building_archetypes_df, special_areas_coord
     print(f'        Processing data (it might take a while)...')
     # En base al distrito de analisis, sacamos la ciudad a descargar
     city = city_district.get(study_area)
+
+    input(f"city:{city}")
     
-    gdf = ox.geocode_to_gdf(city)
+    gdf = ox.geocode_to_gdf("Utrecht")
     #gdf = ox.geocode_to_gdf('Kanaleneiland')
 
     polygon = gdf.iloc[0].geometry
@@ -1179,7 +1181,7 @@ def load_or_download_networks(study_area, study_area_path, networks, city_distri
                 ox.save_graphml(graph, study_area_path / f"{net_type}.graphml")
                 networks_map[f"{net_type}_map"] = graph
 
-                # ---------- PLOTEAR POLÍGONO Y RED SUPERPUESTOS ----------
+                '''# ---------- PLOTEAR POLÍGONO Y RED SUPERPUESTOS ----------
                 # ---------- CREAR GEODATAFRAMES ----------
                 gdf_original = gpd.GeoDataFrame(index=[0], crs="EPSG:4326", geometry=[polygon_original])
                 gdf_buffered = gpd.GeoDataFrame(index=[0], crs="EPSG:4326", geometry=[polygon_buffered])
@@ -1203,7 +1205,7 @@ def load_or_download_networks(study_area, study_area_path, networks, city_distri
                 ax.set_title(f"")
                 ax.set_xlabel("X (m)")
                 ax.set_ylabel("Y (m)")
-                plt.show()
+                plt.show()'''
 
             except Exception as e:
                 print(f'        [ERROR] Failed to download {net_type} network: {e}')
@@ -2147,7 +2149,7 @@ def Utilities_assignment(
         # 7) Elegir el 'osm_id' más cercano
         chosen_id = gdf_in.sort_values("dist_to_sample").iloc[0]["osm_id"]
 
-        visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id)
+        #visualizar_anillo_y_edificios(cand_df, ring_poly, chosen_id)
 
         return chosen_id
 
@@ -2638,22 +2640,15 @@ def Documents_initialisation(population: int, study_area: str, scenario: str):
                     (40.6265183,-8.6674498),
                     (40.6260277,-8.6691095),
                 ],
-        "Kanaleneiland": [  (52.07904398,	5.081736117),
-                            (52.07624318,	5.08308264),
-                            (52.06046958,	5.09756737),
-                            (52.06021839,	5.097758556),
-                            (52.06008988,	5.11164107),
-                            (52.06328398,	5.113065093),
-                            (52.06860149,	5.111588679),
-                            (52.07642504,	5.109425399),
-                            (52.07861645,	5.108711591),
-                            (52.08034774,	5.107271173),
-                            (52.08592257,	5.097037869),
-                            (52.08498639,	5.096460351),
-                            (52.08309467,	5.094751129),
-                            (52.0803543, 	5.087985518),
-                            (52.07904398,	5.081736117),
-                            ],
+        "Kanaleneiland": [(52.07893, 5.08148),
+                       (52.08112, 5.09062),
+                       (52.06719, 5.10358),
+                       (52.06656, 5.10748),
+                       (52.06553, 5.10796),
+                       (52.06595, 5.10379),
+                       (52.06308, 5.09525),
+                       (52.07663, 5.08268),
+                       (52.07893, 5.08148),],
         "Annelinn": [(58.37779995285961, 26.737546920776367),
                     (58.38207378048632,  26.74806118011475),
                     (58.38095016884387,  26.753661632537845),
@@ -2700,6 +2695,14 @@ def Documents_initialisation(population: int, study_area: str, scenario: str):
                     (58.377168553744575, 26.737632751464847),
                     (58.3777421867492,   26.73758983612061),
                      ],
+        "Oog in Al": [(52.09245, 5.08429),
+                      (52.08747, 5.09429),
+                      (52.08267, 5.08766),
+                      (52.08337, 5.08549),
+                      (52.08551, 5.08354),
+                      (52.09003, 5.08270),
+                      (52.09245, 5.08429),
+                    ],
     }
     
     # Mapping of districts to their respective cities/regions

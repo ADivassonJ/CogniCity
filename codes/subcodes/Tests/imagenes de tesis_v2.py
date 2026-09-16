@@ -17,8 +17,8 @@ PROJECT_ROOT = Path(r"C:/Users/asier.divasson/Documents/GitHub/CogniCity")
 DATA_ROOT = PROJECT_ROOT / "data"
 RESULTS_ROOT = PROJECT_ROOT / "results"
 
-STUDY_CASES = ["Aradas", "Annelinn", "Kanaleneiland"]
-S_FOLDERS = [f"s{i}" for i in range(5)]
+STUDY_CASES = ["Oog in Al", "Kanaleneiland"]
+S_FOLDERS = ["s0"]
 ARCHETYPE = "PC_electric"
 
 # -----------------------------
@@ -74,7 +74,7 @@ for study_case in STUDY_CASES:
         print(f"Procesando {study_case} | {scenario}...")
 
         # 1) Leer Excel
-        results_dir = RESULTS_ROOT / scenario / study_case
+        results_dir = RESULTS_ROOT / scenario
         excel_path = results_dir / f"{study_case}_schedule_vehicle_quantified_24.xlsx"
         if not excel_path.exists():
             print(f"  ⚠ Excel no encontrado: {excel_path}")
