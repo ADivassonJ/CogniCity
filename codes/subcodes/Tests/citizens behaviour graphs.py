@@ -2,9 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Datos comunes
-arquetipos = ["Adult male (c_arch_0)", "Adult female (c_arch_1)", "Children (c_arch_2)", "Elder (c_arch_3)", "Youth (c_arch_4)"]
+arquetipos = ["Adult male", "Adult female", "Children", "Elder", "Youth"]
 escenarios = ["Baseline Scenario", "EU Trinity", "NECP Essentials", "REPowerEU", "Go RES"]
-zonas = ["Annelinn", "Aradas", "Kanaleneiland"]
+zonas = ["Kanaleneiland", "Oog in Al"]
 
 n_escenarios = len(escenarios)
 x = np.arange(len(arquetipos))
@@ -91,10 +91,10 @@ colores_zonas = ["#741b47", "#bf9000", "#134f5c"]
 import os
 import pandas as pd
 
-BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results (wp3 false)"
+BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
 
-S_FOLDERS = [f"s{i}" for i in range(5)]
-SCENARIOS = ["Annelinn", "Aradas", "Kanaleneiland"]
+S_FOLDERS = ["s01", "s02", "s03", "s04", "s05"]
+SCENARIOS = ["Kanaleneiland", "Oog in Al"]
 
 citizen_metrics = {}
 vehicle_metrics = {}
@@ -163,7 +163,7 @@ metric_map = {
 }
 
 zone_colors = {
-    "Annelinn": colores_annelin,
+    "Oog in Al": colores_annelin,
     "Aradas": colores_aradas,
     "Kanaleneiland": colores_kanaleneiland,
 }
