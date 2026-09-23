@@ -1,139 +1,103 @@
-import numpy as np
-import matplotlib.pyplot as plt
-
-# Datos comunes
-arquetipos = ["Adult male", "Adult female", "Children", "Elder", "Youth"]
-escenarios = ["Baseline Scenario", "EU Trinity", "NECP Essentials", "REPowerEU", "Go RES"]
-zonas = ["Kanaleneiland", "Oog in Al"]
-
-n_escenarios = len(escenarios)
-x = np.arange(len(arquetipos))
-width = 0.15
-path = "C:/Users/asier.divasson/Downloads/responses/"
-
-# Convertir tamaño a pulgadas (1 pulgada = 25.4 mm)
-fig_width = 368 / 25.4
-fig_height = 78 / 25.4
-
-def crear_grafico(valores, colores, nombre_pdf, description, errores_pct):
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    
-    # Calcular error absoluto a partir del porcentaje
-    errores_abs = valores * errores_pct[:, np.newaxis]
-    
-    # Dibujar barras
-    for i in range(n_escenarios):
-        ax.bar(x + i*width, valores[:, i], width, label=escenarios[i], 
-               yerr=errores_abs[:, i], capsize=5, color=colores[i])
-    
-    # Etiquetas y formato
-    ax.set_xlabel("Archetypes")
-    ax.set_ylabel(description)
-    ax.set_xticks(x + width*2)
-    ax.set_xticklabels(arquetipos)
-    ax.legend()
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-    
-    plt.tight_layout()
-    fig.savefig(f"{path}{nombre_pdf}", format='pdf', bbox_inches='tight')
-    plt.show()
-
-import numpy as np
-import matplotlib.pyplot as plt
-
-def crear_grafico_lineas_zonas(valores, colores, nombre_pdf, description, barras_error, logaritmic=False):
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    
-    x = np.arange(len(escenarios))
-    
-    # Definimos las barras de error para cada zona (en valores absolutos)
-    # Si los valores están en porcentaje, conviértelo a la misma escala que 'valores'
-    marcadores = ['o', 's', 'D']  # círculo, cuadrado, diamante
-    
-    for i in range(valores.shape[1]):
-        ax.errorbar(
-            x,
-            valores[:, i],
-            yerr=barras_error[i],
-            label=zonas[i],
-            color=colores[i],
-            marker=marcadores[i],
-            linewidth=1.5,
-            capsize=5  # para añadir "tapas" a las barras de error
-        )
-    
-    ax.set_xlabel("Scenarios")
-    ax.set_ylabel(description)
-    ax.set_xticks(x)
-    ax.set_xticklabels(escenarios, rotation=0, ha='center')
-    
-    if logaritmic:
-        ax.set_yscale('log')
-
-    ax.legend()
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-    
-    plt.tight_layout()
-    fig.savefig(f"{path}{nombre_pdf}", format='pdf', bbox_inches='tight')
-    plt.show()
-
-
-
-colores_annelin =       ["#000000", "#741b47", "#a64d79", "#d5a6bd", "#ead1dc"]  
-colores_aradas =        ["#000000", "#bf9000", "#f1c232", "#ffe599", "#fff2cc"]  
-colores_kanaleneiland = ["#000000", "#134f5c", "#45818e", "#a2c4c9", "#d0e0e3"]   
-
-
-
-colores_zonas = ["#741b47", "#bf9000", "#134f5c"]
-
-
 import os
+import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+
+
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
 
 BASE_PATH = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
 
 S_FOLDERS = ["s01", "s02", "s03", "s04", "s05"]
-SCENARIOS = ["Kanaleneiland", "Oog in Al"]
+
+DISTRICTS = ["Kanaleneiland", "Oog in Al"]
+
+ARQUETIPOS = [
+    "Adult male",
+    "Adult female",
+    "Children",
+    "Elder",
+    "Youth"
+]
+
+path = "C:/Users/asier.divasson/Downloads/responses/"
+
+# Tamaño de figura en pulgadas
+fig_width = 368 / 25.4
+fig_height = 120 / 25.4
+
+
+# ============================================================
+# COLORES
+# ============================================================
+
+colores_distritos = {
+    "Kanaleneiland": "#134f5c",
+    "Oog in Al": "#741b47"
+}
+
+
+# ============================================================
+# CARGA DE DATOS
+# ============================================================
 
 citizen_metrics = {}
+
 vehicle_metrics = {}
 
+
 for s in S_FOLDERS:
-    for scen in SCENARIOS:
+
+    for district in DISTRICTS:
 
         excel_file = os.path.join(
             BASE_PATH,
             s,
-            f"{scen}_daily_total_stats_inferred_24.xlsx"
+            f"{district}_daily_total_stats_inferred_24.xlsx"
         )
 
         if not os.path.exists(excel_file):
+            print(f"⚠ No encontrado: {excel_file}")
             continue
 
-        # -------- CITIZENS --------
-        df_cit = pd.read_excel(excel_file, sheet_name="cit_by_archetype", decimal=",")
+        # ----------------------------------------------------
+        # CITIZENS
+        # ----------------------------------------------------
 
-        df_cit = df_cit[df_cit["archetype"].str.startswith("c_arch")]
+        df_cit = pd.read_excel(
+            excel_file,
+            sheet_name="cit_by_archetype",
+            decimal=","
+        )
+
+        df_cit = df_cit[
+            df_cit["archetype"].str.startswith("c_arch")
+        ].copy()
+
         df_cit = df_cit.sort_values("archetype")
 
-        citizen_metrics[(s, scen)] = {
+        citizen_metrics[(s, district)] = {
             "walk": df_cit["walk_time__mean"].values,
             "travel": df_cit["travel_time__mean"].values,
             "cost": df_cit["cost__mean"].values,
             "co2": df_cit["emissions__mean"].values,
         }
 
-        # -------- VEHICLES --------
-        df_veh = pd.read_excel(excel_file, sheet_name="veh_by_archetype", decimal=",")
+        # ----------------------------------------------------
+        # VEHICLES
+        # ----------------------------------------------------
 
-        df_veh = df_veh[df_veh["archetype"].str.startswith("PC")]
-        df_veh = df_veh.sort_values("archetype")
+        df_veh = pd.read_excel(
+            excel_file,
+            sheet_name="veh_by_archetype",
+            decimal=","
+        )
 
-        df_veh = pd.read_excel(excel_file, sheet_name="veh_by_archetype", decimal=",")
-
-        df_veh = df_veh[df_veh["archetype"].str.startswith("PC")]
-        df_veh = df_veh.sort_values("archetype")
+        df_veh = df_veh[
+            df_veh["archetype"].str.startswith("PC")
+        ].copy()
 
         total_mjkm = df_veh["mjkm__sum"].sum()
         total_co2 = df_veh["emissions__sum"].sum()
@@ -143,91 +107,287 @@ for s in S_FOLDERS:
             "mjkm__sum"
         ].sum()
 
-        vehicle_metrics[(s, scen)] = {
+        vehicle_metrics[(s, district)] = {
             "mjkm_sum": total_mjkm,
             "co2_sum": total_co2,
             "electric_mjkm_sum": electric_mjkm
         }
 
+
 print("✔ Data loaded automatically")
 
-# ==========================================
-# AUTO-GENERADOR DE TODOS LOS GRÁFICOS
-# ==========================================
 
-metric_map = {
-    "walk": ("walk_time__mean", "Walk time [min]"),
-    "travel": ("travel_time__mean", "Travel time [min]"),
-    "cost": ("cost__mean", "Cost [€]"),
-    "co2": ("emissions__mean", "CO2 emission [g/day]"),
-}
+# ============================================================
+# FUNCIÓN PARA CREAR VIOLIN PLOTS
+# ============================================================
 
-zone_colors = {
-    "Oog in Al": colores_annelin,
-    "Aradas": colores_aradas,
-    "Kanaleneiland": colores_kanaleneiland,
-}
+def crear_violin_arquetipos(
+    valores_distritos,
+    nombre_pdf,
+    ylabel,
+    logaritmic=False
+):
+    """
+    valores_distritos:
+        {
+            "Kanaleneiland": [
+                [valores de s01 para archetype 1],
+                [valores de s02 para archetype 1],
+                ...
+            ],
+            "Oog in Al": [...]
+        }
 
-# -----------------------------
-# 1️⃣ GRÁFICOS POR ZONA (barras)
-# -----------------------------
+    Cada distrito contiene una distribución por arquetipo.
+    """
 
-for zone in SCENARIOS:
+    fig, ax = plt.subplots(
+        figsize=(fig_width, fig_height)
+    )
 
-    for metric_key, (metric_col, ylabel) in metric_map.items():
+    n_arquetipos = len(ARQUETIPOS)
+    n_distritos = len(DISTRICTS)
 
-        valores = np.array([
-            citizen_metrics[(s, zone)][metric_key]
-            for s in S_FOLDERS
-        ]).T
+    # Separación entre los dos distritos dentro de cada arquetipo
+    separation = 0.35
 
-        errores_pct = np.array([0.31, 0.48, 1.21, 2.09, 0.48]) / 100
+    posiciones = []
 
-        nombre_pdf = f"{zone.lower()}_{metric_key}.pdf"
+    for i, archetype in enumerate(ARQUETIPOS):
 
-        crear_grafico(
-            valores,
-            zone_colors[zone],
-            nombre_pdf,
-            ylabel,
-            errores_pct
+        centro = i + 1
+
+        # Posiciones de los dos violines
+        pos_kan = centro - separation
+        pos_oog = centro + separation
+
+        posiciones.append(
+            [pos_kan, pos_oog]
         )
 
-        print(f"✔ Generated {nombre_pdf}")
+    # --------------------------------------------------------
+    # Dibujar cada distrito
+    # --------------------------------------------------------
+
+    for district_index, district in enumerate(DISTRICTS):
+
+        data = valores_distritos[district]
+
+        district_positions = [
+            posiciones[i][district_index]
+            for i in range(n_arquetipos)
+        ]
+
+        violin = ax.violinplot(
+            data,
+            positions=district_positions,
+            widths=0.55,
+            showmeans=False,
+            showmedians=True,
+            showextrema=True
+        )
+
+        # Colorear cuerpos
+        for body in violin["bodies"]:
+            body.set_facecolor(
+                colores_distritos[district]
+            )
+            body.set_edgecolor(
+                colores_distritos[district]
+            )
+            body.set_alpha(0.65)
+
+        # Líneas del violin
+        for key in [
+            "cmeans",
+            "cmedians",
+            "cbars",
+            "cmins",
+            "cmaxes"
+        ]:
+            if key in violin:
+                violin[key].set_color(
+                    colores_distritos[district]
+                )
+                violin[key].set_linewidth(1)
+
+    # --------------------------------------------------------
+    # Ejes
+    # --------------------------------------------------------
+
+    ax.set_xlabel("Archetypes")
+    ax.set_ylabel(ylabel)
+
+    ax.set_xticks(
+        np.arange(1, n_arquetipos + 1)
+    )
+
+    ax.set_xticklabels(ARQUETIPOS)
+
+    if logaritmic:
+        ax.set_yscale("log")
+
+    # --------------------------------------------------------
+    # Leyenda
+    # --------------------------------------------------------
+
+    from matplotlib.patches import Patch
+
+    legend_elements = [
+        Patch(
+            facecolor=colores_distritos[district],
+            edgecolor=colores_distritos[district],
+            alpha=0.65,
+            label=district
+        )
+        for district in DISTRICTS
+    ]
+
+    ax.legend(
+        handles=legend_elements,
+        loc="best"
+    )
+
+    ax.grid(
+        axis="y",
+        linestyle="--",
+        alpha=0.7
+    )
+
+    plt.tight_layout()
+
+    fig.savefig(
+        os.path.join(path, nombre_pdf),
+        format="pdf",
+        bbox_inches="tight"
+    )
+
+    plt.show()
+    plt.close(fig)
 
 
-# -----------------------------
-# 2️⃣ GRÁFICOS COMPARATIVOS POR ZONA (líneas)
-# -----------------------------
+# ============================================================
+# MAPA DE MÉTRICAS
+# ============================================================
 
-comparative_metrics = {
-    "mjkm_sum": ("Total energy consumption [MWh/day]", False),
-    "electric_mjkm_sum": ("EV consumption [MWh/day]", False),
-    "co2_sum": ("CO2 emission [tons/day]", False),
+metric_map = {
+    "walk": (
+        "walk_time__mean",
+        "Walk time [min]"
+    ),
+
+    "travel": (
+        "travel_time__mean",
+        "Travel time [min]"
+    ),
+
+    "cost": (
+        "cost__mean",
+        "Cost [€]"
+    ),
+
+    "co2": (
+        "emissions__mean",
+        "CO2 emission [g/day]"
+    )
 }
 
-for metric_key, (ylabel, log_scale) in comparative_metrics.items():
 
-    valores = np.array([
-        [
-            vehicle_metrics[(s, "Annelinn")][metric_key],
-            vehicle_metrics[(s, "Aradas")][metric_key],
-            vehicle_metrics[(s, "Kanaleneiland")][metric_key],
-        ]
-        for s in S_FOLDERS
-    ])
+# ============================================================
+# CREAR DISTRIBUCIONES
+# ============================================================
 
-    barras_error = [0.0075, 0.0086, 0.0066]  # puedes parametrizar si quieres
+for metric_key, (metric_col, ylabel) in metric_map.items():
 
-    nombre_pdf = f"comparison_{metric_key}.pdf"
+    valores_distritos = {}
 
-    crear_grafico_lineas_zonas(
-        valores,
-        colores_zonas,
+    for district in DISTRICTS:
+
+        # ----------------------------------------------------
+        # Aquí juntamos s01, s02, s03, s04 y s05
+        # ----------------------------------------------------
+
+        datos_arquetipos = []
+
+        for archetype_index in range(len(ARQUETIPOS)):
+
+            valores_arquetipo = []
+
+            for s in S_FOLDERS:
+
+                key = (s, district)
+
+                if key not in citizen_metrics:
+                    continue
+
+                valor = citizen_metrics[key][metric_key][
+                    archetype_index
+                ]
+
+                valores_arquetipo.append(valor)
+
+            datos_arquetipos.append(
+                valores_arquetipo
+            )
+
+        valores_distritos[district] = datos_arquetipos
+
+    # --------------------------------------------------------
+    # Gráfico
+    # --------------------------------------------------------
+
+    nombre_pdf = f"comparison_{metric_key}_violin.pdf"
+
+    crear_violin_arquetipos(
+        valores_distritos,
         nombre_pdf,
-        ylabel,
-        barras_error,
-        logaritmic=log_scale
+        ylabel
     )
 
     print(f"✔ Generated {nombre_pdf}")
+
+# ============================================================
+# VIOLIN PLOT: WALK TIME + TRAVEL TIME
+# ============================================================
+
+valores_distritos_total_time = {}
+
+for district in DISTRICTS:
+
+    datos_arquetipos = []
+
+    for archetype_index in range(len(ARQUETIPOS)):
+
+        valores_arquetipo = []
+
+        for s in S_FOLDERS:
+
+            key = (s, district)
+
+            if key not in citizen_metrics:
+                continue
+
+            walk = citizen_metrics[key]["walk"][archetype_index]
+            travel = citizen_metrics[key]["travel"][archetype_index]
+
+            # Suma de walk + travel
+            total_time = walk + travel
+
+            valores_arquetipo.append(total_time)
+
+        datos_arquetipos.append(valores_arquetipo)
+
+    valores_distritos_total_time[district] = datos_arquetipos
+
+
+# ============================================================
+# CREAR GRÁFICO
+# ============================================================
+
+crear_violin_arquetipos(
+    valores_distritos_total_time,
+    "comparison_total_time_violin.pdf",
+    "Total travel time [min]"
+)
+
+print("✔ Generated comparison_total_time_violin.pdf")

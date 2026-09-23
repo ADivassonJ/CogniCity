@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (necesario para projection="3d")
 
 import geopandas as gpd
 from shapely.geometry import Polygon, box
@@ -740,6 +740,30 @@ def process_study_case(study_case):
     )
 
     # ----------------------------------------------------
+    # L-bis) TODOS LOS EDIFICIOS (VIVIENDAS)
+    # ----------------------------------------------------
+    #
+    # A diferencia de poi_gdf (que solo incluye edificios
+    # en nodos CON consumo EV), aquí usamos TODOS los
+    # edificios de pop_building para poder contar
+    # viviendas por celda, tengan o no consumo asociado.
+    # ----------------------------------------------------
+
+    buildings_gdf = (
+
+        gpd.GeoDataFrame(
+            pop_building,
+            geometry=gpd.points_from_xy(
+                pop_building["lon"],
+                pop_building["lat"]
+            ),
+            crs=CRS_WGS84,
+        )
+
+        .to_crs(CRS_METRIC)
+    )
+
+    # ----------------------------------------------------
     # M) CREAR MALLA 100x100
     # ----------------------------------------------------
 
@@ -883,6 +907,59 @@ def process_study_case(study_case):
         )
 
         .fillna(0.0)
+    )
+
+    # ----------------------------------------------------
+    # N-bis) AGREGAR Nº DE VIVIENDAS A CADA CELDA
+    # ----------------------------------------------------
+
+    join_viviendas = gpd.sjoin(
+
+        buildings_gdf[
+            [
+                "osm_id",
+                "geometry"
+            ]
+        ],
+
+        grid_gdf[
+            [
+                "cell_id",
+                "geometry"
+            ]
+        ],
+
+        predicate="within",
+
+        how="left",
+    )
+
+    viviendas_by_cell = (
+
+        join_viviendas
+
+        .groupby(
+            "cell_id"
+        )["osm_id"]
+
+        .count()
+    )
+
+    grid_gdf[
+        "num_viviendas"
+    ] = (
+
+        grid_gdf[
+            "cell_id"
+        ]
+
+        .map(
+            viviendas_by_cell
+        )
+
+        .fillna(0)
+
+        .astype(int)
     )
 
     # ----------------------------------------------------
@@ -1119,13 +1196,7 @@ for study_case in study_cases:
 
 
 # ========================================================
-# ESCALA COMÚN PARA LOS DOS DISTRITOS
-# ========================================================
-#
-# MUY IMPORTANTE:
-# ambos mapas utilizan el mismo máximo.
-#
-# Por tanto, un mismo color representa el mismo kWh.
+# RESUMEN
 # ========================================================
 
 print()
@@ -1149,10 +1220,7 @@ for study_case in study_cases:
 
 # ========================================================
 # FIGURA 1
-# MAPAS DE LOS DOS DISTRITOS
-#
-# Cada distrito tiene SU PROPIA escala:
-#   0 -> máximo de ese distrito
+# MAPAS DE LOS DOS DISTRITOS (2D, igual que antes)
 # ========================================================
 
 fig, axes = plt.subplots(
@@ -1179,10 +1247,6 @@ for ax, study_case in zip(
         study_case
     ]
 
-    # ----------------------------------------------------
-    # MÁXIMO PROPIO DEL DISTRITO
-    # ----------------------------------------------------
-
     vals_pos = grid_gdf.loc[
         grid_gdf["kWh_total"] > 0,
         "kWh_total"
@@ -1198,10 +1262,6 @@ for ax, study_case in zip(
         f"máximo celda: {district_max:,.2f} kWh"
     )
 
-    # ----------------------------------------------------
-    # GRADIENTE PROPIO
-    # ----------------------------------------------------
-
     COLOR_ZERO = hex_to_rgb01(
         "#ffffff"
     )
@@ -1210,7 +1270,7 @@ for ax, study_case in zip(
         district_color
     )
 
-    def color_from_value(v):
+    def color_from_value(v, dmax=district_max):
 
         if (
             v is None
@@ -1219,9 +1279,7 @@ for ax, study_case in zip(
         ):
             return COLOR_ZERO
 
-        # IMPORTANTE:
-        # usamos el máximo de ESTE distrito
-        t = v / district_max
+        t = v / dmax
 
         return lerp_rgb(
             COLOR_ZERO,
@@ -1234,10 +1292,6 @@ for ax, study_case in zip(
         .apply(color_from_value)
     )
 
-    # ----------------------------------------------------
-    # MALLA
-    # ----------------------------------------------------
-
     grid_gdf.plot(
         ax=ax,
         color=grid_gdf[
@@ -1248,20 +1302,12 @@ for ax, study_case in zip(
         zorder=2,
     )
 
-    # ----------------------------------------------------
-    # BOUNDARY
-    # ----------------------------------------------------
-
     boundary_gdf_m.boundary.plot(
         ax=ax,
         color=district_color,
         linewidth=1.8,
         zorder=5,
     )
-
-    # ----------------------------------------------------
-    # POIs
-    # ----------------------------------------------------
 
     boundary_geometry = (
         boundary_gdf_m
@@ -1286,10 +1332,6 @@ for ax, study_case in zip(
         zorder=6,
     )
 
-    # ----------------------------------------------------
-    # TÍTULO
-    # ----------------------------------------------------
-
     total_kwh = result[
         "total_kwh"
     ]
@@ -1304,10 +1346,6 @@ for ax, study_case in zip(
 
     ax.set_aspect("equal")
     ax.set_axis_off()
-
-    # ----------------------------------------------------
-    # COLORBAR PROPIO DEL DISTRITO
-    # ----------------------------------------------------
 
     cmap = (
         mpl.colors
@@ -1343,10 +1381,6 @@ for ax, study_case in zip(
         fontsize=9
     )
 
-    # ----------------------------------------------------
-    # TICKS ADAPTADOS AL DISTRITO
-    # ----------------------------------------------------
-
     cbar.set_ticks([
         0,
         district_max / 2,
@@ -1363,6 +1397,139 @@ for ax, study_case in zip(
 plt.suptitle(
     "Consumo de vehículos eléctricos — "
     "escenarios s01–s10",
+    fontsize=16,
+    fontweight="bold"
+)
+
+plt.tight_layout()
+
+plt.show()
+
+
+# ========================================================
+# FIGURA 1-3D
+# MISMA MALLA EN 3D:
+#   altura (Z)  -> número de viviendas por celda
+#   color       -> kWh por celda (mismo degradado que Figura 1)
+# ========================================================
+
+fig3d = plt.figure(figsize=(18, 8))
+
+for i, study_case in enumerate(study_cases):
+
+    result = results[study_case]
+
+    grid_gdf = result["grid"]
+    district_color = DISTRICT_COLORS[study_case]
+
+    ax = fig3d.add_subplot(
+        1, 2, i + 1,
+        projection="3d"
+    )
+
+    # Máximo de kWh de ESTE distrito (misma lógica que Figura 1)
+    vals_pos = grid_gdf.loc[
+        grid_gdf["kWh_total"] > 0,
+        "kWh_total"
+    ].to_numpy()
+
+    district_max = (
+        float(vals_pos.max())
+        if len(vals_pos) > 0
+        else 1.0
+    )
+
+    COLOR_ZERO = hex_to_rgb01("#ffffff")
+    COLOR_MAX = hex_to_rgb01(district_color)
+
+    def color_from_value_3d(v, dmax=district_max):
+
+        if v is None or not np.isfinite(v) or v <= 0:
+            return COLOR_ZERO
+
+        t = v / dmax
+
+        return lerp_rgb(COLOR_ZERO, COLOR_MAX, t)
+
+    # Centroides de cada celda (posición en el plano XY)
+    centroids = grid_gdf.geometry.centroid
+
+    xs = centroids.x.to_numpy()
+    ys = centroids.y.to_numpy()
+    zs = np.zeros_like(xs)
+
+    dz = grid_gdf["num_viviendas"].to_numpy(dtype=float)
+
+    # Barras algo más pequeñas que la celda, para ver huecos
+    bar_size = CELL_SIZE * 0.85
+
+    dx = np.full_like(xs, bar_size)
+    dy = np.full_like(ys, bar_size)
+
+    colors = [
+        color_from_value_3d(v)
+        for v in grid_gdf["kWh_total"]
+    ]
+
+    # Solo dibujamos celdas con al menos 1 vivienda
+    mask = dz > 0
+
+    ax.bar3d(
+        xs[mask] - dx[mask] / 2,
+        ys[mask] - dy[mask] / 2,
+        zs[mask],
+        dx[mask],
+        dy[mask],
+        dz[mask],
+        color=[c for c, m in zip(colors, mask) if m],
+        shade=True,
+        edgecolor="#999999",
+        linewidth=0.15,
+    )
+
+    ax.set_title(
+        f"{study_case}\n"
+        f"altura = nº viviendas · color = kWh",
+        fontsize=12,
+        fontweight="bold"
+    )
+
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_zlabel("Nº viviendas")
+
+    ax.view_init(elev=35, azim=-60)
+
+    # Colorbar (misma escala de kWh que Figura 1)
+    cmap = (
+        mpl.colors
+        .LinearSegmentedColormap
+        .from_list(
+            f"gradient3d_{study_case}",
+            ["#ffffff", district_color]
+        )
+    )
+
+    sm = mpl.cm.ScalarMappable(
+        cmap=cmap,
+        norm=mpl.colors.Normalize(vmin=0, vmax=district_max)
+    )
+
+    sm.set_array([])
+
+    cbar = fig3d.colorbar(
+        sm,
+        ax=ax,
+        fraction=0.04,
+        pad=0.08,
+        shrink=0.6
+    )
+
+    cbar.set_label("kWh por celda", fontsize=9)
+
+
+plt.suptitle(
+    "Densidad de viviendas (altura) y consumo eléctrico (color) por celda",
     fontsize=16,
     fontweight="bold"
 )
@@ -1425,10 +1592,6 @@ for ax, study_case in zip(
         ]
     )
 
-    # ----------------------------------------------------
-    # ARISTAS
-    # ----------------------------------------------------
-
     for child, p in parent.items():
 
         if p is None:
@@ -1475,10 +1638,6 @@ for ax, study_case in zip(
             alpha=0.75,
         )
 
-    # ----------------------------------------------------
-    # NODOS
-    # ----------------------------------------------------
-
     xs = [
         dist_from_root[n]
         for n
@@ -1513,10 +1672,6 @@ for ax, study_case in zip(
 
         zorder=3,
     )
-
-    # ----------------------------------------------------
-    # ETIQUETAS
-    # ----------------------------------------------------
 
     texts = []
 
@@ -1571,10 +1726,6 @@ for ax, study_case in zip(
         )
 
         texts.append(t)
-
-    # ----------------------------------------------------
-    # AJUSTE DE ETIQUETAS
-    # ----------------------------------------------------
 
     plt.figure
 
@@ -1764,7 +1915,6 @@ for ax, study_case in zip(
 
                 moved = True
 
-        # Volver ligeramente hacia la posición original
         for i in range(
             len(texts)
         ):
@@ -1786,7 +1936,6 @@ for ax, study_case in zip(
         if not moved:
             break
 
-    # Aplicar posiciones finales
     for i, t in enumerate(
         texts
     ):
@@ -1805,10 +1954,6 @@ for ax, study_case in zip(
                 y_data
             )
         )
-
-    # ----------------------------------------------------
-    # FORMATO
-    # ----------------------------------------------------
 
     ax.set_title(
 

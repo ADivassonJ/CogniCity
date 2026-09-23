@@ -39,11 +39,11 @@ zone_colors = {
 # RUTAS — WP3 TRUE (nuevo) y WP3 FALSE (baseline/original)
 # ==========================================
 
-BASE_PATH_TRUE  = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results (wp3 true)"
+BASE_PATH_TRUE  = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results"
 BASE_PATH_FALSE = r"C:\Users\asier.divasson\Documents\GitHub\CogniCity\results (wp3 false)"
 
-S_FOLDERS = [f"s{i}" for i in range(5)]
-SCENARIOS = ["Annelinn", "Aradas", "Kanaleneiland"]
+S_FOLDERS = ["s01", "s02", "s03", "s04", "s05"]
+SCENARIOS = ["Kanaleneiland"]
 
 # ==========================================
 # CARGA DE DATOS
